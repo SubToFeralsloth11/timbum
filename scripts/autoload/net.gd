@@ -6,7 +6,7 @@ signal status(text: String)
 signal players_changed
 
 const DEFAULT_PORT := 7777
-const PROTOCOL_VERSION := 1
+const PROTOCOL_VERSION := 2
 const CONNECT_TIMEOUT := 8.0
 const WORLD_SCENE := "res://scenes/world.tscn"
 const MENU_SCENE := "res://scenes/main_menu.tscn"
@@ -34,6 +34,9 @@ var offline := false
 
 ## Maps left in the current shuffled rotation.
 var _rotation: Array[String] = []
+## Server: the next match ({map, mutator, time_of_day}), decided when a match ends so the results
+## screen can announce it; empty while a match is in progress.
+var _next_match := {}
 var _connect_timer: SceneTreeTimer
 ## Set when we leave on purpose so the disconnect handler stays quiet.
 var _leaving := false
@@ -115,6 +118,7 @@ func _start_server(cfg: Dictionary) -> void:
 	players = {1: Profile.peer_info()}
 	players_changed.emit()
 	_rotation.clear()
+	_next_match = {}
 	load_map(_pick_next_map())
 
 
@@ -146,37 +150,80 @@ func _pick_next_map() -> String:
 	return _rotation.pop_front()
 
 
-## Picks this match's mutator (roughly half the matches are classic; never the same mutator
-## twice in a row) and lighting.
-func _roll_match_variety() -> void:
-	var previous: String = config.mutator
-	config.mutator = "none"
+## Picks a match's mutator (roughly half the matches are classic; never the same mutator twice
+## in a row) and lighting: {mutator, time_of_day}.
+func _roll_match_variety(previous: String) -> Dictionary:
+	var mutator := "none"
 	if config.mutators and (previous != "none" or randf() < 0.6):
 		var options: Array = Data.MUTATORS.keys()
 		options.erase("none")
 		options.erase(previous)
 		if previous == "none" or randf() < 0.5:
-			config.mutator = options.pick_random()
-	config.time_of_day = Data.TIMES_OF_DAY.pick_random()
+			mutator = options.pick_random()
+	return {"mutator": mutator, "time_of_day": Data.TIMES_OF_DAY.pick_random()}
 
 
 # ---------------------------------------------------------------- server: map flow
 
-## Server only: send every peer (including us) into a fresh match on map_id.
-func load_map(map_id: String) -> void:
+## Server only: send every peer (including us) into a fresh match on map_id. `variety` is the
+## {mutator, time_of_day} already announced for it; empty rolls a fresh one.
+func load_map(map_id: String, variety := {}) -> void:
 	assert(multiplayer.is_server())
 	current_map = map_id
-	_roll_match_variety()
+	if variety.is_empty():
+		variety = _roll_match_variety(config.mutator)
+	config.mutator = variety.mutator
+	config.time_of_day = variety.time_of_day
+	_next_match = {}
 	for id: int in players:
 		if id != 1:
 			_rpc_load_match.rpc_id(id, map_id, config)
 	get_tree().change_scene_to_file.call_deferred(WORLD_SCENE)
 
 
-## Server only: called by the World when a match has ended and the results delay is over.
+## Server only: decides (once per match) which map, mutator and lighting come next, so the
+## results screen can show it. next_match() then plays exactly this.
+func plan_next_match() -> Dictionary:
+	if _next_match.is_empty():
+		var variety := _roll_match_variety(config.mutator)
+		_next_match = {"map": _pick_next_map(), "mutator": variety.mutator, "time_of_day": variety.time_of_day}
+	return _next_match
+
+
+## Server only: called by the World when a match has ended and the results delay is over (or
+## the players voted to skip it).
 func next_match() -> void:
 	if multiplayer.is_server():
-		load_map(_pick_next_map())
+		var plan := plan_next_match()
+		load_map(plan.map, plan)
+
+
+## Sends this player's current Profile.peer_info() (loadout and cosmetics changed between
+## matches) to the server; it takes effect from their next spawn in the next match.
+func update_my_info() -> void:
+	if players.is_empty():
+		return
+	if multiplayer.is_server():
+		_apply_info(1, Profile.peer_info())
+	else:
+		_rpc_update_info.rpc_id(1, Profile.peer_info())
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_update_info(info: Dictionary) -> void:
+	if multiplayer.is_server():
+		_apply_info(multiplayer.get_remote_sender_id(), info)
+
+
+## Server: replaces a registered peer's info, keeping the (already unique) name it joined with.
+func _apply_info(id: int, info: Dictionary) -> void:
+	if not players.has(id):
+		return
+	var clean := sanitize_info(info)
+	clean.name = players[id].name
+	players[id] = clean
+	_rpc_sync_players.rpc(players)
+	players_changed.emit()
 
 
 @rpc("authority", "call_remote", "reliable")

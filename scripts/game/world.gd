@@ -34,6 +34,8 @@ var time_left := 0.0
 ## entity id -> {name, kills, deaths, headshots, streak, best_streak, bot}
 var scores := {}
 var results: Array = []
+## The next match the results screen announces: {map, mutator, time_of_day}.
+var next_up: Dictionary = {}
 
 var _entities_root: Node3D
 var _shake := 0.0
@@ -43,6 +45,9 @@ var _my_streak := 0
 
 # Server-only state.
 var _ready_peers := {}
+## Peers who voted to skip the rest of the results screen.
+var _skip_votes := {}
+var _advancing := false
 var _respawn_at := {}
 ## Shooter key ("<entity>" for guns, "<entity>:knife") -> [debt seconds, time]; see _take_fire_token.
 var _fire_tokens := {}
@@ -542,13 +547,40 @@ func _server_end_match() -> void:
 			"headshots": s.headshots, "best_streak": s.best_streak, "bot": s.bot, "level": s.level})
 	rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 		return a.kills > b.kills if a.kills != b.kills else a.deaths < b.deaths)
-	_broadcast(&"_s_match_end", [rows])
-	get_tree().create_timer(RESULTS_TIME).timeout.connect(_on_results_timeout)
+	_broadcast(&"_s_match_end", [rows, Net.plan_next_match()])
+	get_tree().create_timer(RESULTS_TIME).timeout.connect(_server_advance)
 
 
-func _on_results_timeout() -> void:
-	if is_inside_tree() and multiplayer.is_server():
+## Moves everyone to the next match, once: when the results delay runs out or a skip vote passes.
+func _server_advance() -> void:
+	if is_inside_tree() and multiplayer.is_server() and not _advancing:
+		_advancing = true
 		Net.next_match()
+
+
+## Skip-vote threshold: a majority of the humans in the session.
+static func skip_votes_needed(humans: int) -> int:
+	return humans / 2 + 1
+
+
+func _server_vote_skip(pid: int) -> void:
+	if not match_over or not Net.players.has(pid):
+		return
+	_skip_votes[pid] = true
+	_server_tally_skip()
+
+
+## Tells everyone the skip-vote count (players can join mid-results, raising the bar) and
+## advances once a majority agrees.
+func _server_tally_skip() -> void:
+	var votes := 0
+	for id: int in _skip_votes:
+		if Net.players.has(id):
+			votes += 1
+	var needed := skip_votes_needed(Net.players.size())
+	_broadcast(&"_s_skip_votes", [votes, needed])
+	if votes >= needed:
+		_server_advance()
 
 
 func _server_chat_system(text: String) -> void:
@@ -589,6 +621,14 @@ func send_chat(text: String) -> void:
 		_server_chat(my_id(), text)
 	else:
 		_c_chat.rpc_id(1, text)
+
+
+## Results screen: this player votes to start the next match now.
+func vote_skip() -> void:
+	if multiplayer.is_server():
+		_server_vote_skip(my_id())
+	else:
+		_c_vote_skip.rpc_id(1)
 
 
 func _server_chat(sender: int, text: String) -> void:
@@ -647,7 +687,8 @@ func _c_ready() -> void:
 		if not pickup_nodes[i].active:
 			_s_pickup_state.rpc_id(pid, i, false, _pickup_ready_at[i] - now())
 	if match_over:
-		_s_match_end.rpc_id(pid, results)
+		_s_match_end.rpc_id(pid, results, next_up)
+		_server_tally_skip()
 		return
 	_server_add_entity(pid, Net.players[pid], false)
 	_server_chat_system("%s joined the game" % Net.players[pid].name)
@@ -682,6 +723,12 @@ func _c_projectile(kind: String, origin: Vector3, vel: Vector3) -> void:
 func _c_chat(text: String) -> void:
 	if multiplayer.is_server():
 		_server_chat(multiplayer.get_remote_sender_id(), text)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _c_vote_skip() -> void:
+	if multiplayer.is_server():
+		_server_vote_skip(multiplayer.get_remote_sender_id())
 
 
 # ================================================================ RPC: server -> peers
@@ -888,9 +935,10 @@ func _s_chat(sender_name: String, text: String) -> void:
 
 
 @rpc("authority", "call_remote", "reliable")
-func _s_match_end(rows: Array) -> void:
+func _s_match_end(rows: Array, next: Dictionary) -> void:
 	match_over = true
 	results = rows
+	next_up = next
 	var me := my_id()
 	var placement := 0
 	var mine: Dictionary = {}
@@ -907,7 +955,12 @@ func _s_match_end(rows: Array) -> void:
 		})
 	Sfx.play(&"match_end")
 	Sfx.play_music(&"results")
-	hud.show_results(rows, placement, rewards, RESULTS_TIME)
+	hud.show_results(rows, placement, rewards, RESULTS_TIME, next)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _s_skip_votes(votes: int, needed: int) -> void:
+	hud.set_skip_votes(votes, needed)
 
 
 # ================================================================ helpers

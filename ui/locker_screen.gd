@@ -95,7 +95,8 @@ func on_shown() -> void:
 	_rebuild_models()
 
 
-func _owned_ids(category: String, slot: String) -> Array[String]:
+## Owned item ids in `category`; for weapons, only those that go in loadout `slot`.
+static func owned_ids(category: String, slot: String) -> Array[String]:
 	var ids: Array[String] = []
 	for id: String in Data.catalog(category):
 		if category == "weapons" and Data.WEAPONS[id].slot != slot:
@@ -116,7 +117,7 @@ func _fill_pickers() -> void:
 		var key: String = row[2]
 		var o: OptionButton = _pickers[key]
 		o.clear()
-		var ids := _owned_ids(row[0], key)
+		var ids := owned_ids(row[0], key)
 		for id in ids:
 			o.add_item(String(Data.catalog(row[0])[id].name))
 			o.set_item_metadata(o.item_count - 1, id)

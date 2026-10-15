@@ -7,8 +7,9 @@ const KILLFEED_MAX := 6
 const KILLFEED_LIFE := 6.0
 const CHAT_LIFE := 10.0
 const CHAT_MAX := 8
-## Results-table rows shown before it scrolls (a full lobby would push the panel off a 720p screen).
-const RESULTS_VISIBLE_ROWS := 9
+## Results-table rows shown before it scrolls (a full lobby plus the highlights, rewards and the
+## next-match strip would push the panel off a 720p screen).
+const RESULTS_VISIBLE_ROWS := 6
 
 var world: World
 
@@ -47,6 +48,11 @@ var _results_title: Label
 var _results_rewards: GridContainer
 var _results_highlights: VBoxContainer
 var _results_timer: Label
+var _results_next: Label
+var _results_next_desc: Label
+var _results_skip: Button
+## Results-screen loadout pickers, keyed by weapon slot ("primary", "secondary").
+var _results_pickers := {}
 var _pause: PauseMenu
 var _fps_label: Label
 
@@ -410,12 +416,48 @@ func _build_results() -> void:
 	_results_rewards.add_theme_constant_override("h_separation", 18)
 	_results_rewards.add_theme_constant_override("v_separation", 2)
 	extras.add_child(_results_rewards)
+	# The next match (announced now so nobody is surprised by it) beside a loadout swap for it.
+	var prep := HBoxContainer.new()
+	prep.add_theme_constant_override("separation", 30)
+	v.add_child(HSeparator.new())
+	v.add_child(prep)
+	var next_box := VBoxContainer.new()
+	next_box.add_theme_constant_override("separation", 2)
+	next_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	prep.add_child(next_box)
+	next_box.add_child(_label("NEXT UP", 16, Color(0.7, 0.75, 0.85)))
+	_results_next = _label("", 22, Color(0.6, 0.9, 1.0))
+	next_box.add_child(_results_next)
+	_results_next_desc = _label("", 16, Color(0.85, 0.85, 0.9))
+	_results_next_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_results_next_desc.custom_minimum_size.x = 300
+	next_box.add_child(_results_next_desc)
+	var loadout := GridContainer.new()
+	loadout.columns = 2
+	loadout.add_theme_constant_override("h_separation", 12)
+	loadout.add_theme_constant_override("v_separation", 6)
+	prep.add_child(loadout)
+	for slot: String in ["primary", "secondary"]:
+		loadout.add_child(_label(slot.to_upper(), 16, Color(0.7, 0.75, 0.85)))
+		var o := OptionButton.new()
+		o.custom_minimum_size.x = 200
+		o.fit_to_longest_item = false
+		o.item_selected.connect(func(idx: int) -> void: _on_results_pick(slot, idx))
+		loadout.add_child(o)
+		_results_pickers[slot] = o
 	var footer := HBoxContainer.new()
 	footer.add_theme_constant_override("separation", 24)
 	footer.alignment = BoxContainer.ALIGNMENT_CENTER
 	v.add_child(footer)
 	_results_timer = _label("", 18, Color(0.8, 0.8, 0.85))
 	footer.add_child(_results_timer)
+	_results_skip = Button.new()
+	_results_skip.custom_minimum_size = Vector2(220, 44)
+	footer.add_child(_results_skip)
+	_results_skip.pressed.connect(func() -> void:
+		Sfx.play(&"ui_click")
+		_results_skip.disabled = true
+		world.vote_skip())
 	var leave := Button.new()
 	leave.text = "Leave to Menu"
 	leave.custom_minimum_size = Vector2(220, 44)
@@ -775,7 +817,7 @@ func add_chat(sender: String, text: String) -> void:
 		old.queue_free()
 
 
-func show_results(rows: Array, placement: int, rewards: Dictionary, wait: float) -> void:
+func show_results(rows: Array, placement: int, rewards: Dictionary, wait: float, next: Dictionary) -> void:
 	_close_pause()
 	_close_chat()
 	_death_panel.visible = false
@@ -800,7 +842,50 @@ func show_results(rows: Array, placement: int, rewards: Dictionary, wait: float)
 			_results_scroll.get_v_scroll_bar().changed.connect(func() -> void: _results_scroll.scroll_vertical = target, CONNECT_ONE_SHOT)
 	_fill_highlights(rows)
 	_fill_rewards(rewards)
+	_fill_next(next)
+	_fill_results_loadout()
+	_results_skip.disabled = false
+	_results_skip.text = "Start Next Match"
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+
+## Map, mutator and time of day of the coming match, with what the mutator does.
+func _fill_next(next: Dictionary) -> void:
+	if next.is_empty():
+		_results_next.text = ""
+		_results_next_desc.text = ""
+		return
+	var mut: Dictionary = Data.MUTATORS.get(str(next.mutator), Data.MUTATORS.none)
+	_results_next.text = "%s  ·  %s  ·  %s" % [str(Data.MAPS[next.map].name).to_upper(),
+		str(mut.name).to_upper(), str(next.time_of_day).to_upper()]
+	_results_next_desc.text = str(mut.desc)
+
+
+func _fill_results_loadout() -> void:
+	for slot: String in _results_pickers:
+		var o: OptionButton = _results_pickers[slot]
+		o.clear()
+		var ids := LockerScreen.owned_ids("weapons", slot)
+		for id in ids:
+			o.add_item(str(Data.WEAPONS[id].name))
+			o.set_item_metadata(o.item_count - 1, id)
+		o.select(ids.find(Profile.loadout[slot]))
+		o.disabled = ids.size() < 2
+
+
+## A loadout change on the results screen is saved to the profile and sent to the server, so it
+## applies from the first spawn of the next match.
+func _on_results_pick(slot: String, idx: int) -> void:
+	var id: String = _results_pickers[slot].get_item_metadata(idx)
+	if id != Profile.loadout[slot] and Profile.equip("weapons", id):
+		Sfx.play(&"weapon_switch")
+		Net.update_my_info()
+
+
+## Skip-vote progress from the server: "Waiting (1/2)" once this player has voted.
+func set_skip_votes(votes: int, needed: int) -> void:
+	var label := "Waiting" if _results_skip.disabled else "Start Next Match"
+	_results_skip.text = "%s (%d/%d)" % [label, votes, needed]
 
 
 ## Best streak, most headshots and fewest deaths of the match; ties go to the higher finisher.
