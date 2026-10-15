@@ -121,6 +121,8 @@ var _stand_query: PhysicsShapeQueryParameters3D
 var gravity_scale := 1.0
 var speed_scale := 1.0
 var _head_hit_y := 1.56
+## REMOTE: seconds the reload flag has stayed on with no reload pose playing.
+var _reload_gap := 0.0
 
 
 func setup(p_world: World, p_id: int, p_info: Dictionary, p_mode: Mode, p_is_bot: bool) -> void:
@@ -787,7 +789,7 @@ func _interpolate() -> void:
 	var replay: bool = reload_w.get("reload_per_shell", false) and _reload_gap > 0.15
 	if now_reloading and (not was_reloading or replay):
 		_reload_gap = 0.0
-		# Starts the pose; shotguns replay it shell by shell while they keep loading.
+		# Starts the pose (and each shotgun shell's replay).
 		avatar.play_reload(float(reload_w.reload))
 	elif was_reloading and not now_reloading:
 		avatar.stop_reload()
