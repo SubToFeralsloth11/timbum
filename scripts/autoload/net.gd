@@ -194,6 +194,7 @@ static func sanitize_info(info: Dictionary) -> Dictionary:
 		"skin": str(info.get("skin", "default")),
 		"primary": str(info.get("primary", "smg")),
 		"secondary": str(info.get("secondary", "pistol")),
+		"level": clampi(int(info.get("level", 1)), 1, 9999),
 	}
 	if clean.name.is_empty():
 		clean.name = "Player"

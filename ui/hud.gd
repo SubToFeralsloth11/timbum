@@ -52,6 +52,9 @@ var _kill_label_t := 0.0
 var _announce_t := 0.0
 var _pickup_t := 0.0
 var _scores_dirty := true
+## Floating damage numbers: [Label, world position, age]
+var _damage_numbers: Array = []
+const DAMAGE_NUMBER_LIFE := 0.8
 
 
 func setup(p_world: World) -> void:
@@ -98,6 +101,9 @@ func _ready() -> void:
 	_fps_label = _label("", 16)
 	_fps_label.position = Vector2(10, 8)
 	_root.add_child(_fps_label)
+
+	if int(Profile.stats.matches) < 3:
+		_show_controls_hint()
 
 	_pause = PauseMenu.new()
 	_pause.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -391,6 +397,7 @@ func _make_vignette() -> Texture2D:
 
 func _process(delta: float) -> void:
 	var p := world.local_player
+	_update_damage_numbers(delta)
 	var scoreboard_held := Input.is_action_pressed("scoreboard") and not _chat_input.visible and not _pause.visible
 	_scoreboard.visible = scoreboard_held and not _results.visible
 	if _scoreboard.visible and _scores_dirty:
@@ -503,7 +510,7 @@ func _sorted_rows() -> Array:
 	var rows: Array = []
 	for eid: int in world.scores:
 		var s: Dictionary = world.scores[eid]
-		rows.append({"id": eid, "name": s.name, "kills": s.kills, "deaths": s.deaths, "headshots": s.headshots, "bot": s.bot})
+		rows.append({"id": eid, "name": s.name, "level": s.get("level", 1), "kills": s.kills, "deaths": s.deaths, "headshots": s.headshots, "bot": s.bot})
 	rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 		return a.kills > b.kills if a.kills != b.kills else a.deaths < b.deaths)
 	return rows
@@ -515,7 +522,7 @@ func _fill_rows(container: VBoxContainer, rows: Array) -> void:
 	var me := world.my_id()
 	for i in rows.size():
 		var r: Dictionary = rows[i]
-		var player_name := str(r.name) + ("  [BOT]" if r.bot else "")
+		var player_name := "%s  Lv %d%s" % [r.name, int(r.get("level", 1)), "  [BOT]" if r.bot else ""]
 		var mine := int(r.id) == me
 		container.add_child(_score_row([i + 1, player_name, r.kills, r.deaths, r.headshots],
 			Color(1, 0.95, 0.8) if mine else Color.WHITE, mine))
@@ -524,6 +531,53 @@ func _fill_rows(container: VBoxContainer, rows: Array) -> void:
 func show_damage(from_pos: Vector3) -> void:
 	_vignette_alpha = minf(_vignette_alpha + 0.45, 0.8)
 	_damage_ring.add_hit(from_pos)
+
+
+func damage_number(pos: Vector3, amount: float, head: bool) -> void:
+	if amount < 0.5:
+		return
+	var l := _label(str(roundi(amount)), 26 if head else 21, Color(1, 0.8, 0.2) if head else Color.WHITE)
+	_root.add_child(l)
+	_damage_numbers.append([l, pos + Vector3(randf_range(-0.3, 0.3), 0.0, randf_range(-0.3, 0.3)), 0.0])
+	if _damage_numbers.size() > 12:
+		var old: Array = _damage_numbers.pop_front()
+		(old[0] as Label).queue_free()
+
+
+func _update_damage_numbers(delta: float) -> void:
+	if _damage_numbers.is_empty():
+		return
+	var cam := get_viewport().get_camera_3d()
+	for i in range(_damage_numbers.size() - 1, -1, -1):
+		var entry: Array = _damage_numbers[i]
+		var l: Label = entry[0]
+		entry[2] += delta
+		var pos: Vector3 = entry[1] + Vector3.UP * entry[2] * 0.9
+		if entry[2] > DAMAGE_NUMBER_LIFE or cam == null:
+			l.queue_free()
+			_damage_numbers.remove_at(i)
+			continue
+		l.visible = not cam.is_position_behind(pos)
+		l.position = cam.unproject_position(pos) - l.size * 0.5
+		l.modulate.a = clampf((DAMAGE_NUMBER_LIFE - entry[2]) / 0.3, 0.0, 1.0)
+
+
+func _show_controls_hint() -> void:
+	var panel := _panel(0.6)
+	panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER_LEFT)
+	panel.grow_vertical = Control.GROW_DIRECTION_BOTH
+	panel.position.x = 18
+	_root.add_child(panel)
+	var v := VBoxContainer.new()
+	panel.add_child(v)
+	v.add_child(_label("CONTROLS", 18, Color(1, 0.85, 0.4)))
+	for line in ["WASD  move", "Shift  sprint   Ctrl  crouch", "Right mouse  aim", "R  reload   G  grenade",
+			"V  quick melee   1/2/3  weapons", "Tab  scores   T  chat   Esc  menu"]:
+		v.add_child(_label(line, 15))
+	var tw := create_tween()
+	tw.tween_interval(10.0)
+	tw.tween_property(panel, "modulate:a", 0.0, 1.0)
+	tw.tween_callback(panel.queue_free)
 
 
 func show_hitmarker(head: bool, killed: bool) -> void:

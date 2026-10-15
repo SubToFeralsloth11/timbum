@@ -192,7 +192,7 @@ func _ready() -> void:
 		camera.add_child(viewmodel)
 	else:
 		nametag = Label3D.new()
-		nametag.text = str(info.name)
+		nametag.text = "%s  Lv %d" % [info.name, int(info.get("level", 1))]
 		nametag.position.y = 2.15
 		nametag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 		nametag.pixel_size = 0.004

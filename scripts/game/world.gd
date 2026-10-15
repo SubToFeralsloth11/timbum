@@ -201,7 +201,8 @@ func _server_send_snapshots() -> void:
 
 func _server_add_entity(eid: int, info: Dictionary, is_bot: bool) -> void:
 	var spawn := _pick_spawn(eid)
-	scores[eid] = {"name": str(info.name), "kills": 0, "deaths": 0, "headshots": 0, "streak": 0, "best_streak": 0, "bot": is_bot}
+	scores[eid] = {"name": str(info.name), "level": int(info.get("level", 1)), "kills": 0, "deaths": 0,
+		"headshots": 0, "streak": 0, "best_streak": 0, "bot": is_bot}
 	_spawned_at[eid] = now()
 	_grenades[eid] = int(Data.GRENADE.per_life)
 	_broadcast(&"_s_spawn_entity", [eid, info, is_bot, spawn[0], spawn[1], Data.MAX_HEALTH, true])
@@ -250,6 +251,7 @@ func _make_bot_info() -> Dictionary:
 		"skin": Data.SKINS.keys().pick_random(),
 		"primary": primaries.pick_random(),
 		"secondary": secondaries.pick_random(),
+		"level": randi_range(1, 30),
 	}
 
 
@@ -335,14 +337,16 @@ func _server_damage(target: Player, amount: float, attacker_id: int, wid: String
 	if attacker_id != target.id and now() - float(_spawned_at.get(target.id, -100.0)) < SPAWN_PROTECTION:
 		return
 	var hp := maxf(0.0, target.health - amount)
+	var dealt := target.health - hp
 	_last_damage[target.id] = now()
 	_broadcast(&"_s_damaged", [target.id, hp, attacker_id, from_pos])
 	var killed := hp <= 0.0
 	if attacker_id != target.id:
+		var label_pos := target.global_position + Vector3.UP * 2.0
 		if attacker_id == my_id():
-			_s_hit_confirm(head, killed)
+			_s_hit_confirm(head, killed, dealt, label_pos)
 		elif _ready_peers.has(attacker_id):
-			_s_hit_confirm.rpc_id(attacker_id, head, killed)
+			_s_hit_confirm.rpc_id(attacker_id, head, killed, dealt, label_pos)
 	if killed:
 		_server_kill(target.id, attacker_id, wid, head)
 
@@ -468,7 +472,7 @@ func _server_end_match() -> void:
 	for eid: int in scores:
 		var s: Dictionary = scores[eid]
 		rows.append({"id": eid, "name": s.name, "kills": s.kills, "deaths": s.deaths,
-			"headshots": s.headshots, "best_streak": s.best_streak, "bot": s.bot})
+			"headshots": s.headshots, "best_streak": s.best_streak, "bot": s.bot, "level": s.level})
 	rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 		return a.kills > b.kills if a.kills != b.kills else a.deaths < b.deaths)
 	_broadcast(&"_s_match_end", [rows])
@@ -692,8 +696,9 @@ func _s_health(eid: int, hp: float) -> void:
 
 
 @rpc("authority", "call_remote", "reliable")
-func _s_hit_confirm(head: bool, killed: bool) -> void:
+func _s_hit_confirm(head: bool, killed: bool, amount: float, pos: Vector3) -> void:
 	hud.show_hitmarker(head, killed)
+	hud.damage_number(pos, amount, head)
 	Sfx.play(&"headshot" if head else &"hit_marker", null, -2.0)
 
 

@@ -122,6 +122,7 @@ func peer_info() -> Dictionary:
 		"skin": equipped.skin,
 		"primary": loadout.primary,
 		"secondary": loadout.secondary,
+		"level": level,
 	}
 
 
