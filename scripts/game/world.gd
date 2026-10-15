@@ -301,9 +301,14 @@ func _pick_spawn(for_id: int) -> Array:
 				var q := PhysicsRayQueryParameters3D.create(s + Vector3.UP * 1.6, p.global_position + Vector3.UP * 1.6, Player.MASK_WORLD)
 				seen = space.intersect_ray(q).is_empty()
 		# Visible spawns rank below every hidden one.
-		ranked.append([nearest - (1e8 if seen else 0.0), s])
+		ranked.append([nearest - (1e8 if seen else 0.0), s, seen, nearest])
 	ranked.sort_custom(func(a: Array, b: Array) -> bool: return a[0] > b[0])
-	var pick: Vector3 = ranked[randi() % mini(3, ranked.size())][1]
+	# Vary among the best three, but never trade the best spawn for one an enemy can see (when the
+	# best is hidden) or one within 5 m of a living player.
+	var pool := 1
+	while pool < mini(3, ranked.size()) and ranked[pool][2] == ranked[0][2] and float(ranked[pool][3]) >= 25.0:
+		pool += 1
+	var pick: Vector3 = ranked[randi() % pool][1]
 	var to_center := map_info.bounds.get_center() - pick
 	return [pick, atan2(-to_center.x, -to_center.z)]
 
