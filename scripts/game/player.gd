@@ -450,11 +450,18 @@ func _tick_weapon(delta: float) -> void:
 			switch_to(wanted)
 	if switch_timer > 0.0 or melee_timer > 0.0:
 		return
+	# A grenade pressed during the throw cooldown stays queued and goes as soon as it ends;
+	# pressing with none left says so instead of doing nothing.
 	if in_grenade:
-		in_grenade = false
-		if grenades > 0 and grenade_cooldown <= 0.0:
+		if grenades <= 0:
+			in_grenade = false
+			if mode == Mode.LOCAL:
+				Sfx.play(&"dry_fire", null, -6.0)
+				world.hud.pickup_message("no_grenades")
+		elif grenade_cooldown <= 0.0:
+			in_grenade = false
 			_throw_grenade()
-		return
+			return
 	if in_melee:
 		in_melee = false
 		_melee_attack(true)

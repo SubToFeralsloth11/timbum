@@ -654,10 +654,15 @@ func announce(text: String) -> void:
 
 
 func pickup_message(kind: String) -> void:
+	var color := Color(0.6, 1.0, 0.6)
 	match kind:
 		"health": _pickup_label.text = "+%d HEALTH" % int(World.HEALTH_PICKUP)
 		"ammo": _pickup_label.text = "+AMMO"
 		"grenade": _pickup_label.text = "+1 GRENADE"
+		"no_grenades":
+			_pickup_label.text = "NO GRENADES"
+			color = Color(1.0, 0.45, 0.4)
+	_pickup_label.add_theme_color_override("font_color", color)
 	_pickup_t = 1.6
 
 
