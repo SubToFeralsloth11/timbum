@@ -8,7 +8,7 @@ uniform float aspect = 1.777;
 void fragment() {
 	vec2 p = (UV - 0.5) * vec2(aspect, 1.0);
 	float d = length(p);
-	float lens = smoothstep(0.44, 0.435, d);
+	float lens = 1.0 - smoothstep(0.435, 0.44, d);
 	float rim = smoothstep(0.30, 0.44, d) * 0.35;
 	COLOR = vec4(0.0, 0.0, 0.0, mix(1.0, rim, lens));
 }
