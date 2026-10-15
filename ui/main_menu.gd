@@ -70,7 +70,7 @@ func _ready() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed(&"ui_cancel") and _current != _screens["home"]:
 		get_viewport().set_input_as_handled()
-		go("home")
+		(_current as MenuScreen).back_requested.emit()
 
 
 ## Switches to a screen by name, creating it on first use.
@@ -107,6 +107,34 @@ func go(screen_name: String) -> void:
 	if screen_name == "home":
 		_refresh_profile()
 		_play_button.grab_focus.call_deferred()
+	else:
+		_focus_screen.call_deferred(next)
+
+
+## Gives keyboard/controller users a starting point on a freshly shown screen, unless the
+## screen already focused something itself in `on_shown()`.
+func _focus_screen(screen: Control) -> void:
+	if screen != _current:
+		return
+	var owner_now := get_viewport().gui_get_focus_owner()
+	if owner_now != null and screen.is_ancestor_of(owner_now):
+		return
+	var first := _first_focusable(screen)
+	if first != null:
+		first.grab_focus()
+
+
+func _first_focusable(node: Node) -> Control:
+	for c in node.get_children():
+		var ctl := c as Control
+		if ctl == null or not ctl.visible:
+			continue
+		if ctl.focus_mode == Control.FOCUS_ALL:
+			return ctl
+		var found := _first_focusable(ctl)
+		if found != null:
+			return found
+	return null
 
 
 func _get_screen(screen_name: String) -> Control:
