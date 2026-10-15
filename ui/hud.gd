@@ -526,6 +526,7 @@ func _process(delta: float) -> void:
 
 	if p == null:
 		_crosshair.visible = false
+		_scope.visible = false
 		_protect_label.visible = false
 		return
 	var hp_frac := p.health / Data.MAX_HEALTH
@@ -570,7 +571,8 @@ func _process(delta: float) -> void:
 
 	var scoped: bool = w.get("scope", false) and p.aim_blend > 0.85 and p.alive
 	_scope.visible = scoped
-	_crosshair.visible = p.alive and not _results.visible and ((not scoped and p.aim_blend < 0.6) or wid == "knife")
+	_crosshair.visible = p.alive and not _results.visible
+	_crosshair.show_lines = (not scoped and p.aim_blend < 0.6) or wid == "knife"
 	_crosshair.spread = p.current_spread()
 	_crosshair.fov = p.camera.fov if p.camera != null else 85.0
 	_crosshair.color = _crosshair_color

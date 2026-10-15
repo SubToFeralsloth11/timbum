@@ -5,6 +5,8 @@ extends Control
 var spread := 1.0
 var fov := 85.0
 var color := Color.WHITE
+## False while aiming down sights: the lines and dot hide, but hitmarkers still draw.
+var show_lines := true
 var _hit_t := 0.0
 var _hit_color := Color.WHITE
 
@@ -26,6 +28,18 @@ func _process(delta: float) -> void:
 
 func _draw() -> void:
 	var c := size * 0.5
+	if show_lines:
+		_draw_lines(c)
+	if _hit_t > 0.0:
+		var k := clampf(_hit_t / 0.18, 0.0, 1.0)
+		var hc := _hit_color
+		hc.a = k
+		for d: Vector2 in [Vector2(1, 1), Vector2(-1, 1), Vector2(1, -1), Vector2(-1, -1)]:
+			var dn := d.normalized()
+			draw_line(c + dn * 8.0, c + dn * 18.0, hc, 3.0)
+
+
+func _draw_lines(c: Vector2) -> void:
 	var half_h := size.y * 0.5
 	var gap := tan(deg_to_rad(spread)) / tan(deg_to_rad(fov) * 0.5) * half_h + 4.0
 	gap = clampf(gap, 4.0, size.y * 0.25)
@@ -38,10 +52,3 @@ func _draw() -> void:
 		draw_line(a, b, color, 2.0)
 	draw_rect(Rect2(c - Vector2(1.5, 1.5), Vector2(3, 3)), shadow)
 	draw_rect(Rect2(c - Vector2(1, 1), Vector2(2, 2)), color)
-	if _hit_t > 0.0:
-		var k := clampf(_hit_t / 0.18, 0.0, 1.0)
-		var hc := _hit_color
-		hc.a = k
-		for d: Vector2 in [Vector2(1, 1), Vector2(-1, 1), Vector2(1, -1), Vector2(-1, -1)]:
-			var dn := d.normalized()
-			draw_line(c + dn * 8.0, c + dn * 18.0, hc, 3.0)
