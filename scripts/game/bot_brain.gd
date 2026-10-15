@@ -32,6 +32,12 @@ const HEARING_DISTANCE := 7.0
 const PRESSURE_PER_KILL := 0.025
 const PRESSURE_PER_STREAK := 0.04
 const PRESSURE_RANGE := Vector2(0.8, 1.2)
+## Target choice: a visible rival counts as this many metres closer per kill they lead this bot
+## by (capped), so bots drift onto the leader; and this many metres further per other bot already
+## fighting them, so the whole lobby never piles onto one player.
+const LEADER_BIAS_PER_KILL := 1.5
+const LEADER_BIAS_MAX := 7.5
+const CROWD_PENALTY := 5.0
 
 var p: Player
 var difficulty := 1
@@ -151,8 +157,10 @@ func _perceive() -> void:
 		var was_attacker := other.id == p.last_attacker and now - p.last_hurt_time < 2.5
 		if not _can_see(other, not was_attacker and other != target):
 			continue
-		# Prefer close, weak, and whoever is already shooting us.
+		# Prefer close, weak, and whoever is already shooting us; lean toward whoever is ahead on
+		# kills, away from players other bots are already busy with.
 		var score := d + other.health * 0.08 - (15.0 if was_attacker else 0.0) - (6.0 if other == target else 0.0)
+		score += _crowd_against(other) * CROWD_PENALTY - _lead_of(other) * LEADER_BIAS_PER_KILL
 		if score < best_score:
 			best_score = score
 			best = other
@@ -177,6 +185,23 @@ func _perceive() -> void:
 				_last_seen_pos = attacker.global_position
 				_last_seen_time = now
 				_has_goal = false
+
+
+## Kills `other` is ahead of this bot by (0 when level or behind), capped for target choice.
+func _lead_of(other: Player) -> float:
+	var scores: Dictionary = p.world.scores
+	var gap := int(scores.get(other.id, {}).get("kills", 0)) - int(scores.get(p.id, {}).get("kills", 0))
+	return minf(maxf(0.0, gap), LEADER_BIAS_MAX / LEADER_BIAS_PER_KILL)
+
+
+## How many other bots currently have `other` as their target.
+func _crowd_against(other: Player) -> int:
+	var n := 0
+	for eid: int in p.world.entities:
+		var e: Player = p.world.entities[eid]
+		if e != p and e.brain != null and e.alive and e.brain.target == other:
+			n += 1
+	return n
 
 
 ## Subtle rubber-banding so the leader feels hunted and stragglers get breathing room: a bot
