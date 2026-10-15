@@ -111,6 +111,10 @@ var _hit_body_col: CollisionShape3D
 var _hit_body_shape: BoxShape3D
 var _exclude: Array[RID] = []
 var _trigger_down := false
+## LOCAL: set while the mouse is free, so the click that recaptures it (HUD) neither fires nor
+## aims; cleared once the button is released.
+var _fire_gated := false
+var _aim_gated := false
 var _step_timer := 0.0
 var _was_on_floor := true
 var _shown_weapon := ""
@@ -319,6 +323,13 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _read_input() -> void:
+	# Input polling sees the click the HUD uses to recapture the mouse (and clicks on menus) even
+	# though the GUI handles it, so fire/aim need a fresh press once the mouse is captured.
+	var captured := Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
+	var fire_held := Input.is_action_pressed("fire")
+	var aim_held := Input.is_action_pressed("aim")
+	_fire_gated = (_fire_gated or not captured) and fire_held
+	_aim_gated = (_aim_gated or not captured) and aim_held
 	if world.input_blocked() or not alive:
 		in_move = Vector2.ZERO
 		in_jump = false
@@ -331,8 +342,8 @@ func _read_input() -> void:
 	in_jump = Input.is_action_pressed("jump")
 	in_crouch = Input.is_action_pressed("crouch")
 	in_sprint = Input.is_action_pressed("sprint")
-	in_fire = Input.is_action_pressed("fire")
-	in_aim = Input.is_action_pressed("aim")
+	in_fire = fire_held and not _fire_gated
+	in_aim = aim_held and not _aim_gated
 
 
 # ---------------------------------------------------------------- simulation (LOCAL and BOT)
