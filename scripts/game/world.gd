@@ -55,6 +55,10 @@ var _snapshot_timer := 0.0
 var _clock_timer := 0.0
 var _regen_timer := 0.0
 var _bot_names_used := {}
+## Client: resend _c_ready until the server answers, in case it arrived while the host was
+## still swapping scenes.
+var _welcomed := false
+var _ready_retry := 1.0
 
 
 func _ready() -> void:
@@ -116,8 +120,14 @@ func display_name(entity_id: int) -> String:
 
 
 func _process(delta: float) -> void:
-	if not multiplayer.is_server() and not match_over:
-		time_left = maxf(0.0, time_left - delta)
+	if not multiplayer.is_server():
+		if not match_over:
+			time_left = maxf(0.0, time_left - delta)
+		if not _welcomed:
+			_ready_retry -= delta
+			if _ready_retry <= 0.0:
+				_ready_retry = 1.0
+				_c_ready.rpc_id(1)
 	if _shake > 0.0 and local_player != null and local_player.camera != null:
 		_shake = move_toward(_shake, 0.0, delta * 2.5)
 		local_player.camera.h_offset = randf_range(-1.0, 1.0) * _shake * 0.08
@@ -649,6 +659,7 @@ func _s_clock(t: float) -> void:
 @rpc("authority", "call_remote", "reliable")
 func _s_scores(all: Dictionary) -> void:
 	scores = all
+	_welcomed = true
 	hud.refresh_scores()
 
 
