@@ -339,6 +339,10 @@ func _on_peer_disconnected(pid: int) -> void:
 		_server_chat_system("%s left the game" % display_name(pid))
 		_server_remove_entity(pid)
 	_balance_bots.call_deferred()
+	# A leaver lowers the majority needed on the results screen (Net already dropped them).
+	_skip_votes.erase(pid)
+	if match_over and not _advancing:
+		_server_tally_skip()
 
 
 # ================================================================ server: combat
