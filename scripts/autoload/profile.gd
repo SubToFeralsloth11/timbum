@@ -19,6 +19,8 @@ const DEFAULT_SETTINGS := {
 	"vsync": true,
 	"quality": 1,
 	"show_fps": false,
+	"damage_numbers": true,
+	"killfeed": true,
 	"crosshair_color": "ffffff",
 	"last_ip": "127.0.0.1",
 	"last_port": 7777,

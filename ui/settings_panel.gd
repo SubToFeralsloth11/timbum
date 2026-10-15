@@ -69,6 +69,8 @@ func _ready() -> void:
 	_slider_row(gameplay, "fov", "Field of view", 60.0, 110.0, 1.0, "%d°")
 	_color_row(gameplay, "crosshair_color", "Crosshair colour")
 	_check_row(gameplay, "show_fps", "Show FPS counter")
+	_check_row(gameplay, "damage_numbers", "Show damage numbers")
+	_check_row(gameplay, "killfeed", "Show kill feed")
 
 	var video := _page(pages)
 	_check_row(video, "fullscreen", "Fullscreen")

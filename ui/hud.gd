@@ -55,9 +55,13 @@ var _scores_dirty := true
 ## Last entity to hold the lead outright (0 before anyone has); lead changes involving us are announced.
 var _last_leader := 0
 var _crosshair_color := Color.WHITE
-## Floating damage numbers: [Label, world position, age]
+## Each entry: [label, anchor pos, age, total damage, any headshot].
 var _damage_numbers: Array = []
 const DAMAGE_NUMBER_LIFE := 0.8
+## A hit landing this soon after the last one, near the same spot, adds to that number instead
+## of spawning another, so automatic fire reads as one climbing total.
+const DAMAGE_MERGE_TIME := 0.4
+const DAMAGE_MERGE_DIST := 1.5
 
 
 func setup(p_world: World) -> void:
@@ -417,6 +421,7 @@ func _process(delta: float) -> void:
 		_fill_rows(_score_rows, _sorted_rows())
 		_scores_dirty = false
 	_fps_label.visible = Profile.get_setting("show_fps")
+	_killfeed.visible = Profile.get_setting("killfeed")
 	if _fps_label.visible:
 		_fps_label.text = "%d FPS" % Engine.get_frames_per_second()
 
@@ -565,14 +570,29 @@ func show_damage(from_pos: Vector3) -> void:
 
 
 func damage_number(pos: Vector3, amount: float, head: bool) -> void:
-	if amount < 0.5:
+	if amount < 0.5 or not Profile.get_setting("damage_numbers"):
 		return
-	var l := _label(str(roundi(amount)), 26 if head else 21, Color(1, 0.8, 0.2) if head else Color.WHITE)
+	if not _damage_numbers.is_empty():
+		var last: Array = _damage_numbers[-1]
+		if last[2] < DAMAGE_MERGE_TIME and (last[1] as Vector3).distance_to(pos) < DAMAGE_MERGE_DIST:
+			last[2] = 0.0
+			last[3] += amount
+			last[4] = last[4] or head
+			_style_damage_number(last[0], last[3], last[4])
+			return
+	var l := _label("", 21)
+	_style_damage_number(l, amount, head)
 	_root.add_child(l)
-	_damage_numbers.append([l, pos + Vector3(randf_range(-0.3, 0.3), 0.0, randf_range(-0.3, 0.3)), 0.0])
+	_damage_numbers.append([l, pos + Vector3(randf_range(-0.3, 0.3), 0.0, randf_range(-0.3, 0.3)), 0.0, amount, head])
 	if _damage_numbers.size() > 12:
 		var old: Array = _damage_numbers.pop_front()
 		(old[0] as Label).queue_free()
+
+
+func _style_damage_number(l: Label, total: float, head: bool) -> void:
+	l.text = str(roundi(total))
+	l.add_theme_font_size_override("font_size", 26 if head else 21)
+	l.add_theme_color_override("font_color", Color(1, 0.8, 0.2) if head else Color.WHITE)
 
 
 func _update_damage_numbers(delta: float) -> void:
