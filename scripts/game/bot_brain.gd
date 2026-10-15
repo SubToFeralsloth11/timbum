@@ -21,6 +21,13 @@ const SEMI_INTERVAL := [0.55, 0.38, 0.25]
 const GRENADE_CHANCE := [0.0, 0.15, 0.3]
 ## Seconds a bot must track a target through the scope before taking a sniper shot.
 const SNIPER_SETTLE := [1.5, 1.0, 0.65]
+## How fast (1/s, exponential) the aim error drifts toward its next goal: ~90% of the way in 0.33 s.
+const AIM_DRIFT_RATE := 7.0
+const DRIFT_ERROR_SCALE := 1.12
+## Flinch on taking damage: aim error jumps by FLINCH_PEAK (x2.1) and settles linearly over
+## FLINCH_TIME, so the bot recovers its aim instead of snapping back.
+const FLINCH_TIME := 0.5
+const FLINCH_PEAK := 1.1
 
 const PERCEIVE_INTERVAL := 0.15
 const REPATH_INTERVAL := 0.9
@@ -51,9 +58,14 @@ var _last_seen_pos := Vector3.ZERO
 var _last_seen_time := -100.0
 var _reaction_left := 0.0
 var _tracking_time := 0.0
+## Aim error: _aim_offset drifts toward _aim_offset_goal (re-rolled every 0.25-0.6 s) instead of
+## jumping, so the crosshair wanders around the target rather than twitching between misses.
 var _aim_offset := Vector3.ZERO
+var _aim_offset_goal := Vector3.ZERO
 var _aim_offset_timer := 0.0
 var _aim_head := false
+## 0 = chest, 1 = head; eases toward _aim_head so switching aim height is a glide, not a snap.
+var _head_blend := 0.0
 ## Multiplier on aim error (and, halved, on reaction time) against the current target:
 ## < 1 when the target is running away with the match, > 1 when the target trails this bot.
 var _pressure := 1.0
@@ -170,7 +182,7 @@ func _perceive() -> void:
 			target = best
 			_reaction_left = REACTION[difficulty] * randf_range(0.8, 1.3) * (0.5 + 0.5 * _pressure)
 			_tracking_time = 0.0
-			_new_aim_offset()
+			_new_aim_offset(true)
 		_target_visible = true
 		_last_seen_pos = best.global_position
 		_last_seen_time = now
@@ -264,18 +276,21 @@ func _fight(delta: float) -> void:
 	var wid := p.weapon_id()
 
 	# Aim point: chest by default, sometimes the head, feet for rockets.
-	var aim_point := target.global_position + Vector3.UP * (1.0 if target.crouching else 1.25)
-	if wid == "rocket":
-		aim_point = target.global_position + Vector3.UP * 0.2 + _target_velocity() * (dist / float(w.speed))
-	elif _aim_head:
-		aim_point = target.head.global_position
 	_aim_offset_timer -= delta
 	if _aim_offset_timer <= 0.0:
 		_new_aim_offset()
+	_aim_offset = _aim_offset.lerp(_aim_offset_goal, 1.0 - exp(-AIM_DRIFT_RATE * delta))
+	_head_blend = move_toward(_head_blend, 1.0 if _aim_head else 0.0, delta * 3.0)
+	var aim_point := target.global_position + Vector3.UP * (1.0 if target.crouching else 1.25)
+	if wid == "rocket":
+		aim_point = target.global_position + Vector3.UP * 0.2 + _target_velocity() * (dist / float(w.speed))
+	elif _head_blend > 0.0:
+		aim_point = aim_point.lerp(target.head.global_position, _head_blend)
 	var error_scale := maxf(MIN_ERROR[difficulty], 1.0 - _tracking_time * 0.35)
-	# Getting shot throws the bot's aim off, like a flinch.
-	if World.now() - p.last_hurt_time < 0.35:
-		error_scale *= 1.8
+	# Getting shot throws the bot's aim off, like a flinch, which settles back over FLINCH_TIME.
+	var since_hurt := World.now() - p.last_hurt_time
+	if since_hurt < FLINCH_TIME:
+		error_scale *= 1.0 + FLINCH_PEAK * (1.0 - since_hurt / FLINCH_TIME)
 	aim_point += _aim_offset * dist * error_scale
 
 	var thrown := _reaction_left <= 0.0 and _maybe_grenade(delta, dist)
@@ -352,11 +367,18 @@ func _target_velocity() -> Vector3:
 	return Vector3.ZERO
 
 
-func _new_aim_offset() -> void:
-	var err := tan(deg_to_rad(AIM_ERROR_DEG[difficulty])) * _pressure
-	_aim_offset = Vector3(randf_range(-1, 1), randf_range(-0.6, 1.0), randf_range(-1, 1)).normalized() * err * randf_range(0.3, 1.0)
+## Rolls a new aim-error goal (and head-or-chest choice). `snap` jumps straight to it, for a fresh
+## target, where the reaction delay and the turn toward them hide the change.
+func _new_aim_offset(snap := false) -> void:
+	# DRIFT_ERROR_SCALE: drifting between goals cuts corners, so goals sit a little wider to keep
+	# the average miss at AIM_ERROR_DEG's tuning.
+	var err := tan(deg_to_rad(AIM_ERROR_DEG[difficulty])) * _pressure * DRIFT_ERROR_SCALE
+	_aim_offset_goal = Vector3(randf_range(-1, 1), randf_range(-0.6, 1.0), randf_range(-1, 1)).normalized() * err * randf_range(0.3, 1.0)
 	_aim_offset_timer = randf_range(0.25, 0.6)
 	_aim_head = randf() < HEADSHOT_CHANCE[difficulty]
+	if snap:
+		_aim_offset = _aim_offset_goal
+		_head_blend = 1.0 if _aim_head else 0.0
 
 
 func _maybe_grenade(delta: float, dist: float) -> bool:
