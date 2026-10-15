@@ -187,14 +187,16 @@ func record_match(result: Dictionary) -> Dictionary:
 	var kills := int(result.get("kills", 0))
 	var heads := int(result.get("headshots", 0))
 	var placement := int(result.get("placement", 99))
-	var won := bool(result.get("won", false))
+	# Placement rewards, the victory bonus and the win stat need someone to beat.
+	var contested := int(result.get("players", 1)) > 1
+	var won := bool(result.get("won", false)) and contested
 	var breakdown: Array = [["Match played", Data.COINS_PARTICIPATION, Data.XP_MATCH]]
 	if kills > 0:
 		breakdown.append(["%d kill%s" % [kills, "" if kills == 1 else "s"], kills * Data.COINS_PER_KILL, kills * Data.XP_PER_KILL])
 	if heads > 0:
 		breakdown.append(["%d headshot%s" % [heads, "" if heads == 1 else "s"], heads * Data.COINS_PER_HEADSHOT, heads * Data.XP_PER_HEADSHOT])
 	var place_coins := 0
-	if placement >= 1 and placement <= Data.COINS_PLACEMENT.size() and int(result.get("players", 1)) > 1:
+	if placement >= 1 and placement <= Data.COINS_PLACEMENT.size() and contested:
 		place_coins = Data.COINS_PLACEMENT[placement - 1]
 	if won:
 		breakdown.append(["Victory", place_coins, 200])
