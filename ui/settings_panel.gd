@@ -271,8 +271,11 @@ func _build_controls(parent: VBoxContainer) -> void:
 static func binding_text(ev: InputEvent) -> String:
 	if ev is InputEventKey:
 		var k := ev as InputEventKey
-		# Bindings are physical (layout-independent); show the key cap of the user's layout.
-		var code := DisplayServer.keyboard_get_keycode_from_physical(k.physical_keycode) if k.physical_keycode != KEY_NONE else k.keycode
+		# Bindings are physical (layout-independent); show the key cap of the user's layout. The
+		# headless display server can't map layouts, so it falls back to the QWERTY name.
+		var code := k.keycode if k.physical_keycode == KEY_NONE else k.physical_keycode
+		if k.physical_keycode != KEY_NONE and DisplayServer.get_name() != "headless":
+			code = DisplayServer.keyboard_get_keycode_from_physical(k.physical_keycode)
 		return OS.get_keycode_string(code).to_upper()
 	if ev is InputEventMouseButton:
 		match (ev as InputEventMouseButton).button_index:
