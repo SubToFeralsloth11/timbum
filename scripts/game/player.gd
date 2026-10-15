@@ -25,6 +25,9 @@ const RADIUS := 0.4
 const SWITCH_TIME := 0.32
 const MELEE_TIME := 0.45
 const GRENADE_COOLDOWN := 0.9
+## A grenade pressed this close to the end of the throw cooldown is buffered and thrown when it
+## ends; earlier presses are dropped so a stale throw never goes off mid-fight.
+const GRENADE_BUFFER := 0.25
 const HITSCAN_RANGE := 300.0
 const MASK_WORLD := 1
 const MASK_HITBOX := 4
@@ -448,10 +451,11 @@ func _tick_weapon(delta: float) -> void:
 		in_slot = -1
 		if wanted != current_slot and wanted < slots.size():
 			switch_to(wanted)
+	if in_grenade and grenades > 0 and grenade_cooldown > GRENADE_BUFFER:
+		in_grenade = false
 	if switch_timer > 0.0 or melee_timer > 0.0:
 		return
-	# A grenade pressed during the throw cooldown stays queued and goes as soon as it ends;
-	# pressing with none left says so instead of doing nothing.
+	# Pressing with no grenades left says so instead of doing nothing.
 	if in_grenade:
 		if grenades <= 0:
 			in_grenade = false
