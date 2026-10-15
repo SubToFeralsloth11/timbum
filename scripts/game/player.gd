@@ -659,7 +659,8 @@ func _apply_kick(w: Dictionary) -> void:
 func _melee_attack(quick: bool) -> void:
 	var w: Dictionary = Data.WEAPONS.knife
 	melee_timer = MELEE_TIME if quick else 0.0
-	fire_cooldown = 60.0 / float(w.rpm)
+	# Never shortens a gun's refire time: the server keeps one fire-rate budget per shooter.
+	fire_cooldown = maxf(fire_cooldown, 60.0 / float(w.rpm))
 	_cancel_reload()
 	var aim := aim_transform()
 	var reach := float(w.range)

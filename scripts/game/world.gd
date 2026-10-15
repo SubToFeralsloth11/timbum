@@ -44,7 +44,7 @@ var _my_streak := 0
 # Server-only state.
 var _ready_peers := {}
 var _respawn_at := {}
-## "<entity>:<weapon>" -> [tokens, last refill time]; see _take_fire_token.
+## Shooter key ("<entity>" for guns, "<entity>:knife") -> [debt seconds, time]; see _take_fire_token.
 var _fire_tokens := {}
 ## Entity id -> time of last server respawn; client state is ignored briefly afterwards so stale
 ## pre-respawn positions can't drag the player back (or below kill_y again).
@@ -328,7 +328,7 @@ func _server_shot(shooter_id: int, wid: String, ends: PackedVector3Array, normal
 	if ends.size() > 16 or normals.size() != ends.size() or hit_list.size() > 16:
 		return
 	var w: Dictionary = Data.WEAPONS[wid]
-	var rate_ok := _take_fire_token("%d:%s" % [shooter_id, wid], float(w.rpm))
+	var rate_ok := _take_fire_token(shooter_id, wid)
 	for pid: int in _ready_peers:
 		if pid != shooter_id:
 			_s_shot_fx.rpc_id(pid, shooter_id, wid, ends, normals)
@@ -357,17 +357,22 @@ func _server_shot(shooter_id: int, wid: String, ends: PackedVector3Array, normal
 		_server_damage(target, per_target[tid], shooter_id, wid, head_hit[tid], shooter.global_position)
 
 
-## Fire-rate check as a token bucket (refills at the weapon's rpm, bursts of 3), so shots that
-## arrive bunched up after lag still count while sustained over-rate fire is rejected.
-func _take_fire_token(key: String, rpm: float) -> bool:
+## Fire-rate check, mirroring the client's single `fire_cooldown`: every shot puts its weapon's
+## refire interval (60 / rpm) on a per-shooter debt that drains in real time, and a shot is
+## accepted while the debt is at most two of its own intervals. That allows a burst of 3 bunched
+## shots after lag, but alternating weapons can't add their rates together. All guns share one
+## budget; the knife has its own, like the client's quick melee.
+func _take_fire_token(shooter_id: int, wid: String) -> bool:
 	const BURST := 3.0
+	var key := "%d:knife" % shooter_id if wid == "knife" else str(shooter_id)
+	var interval := 60.0 / float(Data.WEAPONS[wid].rpm)
 	var t := now()
-	var bucket: Array = _fire_tokens.get(key, [BURST, t])
-	var tokens := minf(BURST, float(bucket[0]) + (t - float(bucket[1])) * rpm / 60.0)
-	if tokens < 1.0:
-		_fire_tokens[key] = [tokens, t]
+	var bucket: Array = _fire_tokens.get(key, [0.0, t])
+	var debt := maxf(0.0, float(bucket[0]) - (t - float(bucket[1])))
+	if debt > (BURST - 1.0) * interval + 0.0001:
+		_fire_tokens[key] = [debt, t]
 		return false
-	_fire_tokens[key] = [tokens - 1.0, t]
+	_fire_tokens[key] = [debt + interval, t]
 	return true
 
 
@@ -429,7 +434,7 @@ func _server_projectile(owner_id: int, kind: String, origin: Vector3, vel: Vecto
 		return
 	if kind == "rocket":
 		var w: Dictionary = Data.WEAPONS.rocket
-		if not shooter.slots.has("rocket") or not _take_fire_token("%d:rocket" % owner_id, float(w.rpm)):
+		if not shooter.slots.has("rocket") or not _take_fire_token(owner_id, "rocket"):
 			return
 		vel = vel.limit_length(float(w.speed))
 	elif kind == "grenade":
