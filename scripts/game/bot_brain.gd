@@ -460,7 +460,8 @@ func _roam(delta: float) -> void:
 		_set_goal(_pick_roam_goal())
 	_go_toward(_goal, delta)
 	p.in_sprint = difficulty > 0 and now - _last_seen_time > 1.5
-	if _path_index >= _path.size() and p.global_position.distance_to(_goal) < 2.0:
+	# Route finished (or there is none): the goal is reached, or as close as the navmesh gets.
+	if _path_index >= _path.size():
 		_has_goal = false
 
 
@@ -512,7 +513,13 @@ func _go_toward(point: Vector3, delta: float) -> void:
 		if flat.length() > WAYPOINT_REACH:
 			break
 		_path_index += 1
-	var dest := point if _path_index >= _path.size() else _path[_path_index]
+	# Without a route (unreachable goal, off the navmesh) stay put rather than walk straight at the
+	# point, and once the route is used up stop at its end: a goal across a gap (another Sky
+	# Island, a player mid-jump) leaves the path ending at the ledge, and pressing on falls off.
+	if _path.is_empty():
+		_repath_timer = minf(_repath_timer, 0.3)
+		return
+	var dest := _path[mini(_path_index, _path.size() - 1)]
 	var dir := Vector3(dest.x - p.global_position.x, 0.0, dest.z - p.global_position.z)
 	if dir.length() < 0.3:
 		return
