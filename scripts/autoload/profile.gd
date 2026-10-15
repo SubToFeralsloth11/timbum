@@ -171,24 +171,39 @@ func claim_daily() -> int:
 
 
 ## result: {kills, deaths, headshots, placement (1-based), players, won, best_streak}
+## Returns {coins, xp, levels_gained, breakdown}; breakdown is [[label, coins, xp], ...], one row
+## per source, in the order the results screen lists them.
 func record_match(result: Dictionary) -> Dictionary:
 	var kills := int(result.get("kills", 0))
 	var heads := int(result.get("headshots", 0))
 	var placement := int(result.get("placement", 99))
 	var won := bool(result.get("won", false))
-	var earned := Data.COINS_PARTICIPATION + kills * Data.COINS_PER_KILL + heads * Data.COINS_PER_HEADSHOT
+	var breakdown: Array = [["Match played", Data.COINS_PARTICIPATION, Data.XP_MATCH]]
+	if kills > 0:
+		breakdown.append(["%d kill%s" % [kills, "" if kills == 1 else "s"], kills * Data.COINS_PER_KILL, kills * Data.XP_PER_KILL])
+	if heads > 0:
+		breakdown.append(["%d headshot%s" % [heads, "" if heads == 1 else "s"], heads * Data.COINS_PER_HEADSHOT, heads * Data.XP_PER_HEADSHOT])
+	var place_coins := 0
 	if placement >= 1 and placement <= Data.COINS_PLACEMENT.size() and int(result.get("players", 1)) > 1:
-		earned += Data.COINS_PLACEMENT[placement - 1]
-	var gained_xp := Data.XP_MATCH + kills * Data.XP_PER_KILL + heads * Data.XP_PER_HEADSHOT
+		place_coins = Data.COINS_PLACEMENT[placement - 1]
 	if won:
-		gained_xp += 200
+		breakdown.append(["Victory", place_coins, 200])
+	elif place_coins > 0:
+		breakdown.append(["#%d place" % placement, place_coins, 0])
+	var earned := 0
+	var gained_xp := 0
+	for row: Array in breakdown:
+		earned += int(row[1])
+		gained_xp += int(row[2])
 	xp += gained_xp
 	var levels := 0
 	while xp >= xp_for_level(level):
 		xp -= xp_for_level(level)
 		level += 1
 		levels += 1
-		earned += Data.COINS_PER_LEVEL
+	if levels > 0:
+		breakdown.append(["Level up! Level %d" % level, levels * Data.COINS_PER_LEVEL, 0])
+		earned += levels * Data.COINS_PER_LEVEL
 	coins += earned
 	stats.kills += kills
 	stats.deaths += int(result.get("deaths", 0))
@@ -199,7 +214,7 @@ func record_match(result: Dictionary) -> Dictionary:
 	stats.coins_earned += earned
 	save()
 	changed.emit()
-	return {"coins": earned, "xp": gained_xp, "levels_gained": levels}
+	return {"coins": earned, "xp": gained_xp, "levels_gained": levels, "breakdown": breakdown}
 
 
 # ---------------------------------------------------------------- settings

@@ -4,7 +4,7 @@ A blocky free-for-all shooter made with Godot 4.7. Play against bots offline, or
 
 ## Features
 
-- **Free-for-all deathmatch.** The first player to reach the kill limit wins, or whoever has the most kills when time runs out. After each match a results screen hands out coins and XP, then the next map in the rotation loads.
+- **Free-for-all deathmatch.** The first player to reach the kill limit wins, or whoever has the most kills when time runs out. After each match a results screen shows the final table, match highlights (best streak, sharpshooter, survivor) and an itemised list of the coins and XP you earned, then the next map in the rotation loads.
 - **Bots.** Easy, Normal and Hard bots navigate with a navmesh. They strafe, aim-track, throw grenades and fall back to their knife. They also pick up health when hurt and ammo when low. They aim a little sharper at whoever is running away with the match and ease off on players who are behind. Bots fill the empty slots, and one drops out each time a human joins.
 - **Online play over IP.** Uses ENet on UDP port 7777 by default, with up to 12 players. The host's machine runs the match.
 - **9 weapons.** Block 9 pistol, Cuber .44 revolver, Bit-SMG, AR-Cube rifle, Brick Buster shotgun, Stacker LMG, Voxel Longshot sniper with a scope, Boom Block rocket launcher, and the Pixel Blade knife. Every player also carries frag grenades.

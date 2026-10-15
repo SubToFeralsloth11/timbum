@@ -9,7 +9,7 @@ These were settled up front, choosing the standard option each time:
 
 | Topic | Decision |
 |---|---|
-| Mode | Free-for-all deathmatch. First to the kill limit (default 20) or the most kills when time runs out (default 8 min). After a match: results screen, coins/XP, then the next map in rotation 12 s later. |
+| Mode | Free-for-all deathmatch. First to the kill limit (default 20) or the most kills when time runs out (default 8 min). After a match: results screen (final table, match highlights for best streak / most headshots / fewest deaths, and an itemised coins/XP breakdown), then the next map in rotation 12 s later. |
 | Players | 2-12 per match. Bots fill up to the target player count (default 8). When a human joins, one bot leaves (a dead bot if possible, otherwise one nobody is fighting, then the lowest scorer); when a human leaves, a bot comes back. |
 | Networking | ENet, default port **7777**. The host is the server and also plays. Clients run their own movement and hit detection (trusted, no server-side line-of-sight check). The server owns health, kills, score, pickups, bots, projectiles, and the match clock. It sanity-checks every hit request: shooter and target alive, weapon in the shooter's loadout, a fire-rate budget per shooter shared by all guns (each shot costs its weapon's refire interval, with slack for 3 bunched shots; the knife has its own), total damage per target capped at one shot's maximum, and knife range. Spawning grants 2 s of protection from other players' damage (`World.SPAWN_PROTECTION`); firing a shot, rocket or grenade ends your own protection early. The server announces it with `_s_protection(eid, seconds)`, which every peer shows as a pulsing cyan shell on the avatar (`Avatar.set_protected`) and the protected player sees as a "SPAWN PROTECTED" countdown above the crosshair. Offline play uses `OfflineMultiplayerPeer`, so the same code runs everywhere. |
 | Art | All art is procedural; there are no external assets. Voxel maps use 1 m blocks, a 16x16 pixel-art texture atlas, vertex ambient occlusion, and ramps for elevation changes. Characters, guns, and hats are built from boxes. |
@@ -65,7 +65,7 @@ Helpers: `Data.catalog(category) -> Dictionary` for category in `"weapons"|"skin
 - Fields: `player_name`, `coins`, `xp`, `level`, `owned: Dictionary` (category -> Array[String]), `loadout: Dictionary` (`primary`, `secondary`), `equipped: Dictionary` (`skin`, `hat`, `outfit`), `settings: Dictionary`, `stats: Dictionary`.
 - `is_owned(category, id) -> bool`, `buy(category, id) -> bool`, `equip(category, id) -> bool`. Equipping a weapon sets the loadout slot from `Data.WEAPONS[id].slot`.
 - `can_claim_daily() -> bool`, `claim_daily() -> int`, `xp_for_level(level) -> int`.
-- `record_match(result: Dictionary) -> Dictionary`. Takes `{kills, deaths, headshots, placement, players, won, best_streak}` and returns `{coins, xp, levels_gained}`.
+- `record_match(result: Dictionary) -> Dictionary`. Takes `{kills, deaths, headshots, placement, players, won, best_streak}` and returns `{coins, xp, levels_gained, breakdown}`; `breakdown` is `[[label, coins, xp], ...]`, one row per reward source, which the results screen lists.
 - `get_setting(key)`, `set_setting(key, value)` (applies the setting and saves), `apply_settings()`, `save()`.
 - `peer_info() -> Dictionary`: what this player sends to the server, `{name, outfit, hat, skin, primary, secondary}`.
 

@@ -7,6 +7,8 @@ const KILLFEED_MAX := 6
 const KILLFEED_LIFE := 6.0
 const CHAT_LIFE := 10.0
 const CHAT_MAX := 8
+## Results-table rows shown before it scrolls (a full lobby would push the panel off a 720p screen).
+const RESULTS_VISIBLE_ROWS := 9
 
 var world: World
 
@@ -40,8 +42,10 @@ var _scoreboard: PanelContainer
 var _score_rows: VBoxContainer
 var _results: Control
 var _results_rows: VBoxContainer
+var _results_scroll: ScrollContainer
 var _results_title: Label
-var _results_rewards: Label
+var _results_rewards: GridContainer
+var _results_highlights: VBoxContainer
 var _results_timer: Label
 var _pause: PauseMenu
 var _fps_label: Label
@@ -385,22 +389,40 @@ func _build_results() -> void:
 	_results_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(_results_title)
 	v.add_child(_score_row(["#", "PLAYER", "KILLS", "DEATHS", "HS"], Color(0.7, 0.75, 0.85), false))
+	# A full 12-player lobby plus the highlights would overflow 720 px, so the table scrolls
+	# past RESULTS_VISIBLE_ROWS rows (show_results sizes it).
+	_results_scroll = ScrollContainer.new()
+	_results_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	v.add_child(_results_scroll)
 	_results_rows = VBoxContainer.new()
-	v.add_child(_results_rows)
-	_results_rewards = _label("", 22, Color(0.6, 1.0, 0.6))
-	_results_rewards.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	v.add_child(_results_rewards)
+	_results_rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_results_scroll.add_child(_results_rows)
+	# Below the table: match highlights on the left, this player's reward breakdown on the right.
+	var extras := HBoxContainer.new()
+	extras.add_theme_constant_override("separation", 40)
+	extras.alignment = BoxContainer.ALIGNMENT_CENTER
+	v.add_child(extras)
+	_results_highlights = VBoxContainer.new()
+	_results_highlights.add_theme_constant_override("separation", 2)
+	extras.add_child(_results_highlights)
+	_results_rewards = GridContainer.new()
+	_results_rewards.columns = 3
+	_results_rewards.add_theme_constant_override("h_separation", 18)
+	_results_rewards.add_theme_constant_override("v_separation", 2)
+	extras.add_child(_results_rewards)
+	var footer := HBoxContainer.new()
+	footer.add_theme_constant_override("separation", 24)
+	footer.alignment = BoxContainer.ALIGNMENT_CENTER
+	v.add_child(footer)
 	_results_timer = _label("", 18, Color(0.8, 0.8, 0.85))
-	_results_timer.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	v.add_child(_results_timer)
+	footer.add_child(_results_timer)
 	var leave := Button.new()
 	leave.text = "Leave to Menu"
 	leave.custom_minimum_size = Vector2(220, 44)
-	leave.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	footer.add_child(leave)
 	leave.pressed.connect(func() -> void:
 		Sfx.play(&"ui_click")
 		Net.leave())
-	v.add_child(leave)
 
 
 func _make_vignette() -> Texture2D:
@@ -758,6 +780,8 @@ func show_results(rows: Array, placement: int, rewards: Dictionary, wait: float)
 	_close_chat()
 	_death_panel.visible = false
 	_results.visible = true
+	# Above the intro card and controls hint, which a joiner arriving mid-results also gets.
+	_results.move_to_front()
 	_results_left = wait
 	if placement == 1:
 		_results_title.text = "VICTORY!"
@@ -766,15 +790,71 @@ func show_results(rows: Array, placement: int, rewards: Dictionary, wait: float)
 	else:
 		_results_title.text = "MATCH OVER"
 	_fill_rows(_results_rows, rows)
-	if rewards.is_empty():
-		_results_rewards.text = ""
-	else:
-		var txt := "+%d coins    +%d XP" % [rewards.coins, rewards.xp]
-		if int(rewards.levels_gained) > 0:
-			txt += "    LEVEL UP! (Level %d)" % Profile.level
-			Sfx.play(&"level_up")
-		_results_rewards.text = txt
+	if not rows.is_empty():
+		var last: Control = _results_rows.get_child(_results_rows.get_child_count() - 1)
+		var row_h := last.get_combined_minimum_size().y + _results_rows.get_theme_constant("separation")
+		_results_scroll.custom_minimum_size.y = row_h * mini(rows.size(), RESULTS_VISIBLE_ROWS)
+		if placement > RESULTS_VISIBLE_ROWS:
+			# Once the scrollbar learns the table's height, bring this player's row into view.
+			var target := int(row_h * (placement - RESULTS_VISIBLE_ROWS))
+			_results_scroll.get_v_scroll_bar().changed.connect(func() -> void: _results_scroll.scroll_vertical = target, CONNECT_ONE_SHOT)
+	_fill_highlights(rows)
+	_fill_rewards(rewards)
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+
+## Best streak, most headshots and fewest deaths of the match; ties go to the higher finisher.
+func _fill_highlights(rows: Array) -> void:
+	for c in _results_highlights.get_children():
+		c.queue_free()
+	if rows.is_empty():
+		return
+	_results_highlights.add_child(_label("MATCH HIGHLIGHTS", 16, Color(0.7, 0.75, 0.85)))
+	# [title, stat, higher is better, minimum to award, unit (singular), unit (plural)]
+	var awards := [
+		["Best streak", "best_streak", true, 2, "in a row", "in a row"],
+		["Sharpshooter", "headshots", true, 1, "headshot", "headshots"],
+		["Survivor", "deaths", false, 0, "death", "deaths"],
+	]
+	var me := world.my_id()
+	for a: Array in awards:
+		var best: Dictionary = {}
+		for r: Dictionary in rows:
+			# Fewest deaths only counts for someone who actually fought.
+			if not a[2] and int(r.kills) == 0:
+				continue
+			var v := int(r.get(a[1], 0))
+			if best.is_empty() or (v > int(best[a[1]]) if a[2] else v < int(best[a[1]])):
+				best = r
+		if best.is_empty() or (a[2] and int(best[a[1]]) < int(a[3])):
+			continue
+		var value := int(best[a[1]])
+		var mine := int(best.id) == me
+		var amount := "%d %s" % [value, a[4] if value == 1 else a[5]]
+		var l := _label("%s:  %s  (%s)" % [a[0], best.name, amount], 18,
+			Color(1, 0.82, 0.25) if mine else Color.WHITE)
+		_results_highlights.add_child(l)
+
+
+## One row per reward source from Profile.record_match, then the total.
+func _fill_rewards(rewards: Dictionary) -> void:
+	for c in _results_rewards.get_children():
+		c.queue_free()
+	if rewards.is_empty():
+		return
+	var head := Color(0.7, 0.75, 0.85)
+	for text: String in ["YOUR REWARDS", "COINS", "XP"]:
+		_results_rewards.add_child(_label(text, 16, head))
+	var green := Color(0.6, 1.0, 0.6)
+	for row: Array in rewards.get("breakdown", []):
+		_results_rewards.add_child(_label(str(row[0]), 18))
+		_results_rewards.add_child(_label("+%d" % int(row[1]) if int(row[1]) > 0 else "", 18, Color(1, 0.82, 0.25)))
+		_results_rewards.add_child(_label("+%d" % int(row[2]) if int(row[2]) > 0 else "", 18, green))
+	_results_rewards.add_child(_label("Total", 20, green))
+	_results_rewards.add_child(_label("+%d" % int(rewards.coins), 20, Color(1, 0.82, 0.25)))
+	_results_rewards.add_child(_label("+%d" % int(rewards.xp), 20, green))
+	if int(rewards.levels_gained) > 0:
+		Sfx.play(&"level_up")
 
 
 # ---------------------------------------------------------------- input
