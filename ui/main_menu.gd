@@ -61,6 +61,10 @@ func _ready() -> void:
 
 	modulate.a = 0.0
 	create_tween().tween_property(self, "modulate:a", 1.0, 0.35)
+	# A dropped session returns here; tell the player why.
+	if not Net.last_error.is_empty():
+		toast.call_deferred(Net.last_error, UITheme.BAD)
+		Net.last_error = ""
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -233,6 +237,8 @@ func toast(text: String, color := UITheme.TEXT) -> void:
 
 
 func _on_net_status(text: String) -> void:
+	# The message is shown now, so it must not reappear when the menu reloads.
+	Net.last_error = ""
 	# Setup/join screens show status inline; elsewhere surface it as a toast.
 	if _current is MatchSetupScreen or _current is JoinScreen:
 		return
