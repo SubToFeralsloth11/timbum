@@ -26,6 +26,8 @@ var _buy: Button
 var _equip: Button
 var _state: Label
 var _tab_buttons := {}
+var _shake: Tween
+var _flash: Tween
 
 
 func _ready() -> void:
@@ -73,7 +75,9 @@ func _ready() -> void:
 
 func on_shown() -> void:
 	_refresh_cards()
-	_refresh_detail()
+	# Rebuild the preview too: it shows the equipped skin/hat/gun, which the locker may have changed.
+	if not _selected.is_empty():
+		_select(_selected)
 
 
 func _build_detail() -> Control:
@@ -340,11 +344,14 @@ func _buy_failed() -> void:
 	var short := Profile.price_of(_category, _selected) - Profile.coins
 	if short > 0:
 		_flash_text("NEED %s MORE COINS" % UIKit.format_int(short), UITheme.BAD)
-	var t := _buy.create_tween()
+	# Repeated clicks mid-shake would capture an offset position and leave the button shifted.
+	if _shake != null and _shake.is_running():
+		return
+	_shake = _buy.create_tween()
 	var x := _buy.position.x
 	for i in 4:
-		t.tween_property(_buy, "position:x", x + (6.0 if i % 2 == 0 else -6.0), 0.04)
-	t.tween_property(_buy, "position:x", x, 0.04)
+		_shake.tween_property(_buy, "position:x", x + (6.0 if i % 2 == 0 else -6.0), 0.04)
+	_shake.tween_property(_buy, "position:x", x, 0.04)
 
 
 func _on_equip() -> void:
@@ -377,6 +384,9 @@ func _flash_text(text: String, color := UITheme.GOOD) -> void:
 	_state.text = text
 	_state.add_theme_color_override("font_color", color)
 	_state.modulate.a = 1.0
-	var t := _state.create_tween()
-	t.tween_interval(1.4)
-	t.tween_callback(_refresh_detail)
+	# An older flash's reset must not cut this one short.
+	if _flash != null:
+		_flash.kill()
+	_flash = _state.create_tween()
+	_flash.tween_interval(1.4)
+	_flash.tween_callback(_refresh_detail)
