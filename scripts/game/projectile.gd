@@ -9,6 +9,9 @@ const GRENADE_FRICTION := 0.75
 const ROCKET_MAX_LIFE := 6.0
 ## Clients hide a projectile that hit something; this frees it if the server's explode never arrives.
 const ORPHAN_TIMEOUT := 2.0
+## Players launch projectiles ~0.5-0.6 m ahead of the eye, which can be inside a wall they are
+## hugging. The first step's sweep starts this far back along the flight path (near the eye).
+const LAUNCH_BACKTRACK := 0.6
 
 var world: World
 var pid := 0
@@ -21,6 +24,7 @@ var _stopped_for := 0.0
 var _model: Node3D
 var _trail: CPUParticles3D
 var _bounce_sound_cd := 0.0
+var _first_step := true
 
 
 func setup(p_world: World, p_pid: int, p_kind: String, p_owner: int, origin: Vector3, velocity: Vector3) -> void:
@@ -89,8 +93,8 @@ func _physics_process(delta: float) -> void:
 
 
 func _step_rocket(delta: float, space: PhysicsDirectSpaceState3D) -> void:
-	var from := global_position
-	var to := from + vel * delta
+	var from := _sweep_start()
+	var to := global_position + vel * delta
 	var exclude: Array[RID] = []
 	var owner_player: Player = world.entities.get(owner_id)
 	if owner_player != null:
@@ -108,8 +112,8 @@ func _step_rocket(delta: float, space: PhysicsDirectSpaceState3D) -> void:
 
 func _step_grenade(delta: float, space: PhysicsDirectSpaceState3D) -> void:
 	vel.y -= GRENADE_GRAVITY * delta
-	var from := global_position
-	var to := from + vel * delta
+	var from := _sweep_start()
+	var to := global_position + vel * delta
 	var q := PhysicsRayQueryParameters3D.create(from, to, Player.MASK_WORLD)
 	var r := space.intersect_ray(q)
 	if r.is_empty():
@@ -127,6 +131,16 @@ func _step_grenade(delta: float, space: PhysicsDirectSpaceState3D) -> void:
 	_model.rotate_x(delta * vel.length() * 2.0)
 	if age >= float(Data.GRENADE.fuse):
 		_detonate(global_position + Vector3.UP * 0.1)
+
+
+## Where this step's collision sweep starts: the current position, except on the first step.
+func _sweep_start() -> Vector3:
+	if not _first_step:
+		return global_position
+	_first_step = false
+	if vel.length_squared() < 0.0001:
+		return global_position
+	return global_position - vel.normalized() * LAUNCH_BACKTRACK
 
 
 func _detonate(pos: Vector3) -> void:
