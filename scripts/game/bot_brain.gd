@@ -170,6 +170,8 @@ func _reset_intent() -> void:
 	p.in_jump = false
 	p.in_sprint = false
 	p.in_crouch = false
+	# A melee press blocked by a weapon switch must not swing later, after the target has moved off.
+	p.in_melee = false
 
 
 # ---------------------------------------------------------------- perception
@@ -287,7 +289,7 @@ func _choose_weapon() -> void:
 	if primary == "rocket" and dist < 6.0:
 		want = 1 if sa.x + sa.y > 0 else 2
 	var reacted := target != null and _target_visible and _reaction_left <= 0.0
-	if reacted and dist < 2.2 and difficulty > 0 and p.current_slot != 2:
+	if reacted and dist < 2.2 and difficulty > 0 and p.current_slot != 2 and target.protection_left() <= 0.0:
 		p.in_melee = p.melee_timer <= 0.0 and randf() < 0.06
 	if want != p.current_slot and p.switch_timer <= 0.0:
 		p.in_slot = want
@@ -375,7 +377,9 @@ func _fight(delta: float) -> void:
 	# Fire control.
 	var want_aim := wid != "knife" and wid != "shotgun" and (dist > 14.0 or wid == "sniper")
 	p.in_aim = want_aim and (difficulty > 0 or wid == "sniper")
-	if _reaction_left > 0.0 or thrown:
+	# The server ignores damage to a spawn-protected player, and firing would end the bot's own
+	# protection, so hold fire (keep tracking) until the shimmer is gone.
+	if _reaction_left > 0.0 or thrown or target.protection_left() > 0.0:
 		return
 	if wid == "sniper" and (p.aim_blend < 0.95 or _tracking_time < SNIPER_SETTLE[difficulty]):
 		return
@@ -445,6 +449,10 @@ func _new_aim_offset(snap := false) -> void:
 func _maybe_grenade(delta: float, dist: float) -> bool:
 	_grenade_timer -= delta
 	if _grenade_timer > 0.0 or p.grenades <= 0 or dist < 7.0 or dist > 24.0:
+		return false
+	# The throw must happen this frame: the aim below is set for one frame only, and a press queued
+	# behind a weapon switch, melee or the grenade cooldown would leave later at whatever aim then.
+	if p.in_slot >= 0 or p.switch_timer > 0.0 or p.melee_timer > 0.0 or p.grenade_cooldown > 0.0 or target.protection_left() > 0.0:
 		return false
 	_grenade_timer = randf_range(8.0, 16.0)
 	if randf() > GRENADE_CHANCE[difficulty]:
