@@ -777,21 +777,21 @@ func _interpolate() -> void:
 	yaw = lerp_angle(a[2], b[2], t)
 	pitch = lerpf(a[3], b[3], t)
 	var was_reloading := (_remote_flags & FLAG_RELOAD) != 0
+	var prev_weapon := _remote_flags >> 8
 	_remote_flags = b[4]
 	var now_reloading := (_remote_flags & FLAG_RELOAD) != 0
 	var reload_w: Dictionary = Data.WEAPONS[weapon_from_index(_remote_flags >> 8)]
-	# Shotguns replay the pose per shell, after a short gap so a replay never starts right
-	# before the flag clears (which would cut it off in a twitch).
+	var per_shell: bool = reload_w.get("reload_per_shell", false)
+	# Shotguns replay the pose per shell, with a short gap so shells read as separate motions.
 	if now_reloading and not avatar.is_reloading():
 		_reload_gap += get_physics_process_delta_time()
 	else:
 		_reload_gap = 0.0
-	var replay: bool = reload_w.get("reload_per_shell", false) and _reload_gap > 0.15
-	if now_reloading and (not was_reloading or replay):
+	if now_reloading and (not was_reloading or (per_shell and _reload_gap > 0.15)):
 		_reload_gap = 0.0
-		# Starts the pose (and each shotgun shell's replay).
 		avatar.play_reload(float(reload_w.reload))
-	elif was_reloading and not now_reloading:
+	elif was_reloading and not now_reloading and (prev_weapon != _remote_flags >> 8 or not per_shell):
+		# A finished shotgun reload lets its last shell's pose ease out instead of snapping.
 		avatar.stop_reload()
 	crouching = (_remote_flags & FLAG_CROUCH) != 0
 	sprinting = (_remote_flags & FLAG_SPRINT) != 0
