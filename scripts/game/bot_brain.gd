@@ -124,6 +124,11 @@ func think(delta: float) -> void:
 	_reset_intent()
 	if p.world.match_over:
 		return
+	# A target that died or left (despawned, freed) since the last perception pass is dropped at
+	# once, so the bot neither shoots a corpse nor touches a freed node until the next _perceive().
+	if target != null and (not is_instance_valid(target) or not target.alive):
+		target = null
+		_target_visible = false
 	_perceive_timer -= delta
 	if _perceive_timer <= 0.0:
 		_perceive_timer = PERCEIVE_INTERVAL
