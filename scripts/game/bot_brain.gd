@@ -27,6 +27,11 @@ const REPATH_INTERVAL := 0.9
 const WAYPOINT_REACH := 0.7
 const MEMORY_TIME := 4.0
 const HEARING_DISTANCE := 7.0
+## Catch-up pressure: per kill of score gap between the target and this bot, and per kill of the
+## target's streak beyond 2, aim error and reaction time scale by this much (clamped below).
+const PRESSURE_PER_KILL := 0.025
+const PRESSURE_PER_STREAK := 0.04
+const PRESSURE_RANGE := Vector2(0.8, 1.2)
 
 var p: Player
 var difficulty := 1
@@ -43,6 +48,9 @@ var _tracking_time := 0.0
 var _aim_offset := Vector3.ZERO
 var _aim_offset_timer := 0.0
 var _aim_head := false
+## Multiplier on aim error (and, halved, on reaction time) against the current target:
+## < 1 when the target is running away with the match, > 1 when the target trails this bot.
+var _pressure := 1.0
 
 var _path := PackedVector3Array()
 var _path_index := 0
@@ -149,9 +157,10 @@ func _perceive() -> void:
 			best_score = score
 			best = other
 	if best != null:
+		_pressure = _pressure_against(best)
 		if best != target:
 			target = best
-			_reaction_left = REACTION[difficulty] * randf_range(0.8, 1.3)
+			_reaction_left = REACTION[difficulty] * randf_range(0.8, 1.3) * (0.5 + 0.5 * _pressure)
 			_tracking_time = 0.0
 			_new_aim_offset()
 		_target_visible = true
@@ -168,6 +177,18 @@ func _perceive() -> void:
 				_last_seen_pos = attacker.global_position
 				_last_seen_time = now
 				_has_goal = false
+
+
+## Subtle rubber-banding so the leader feels hunted and stragglers get breathing room: a bot
+## tightens up (at most 20% less aim error, 10% quicker reactions) against someone far ahead of
+## it or on a streak, and loosens up by the same amount against someone trailing it.
+func _pressure_against(other: Player) -> float:
+	var scores: Dictionary = p.world.scores
+	var mine: Dictionary = scores.get(p.id, {})
+	var theirs: Dictionary = scores.get(other.id, {})
+	var gap := int(theirs.get("kills", 0)) - int(mine.get("kills", 0))
+	var streak := maxi(0, int(theirs.get("streak", 0)) - 2)
+	return clampf(1.0 - PRESSURE_PER_KILL * gap - PRESSURE_PER_STREAK * streak, PRESSURE_RANGE.x, PRESSURE_RANGE.y)
 
 
 # ---------------------------------------------------------------- weapons
@@ -307,7 +328,7 @@ func _target_velocity() -> Vector3:
 
 
 func _new_aim_offset() -> void:
-	var err := tan(deg_to_rad(AIM_ERROR_DEG[difficulty]))
+	var err := tan(deg_to_rad(AIM_ERROR_DEG[difficulty])) * _pressure
 	_aim_offset = Vector3(randf_range(-1, 1), randf_range(-0.6, 1.0), randf_range(-1, 1)).normalized() * err * randf_range(0.3, 1.0)
 	_aim_offset_timer = randf_range(0.25, 0.6)
 	_aim_head = randf() < HEADSHOT_CHANCE[difficulty]
