@@ -13,6 +13,10 @@ var model: Node3D
 var _pedestal: MeshInstance3D
 var _animated := false
 var _hold_spin := 0.0
+## Framing inputs remembered for `reframe()`.
+var _half := Vector3.ONE
+var _yaw := 0.0
+var _zoom := 1.0
 
 
 func _init() -> void:
@@ -21,26 +25,26 @@ func _init() -> void:
 	e.background_mode = Environment.BG_CLEAR_COLOR
 	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	e.ambient_light_color = Color(0.62, 0.68, 0.82)
-	e.ambient_light_energy = 0.55
-	e.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	e.tonemap_exposure = 1.1
+	e.ambient_light_energy = 0.42
+	# Linear keeps skin colours saturated; light energies are kept low so whites don't clip.
+	e.tonemap_mode = Environment.TONE_MAPPER_LINEAR
 	env.environment = e
 	add_child(env)
 
 	var key := DirectionalLight3D.new()
 	key.light_color = Color(1.0, 0.93, 0.82)
-	key.light_energy = 1.5
+	key.light_energy = 1.05
 	key.shadow_enabled = true
 	key.rotation_degrees = Vector3(-38, -32, 0)
 	add_child(key)
 	var fill := DirectionalLight3D.new()
 	fill.light_color = Color(0.55, 0.7, 1.0)
-	fill.light_energy = 0.45
+	fill.light_energy = 0.35
 	fill.rotation_degrees = Vector3(-15, 125, 0)
 	add_child(fill)
 	var rim := DirectionalLight3D.new()
 	rim.light_color = Color(1.0, 0.85, 0.55)
-	rim.light_energy = 0.9
+	rim.light_energy = 0.7
 	rim.rotation_degrees = Vector3(-10, 175, 0)
 	add_child(rim)
 
@@ -51,7 +55,7 @@ func _init() -> void:
 	var box := BoxMesh.new()
 	box.size = Vector3(1.0, 0.18, 1.0)
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.16, 0.18, 0.24)
+	mat.albedo_color = Color(0.045, 0.055, 0.08)
 	mat.roughness = 0.9
 	box.material = mat
 	_pedestal.mesh = box
@@ -64,7 +68,7 @@ func _init() -> void:
 	add_child(camera)
 
 
-## Replaces the shown model and frames it. `pedestal` puts a block under its base.
+## Replaces the shown model and frames it tightly. `pedestal` puts a block under its base.
 ## `yaw` is the starting turntable angle; `zoom` > 1 moves the camera closer.
 func show_model(node: Node3D, pedestal := false, yaw := -0.6, zoom := 1.0) -> void:
 	if model != null:
@@ -79,18 +83,42 @@ func show_model(node: Node3D, pedestal := false, yaw := -0.6, zoom := 1.0) -> vo
 	var box := model_aabb(node)
 	var center := box.get_center()
 	node.position = -center
-	var radius := maxf(box.size.length() * 0.5, 0.05)
+	var half := box.size * 0.5
 	_pedestal.visible = pedestal
 	if pedestal:
-		var w := maxf(box.size.x, box.size.z) * 1.25
+		var w := maxf(box.size.x, box.size.z) * 1.3
 		_pedestal.scale = Vector3(w, 1.0, w)
-		_pedestal.position = Vector3(0, box.position.y - center.y - 0.09, 0)
-		radius = maxf(radius, w * 0.6)
-	var dist := radius / tan(deg_to_rad(camera.fov * 0.5)) / zoom
-	camera.position = Vector3(0, radius * 0.28, dist)
-	camera.look_at(Vector3(0, radius * 0.02, 0))
-	camera.near = maxf(0.01, dist - radius * 3.0)
-	camera.far = dist + radius * 4.0
+		_pedestal.position = Vector3(0, -half.y - 0.09, 0)
+		half = Vector3(maxf(half.x, w * 0.5), half.y + 0.18, maxf(half.z, w * 0.5))
+	_half = half
+	_yaw = yaw
+	_zoom = zoom
+	reframe()
+
+
+## Re-fits the camera to the current model (call after the viewport is resized).
+func reframe() -> void:
+	if model == null or not is_inside_tree():
+		return
+	var half := _half
+	# Extents seen by the camera: worst case over a full turn when spinning, else at this yaw.
+	var half_w: float
+	var half_d: float
+	if spin_speed > 0.0:
+		half_w = Vector2(half.x, half.z).length()
+		half_d = half_w
+	else:
+		var b := Basis(Vector3.UP, _yaw)
+		half_w = absf(b.x.x) * half.x + absf(b.z.x) * half.z
+		half_d = absf(b.x.z) * half.x + absf(b.z.z) * half.z
+	var tan_v := tan(deg_to_rad(camera.fov * 0.5))
+	var vp_size := get_viewport().get_visible_rect().size
+	var aspect := vp_size.x / vp_size.y if vp_size.x > 1.0 and vp_size.y > 1.0 else 1.0
+	var dist := maxf(half.y / tan_v, half_w / (tan_v * aspect)) * 1.12 / _zoom + half_d
+	camera.position = Vector3(0, dist * 0.16, dist)
+	camera.look_at(Vector3.ZERO)
+	camera.near = maxf(0.01, dist - half_d * 2.0)
+	camera.far = dist + half_d * 3.0
 
 
 ## Stops the auto spin briefly (e.g. while the user drags the model).

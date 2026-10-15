@@ -4,7 +4,8 @@ extends Node
 ## Usage: add a Thumbnailer to the tree, then `request(key, builder, on_ready)` where
 ## `builder` returns a fresh Node3D and `on_ready(texture)` receives the icon.
 
-const SIZE := 160
+## Wide icons suit guns; tall items are simply height-limited.
+const SIZE := Vector2i(256, 128)
 
 static var _cache := {}
 
@@ -16,7 +17,7 @@ var _busy := false
 
 func _ready() -> void:
 	_viewport = SubViewport.new()
-	_viewport.size = Vector2i(SIZE, SIZE)
+	_viewport.size = SIZE
 	_viewport.own_world_3d = true
 	_viewport.transparent_bg = true
 	_viewport.msaa_3d = Viewport.MSAA_4X
@@ -31,7 +32,8 @@ static func cached(key: String) -> Texture2D:
 	return _cache.get(key)
 
 
-func request(key: String, builder: Callable, on_ready: Callable) -> void:
+## `yaw` turns the model before the shot (see PreviewStage.show_model).
+func request(key: String, builder: Callable, on_ready: Callable, yaw := -0.75) -> void:
 	if _cache.has(key):
 		on_ready.call(_cache[key])
 		return
@@ -39,7 +41,7 @@ func request(key: String, builder: Callable, on_ready: Callable) -> void:
 		if job.key == key:
 			job.callbacks.append(on_ready)
 			return
-	_queue.append({"key": key, "builder": builder, "callbacks": [on_ready]})
+	_queue.append({"key": key, "builder": builder, "callbacks": [on_ready], "yaw": yaw})
 
 
 func _process(_delta: float) -> void:
@@ -51,7 +53,7 @@ func _process(_delta: float) -> void:
 func _render(job: Dictionary) -> void:
 	_busy = true
 	var node: Node3D = job.builder.call()
-	_stage.show_model(node, false, -0.75, 1.15)
+	_stage.show_model(node, false, job.yaw, 1.0)
 	await get_tree().process_frame
 	_viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
 	await RenderingServer.frame_post_draw

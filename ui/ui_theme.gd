@@ -31,6 +31,7 @@ const PX := 3
 static var _theme: Theme
 static var _heavy: SystemFont
 static var _body: SystemFont
+static var _spotlight: StyleBoxTexture
 
 
 static func get_theme() -> Theme:
@@ -60,6 +61,25 @@ static func body_font() -> Font:
 
 
 # ------------------------------------------------------------------ styleboxes
+
+## Radial "studio spotlight" backdrop used behind 3D previews and item icons (shared).
+static func spotlight_box() -> StyleBoxTexture:
+	if _spotlight == null:
+		var g := Gradient.new()
+		g.set_color(0, Color(0.24, 0.3, 0.42, 0.95))
+		g.set_color(1, Color(0.04, 0.05, 0.08, 0.95))
+		var t := GradientTexture2D.new()
+		t.gradient = g
+		t.fill = GradientTexture2D.FILL_RADIAL
+		t.fill_from = Vector2(0.5, 0.42)
+		t.fill_to = Vector2(1.1, 1.1)
+		t.width = 128
+		t.height = 128
+		_spotlight = StyleBoxTexture.new()
+		_spotlight.texture = t
+		_spotlight.set_content_margin_all(4)
+	return _spotlight
+
 
 ## Dark chamfered panel (corner_detail 1 gives cut, pixel-like corners).
 static func panel_box(bg := PANEL, border := Color(1, 1, 1, 0.08), border_w := 2, radius := 4, pad := 16) -> StyleBoxFlat:

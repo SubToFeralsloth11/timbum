@@ -19,6 +19,7 @@ func _init() -> void:
 	add_child(viewport)
 	stage = PreviewStage.new()
 	viewport.add_child(stage)
+	resized.connect(func() -> void: stage.reframe.call_deferred())
 
 
 func show_model(node: Node3D, pedestal := false, yaw := -0.6, zoom := 1.0) -> void:
