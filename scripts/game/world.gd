@@ -506,7 +506,7 @@ func _server_pickups(t: float) -> void:
 		var node := pickup_nodes[i]
 		if not node.active:
 			if t >= _pickup_ready_at[i]:
-				_broadcast(&"_s_pickup_state", [i, true])
+				_broadcast(&"_s_pickup_state", [i, true, 0.0])
 			continue
 		for eid: int in entities:
 			var p: Player = entities[eid]
@@ -645,7 +645,7 @@ func _c_ready() -> void:
 	_s_clock.rpc_id(pid, time_left)
 	for i in pickup_nodes.size():
 		if not pickup_nodes[i].active:
-			_s_pickup_state.rpc_id(pid, i, false)
+			_s_pickup_state.rpc_id(pid, i, false, _pickup_ready_at[i] - now())
 	if match_over:
 		_s_match_end.rpc_id(pid, results)
 		return
@@ -852,10 +852,11 @@ func _s_explode(pid: int, pos: Vector3) -> void:
 		shake(clampf(1.4 - d / 10.0, 0.0, 1.2))
 
 
+## `respawn_in` (seconds) drives the countdown an inactive pickup shows.
 @rpc("authority", "call_remote", "reliable")
-func _s_pickup_state(index: int, is_active: bool) -> void:
+func _s_pickup_state(index: int, is_active: bool, respawn_in: float) -> void:
 	if index >= 0 and index < pickup_nodes.size():
-		pickup_nodes[index].set_active(is_active)
+		pickup_nodes[index].set_active(is_active, respawn_in)
 
 
 @rpc("authority", "call_remote", "reliable")
@@ -863,7 +864,7 @@ func _s_pickup_taken(index: int, eid: int) -> void:
 	if index < 0 or index >= pickup_nodes.size():
 		return
 	var node := pickup_nodes[index]
-	node.set_active(false)
+	node.set_active(false, PICKUP_RESPAWN)
 	var p: Player = entities.get(eid)
 	if p == null:
 		return
