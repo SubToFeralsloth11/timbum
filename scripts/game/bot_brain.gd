@@ -6,21 +6,21 @@ extends Node
 ## Loop: perceive (throttled) -> pick a goal -> follow a navmesh path or fight -> aim -> shoot.
 
 ## Per-difficulty tuning: Easy, Normal, Hard.
-## Tuned so an average player wins most duels against Normal; Hard is a real challenge.
-const REACTION := [0.9, 0.55, 0.32]
-const AIM_ERROR_DEG := [11.0, 6.5, 3.5]
+## Tuned so an average player comfortably wins duels against Normal; Hard is a fair challenge.
+const REACTION := [1.1, 0.75, 0.48]
+const AIM_ERROR_DEG := [14.0, 9.0, 5.5]
 ## Fraction of the aim error that never goes away however long a bot tracks you.
-const MIN_ERROR := [0.7, 0.5, 0.35]
-const TURN_SPEED_DEG := [140.0, 230.0, 360.0]
-const VIEW_DISTANCE := [35.0, 50.0, 70.0]
-const VIEW_FOV_DEG := [90.0, 110.0, 130.0]
-const HEADSHOT_CHANCE := [0.02, 0.07, 0.15]
-const BURST_TIME := [0.25, 0.4, 0.6]
+const MIN_ERROR := [0.8, 0.62, 0.48]
+const TURN_SPEED_DEG := [120.0, 180.0, 270.0]
+const VIEW_DISTANCE := [30.0, 42.0, 58.0]
+const VIEW_FOV_DEG := [85.0, 100.0, 115.0]
+const HEADSHOT_CHANCE := [0.01, 0.04, 0.09]
+const BURST_TIME := [0.25, 0.35, 0.5]
 ## Minimum seconds between semi-auto trigger pulls (human click speed).
-const SEMI_INTERVAL := [0.55, 0.38, 0.25]
-const GRENADE_CHANCE := [0.0, 0.15, 0.3]
+const SEMI_INTERVAL := [0.6, 0.45, 0.32]
+const GRENADE_CHANCE := [0.0, 0.12, 0.25]
 ## Seconds a bot must track a target through the scope before taking a sniper shot.
-const SNIPER_SETTLE := [1.5, 1.0, 0.65]
+const SNIPER_SETTLE := [1.8, 1.3, 0.9]
 ## How fast (1/s, exponential) the aim error drifts toward its next goal: ~90% of the way in 0.33 s.
 const AIM_DRIFT_RATE := 7.0
 const DRIFT_ERROR_SCALE := 1.12
@@ -33,9 +33,9 @@ const FLINCH_PEAK := 1.1
 ## seconds of the unread part of their sideways motion. Steady strafing is mostly read within a
 ## second; changing direction resets it, so strafing helps a little, juking a lot, and standing
 ## still not at all.
-const READ_RATE := [2.5, 3.5, 5.0]
-const READ_ACCURACY := [0.6, 0.75, 0.85]
-const TRACK_LAG := [0.14, 0.1, 0.07]
+const READ_RATE := [2.0, 2.8, 4.0]
+const READ_ACCURACY := [0.55, 0.68, 0.78]
+const TRACK_LAG := [0.16, 0.12, 0.09]
 
 const PERCEIVE_INTERVAL := 0.15
 const REPATH_INTERVAL := 0.9
@@ -329,7 +329,7 @@ func _fight(delta: float) -> void:
 		aim_point = target.global_position + Vector3.UP * 0.2 + _target_velocity() * (dist / float(w.speed))
 	elif _head_blend > 0.0:
 		aim_point = aim_point.lerp(target.head.global_position, _head_blend)
-	var error_scale := maxf(MIN_ERROR[difficulty], 1.0 - _tracking_time * 0.35)
+	var error_scale := maxf(MIN_ERROR[difficulty], 1.0 - _tracking_time * 0.25)
 	# Getting shot throws the bot's aim off, like a flinch, which settles back over FLINCH_TIME.
 	var since_hurt := World.now() - p.last_hurt_time
 	if since_hurt < FLINCH_TIME:
