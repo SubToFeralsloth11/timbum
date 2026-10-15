@@ -19,7 +19,7 @@ static func button(text: String, variation: StringName = &"", click := true) -> 
 static func wire(b: BaseButton, click := true) -> void:
 	b.mouse_entered.connect(func() -> void:
 		if not b.disabled:
-			Sfx.play(&"ui_hover", null, -6.0))
+			Sfx.play(&"ui_hover"))
 	if click:
 		b.pressed.connect(func() -> void: Sfx.play(&"ui_click"))
 

@@ -78,6 +78,10 @@ func go(screen_name: String) -> void:
 	var next := _get_screen(screen_name)
 	if next == _current:
 		return
+	# Toasts belong to the screen that raised them; don't let one cover the next page.
+	if _toast_tween != null:
+		_toast_tween.kill()
+	_toast.modulate.a = 0.0
 	var prev := _current
 	_current = next
 	var forward := screen_name != "home"
@@ -394,7 +398,7 @@ func _claim_daily() -> void:
 		Sfx.play(&"ui_error")
 		return
 	Sfx.play(&"coins")
-	toast("+%d COINS  ·  Come back tomorrow for more!" % amount, UITheme.ACCENT)
+	toast("DAILY REWARD: +%d COINS" % amount, UITheme.ACCENT)
 	_float_text("+%d" % amount, _daily_button.get_global_rect().get_center())
 
 
