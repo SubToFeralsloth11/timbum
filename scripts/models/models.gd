@@ -8,7 +8,7 @@ const CATALOG := preload("res://scripts/autoload/data.gd")
 
 ## Guns in third person are drawn this much larger than real-world size so they read well
 ## in chunky blocky hands.
-const THIRD_PERSON_GUN_SCALE := 1.3
+const THIRD_PERSON_GUN_SCALE := 1.5
 ## Avatar pixel size: 32 texels tall = 1.8 m.
 const PX := 1.8 / 32.0
 const ATLAS_SIZE := 64
@@ -1076,8 +1076,8 @@ static func _part_mesh(part: String) -> ArrayMesh:
 			size = Vector3(4, 12, 4) * PX
 		"forearm_r", "forearm_l":
 			atlas_part = "arm_r" if part == "forearm_r" else "arm_l"
-			center = Vector3(0, 0.17, 0)
-			size = Vector3(0.09, 0.42, 0.09)
+			center = Vector3(0, 0.2, 0)
+			size = Vector3(0.08, 0.5, 0.08)
 		_:
 			center = Vector3(0, -3 * PX, 0)
 			size = Vector3(4, 6, 4) * PX
@@ -1085,9 +1085,9 @@ static func _part_mesh(part: String) -> ArrayMesh:
 	var dims: Vector3i = AVATAR_PARTS[atlas_part][1]
 	for face in 6:
 		var r := Rect2(_face_rect(origin, dims, face))
-		# Viewmodel forearms show only the lower two thirds of the arm (cuff and hand).
+		# Viewmodel forearms show the lower three quarters of the arm (sleeve, cuff, hand).
 		if atlas_part != part and face < 4:
-			r = Rect2(r.position.x, r.position.y + 4, r.size.x, r.size.y - 4)
+			r = Rect2(r.position.x, r.position.y + 3, r.size.x, r.size.y - 3)
 		rects.append(r)
 	var k := MeshKit.new()
 	k.atlas_box(0, center, size, rects, Vector2(ATLAS_SIZE, ATLAS_SIZE))

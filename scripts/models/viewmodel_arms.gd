@@ -2,12 +2,15 @@ class_name ViewmodelArms
 extends Node3D
 ## First-person forearms built by Models.build_viewmodel_arms(). The gun's grip sits at the
 ## origin inside the right hand, forward -Z. attach_gun() puts a gun under "GunMount" and moves
-## the left hand onto the gun's "Support" marker; one-handed weapons (knife) hide the left arm.
+## the left hand onto the gun's "Support" marker; one-handed weapons (knife, no Support) hide
+## the left arm and tilt GunMount so the blade points up and inwards, clear of the hand.
 ## Meshes never cast shadows; set visual layers with Models.set_render().
 
-## Elbows sit behind, below and outside the hands, so the forearms run out of a typical view.
-const ELBOW_R := Vector3(0.13, -0.24, 0.42)
-const ELBOW_L := Vector3(-0.22, -0.27, 0.34)
+## Elbows sit below, outside and slightly behind the hands, so the forearms run out of the
+## lower screen corners instead of straight at the camera.
+const ELBOW_R := Vector3(0.17, -0.36, 0.3)
+const ELBOW_L := Vector3(-0.26, -0.34, 0.26)
+const ONE_HANDED_TILT := Vector3(0.35, 0.75, 0.25)
 ## Left-hand point used until a gun is attached (a rifle handguard).
 const DEFAULT_SUPPORT := Vector3(0.0, 0.005, -0.3)
 const RIGHT_HAND := Vector3(0.0, -0.012, 0.012)
@@ -49,10 +52,12 @@ func attach_gun(gun: Node3D) -> void:
 	fit_to_gun(gun)
 
 
-## Moves the left hand onto `gun`'s Support marker, or hides the left arm if it has none.
+## Moves the left hand onto `gun`'s Support marker; without one (knife) the left arm hides
+## and GunMount takes the one-handed tilt.
 func fit_to_gun(gun: Node3D) -> void:
 	var support := gun.get_node_or_null(^"Support") as Node3D if gun else null
 	_arm_l.visible = support != null
+	_mount.basis = Basis.IDENTITY if support or gun == null else Basis.from_euler(ONE_HANDED_TILT)
 	if support:
 		_place(_arm_l, _mount.transform * (gun.transform * support.position), ELBOW_L)
 
