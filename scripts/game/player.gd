@@ -123,6 +123,9 @@ var speed_scale := 1.0
 var _head_hit_y := 1.56
 ## REMOTE: seconds the reload flag has stayed on with no reload pose playing.
 var _reload_gap := 0.0
+## REMOTE: seconds left in which a reload flag still set in buffered snapshots is stale because
+## the player fired (which cancels a shotgun's shell-by-shell reload); see remote_fired().
+var _reload_hold := 0.0
 
 
 func setup(p_world: World, p_id: int, p_info: Dictionary, p_mode: Mode, p_is_bot: bool) -> void:
@@ -761,6 +764,16 @@ func push_snapshot(pos: Vector3, p_yaw: float, p_pitch: float, flags: int) -> vo
 		_snapshots.pop_front()
 
 
+## REMOTE: the player just fired or swung. Shots arrive ahead of the interpolated state, so a
+## reload pose (a shotgun reload that firing interrupts, or any reload a knife swing cancels)
+## stops now, and the stale reload flag still in the snapshot buffer may not restart it.
+func remote_fired() -> void:
+	if (_remote_flags & FLAG_RELOAD) == 0:
+		return
+	avatar.stop_reload()
+	_reload_hold = INTERP_DELAY + 0.1
+
+
 func _interpolate() -> void:
 	if _snapshots.is_empty():
 		return
@@ -788,7 +801,8 @@ func _interpolate() -> void:
 		_reload_gap += get_physics_process_delta_time()
 	else:
 		_reload_gap = 0.0
-	if now_reloading and (not was_reloading or (per_shell and _reload_gap > 0.15)):
+	_reload_hold -= get_physics_process_delta_time()
+	if now_reloading and (not was_reloading or (per_shell and _reload_gap > 0.15 and _reload_hold <= 0.0)):
 		_reload_gap = 0.0
 		avatar.play_reload(float(reload_w.reload))
 	elif was_reloading and not now_reloading and (prev_weapon != _remote_flags >> 8 or not per_shell):

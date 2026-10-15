@@ -585,6 +585,8 @@ func _play_shot_fx(p: Player, wid: String, ends: PackedVector3Array, normals: Pa
 	var w: Dictionary = Data.WEAPONS[wid]
 	var muzzle := p.muzzle_position()
 	var is_local := p == local_player
+	if p.mode == Player.Mode.REMOTE:
+		p.remote_fired()
 	if wid == "knife":
 		Sfx.play(&"knife_swing", null if is_local else p.global_position, -4.0)
 		if normals.size() > 0 and normals[0] != Vector3.ZERO:
