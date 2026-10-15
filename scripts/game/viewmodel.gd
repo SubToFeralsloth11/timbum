@@ -95,6 +95,8 @@ var _sprint_blend := 0.0
 var _mag_prop: MeshInstance3D
 var _mag_box: BoxMesh
 var _mag_weapon := ""
+## True while a reload animation has the left hand off its support point.
+var _hand_busy := false
 
 
 func setup(outfit_id: String, skin_id: String) -> void:
@@ -174,6 +176,7 @@ func play_reload(length: float) -> void:
 ## Cancels a running reload animation (weapon switch).
 func stop_reload() -> void:
 	_reload_t = 0.0
+	_hand_busy = false
 	_arms.set_left_hand(Vector3.ZERO, 0.0)
 	if _mag_prop != null:
 		_mag_prop.visible = false
@@ -232,6 +235,7 @@ func _animate_magazine(u: float) -> void:
 		_mag_prop.transform = Transform3D(seat_basis, mag_pos)
 	_mag_prop.visible = show_mag
 	_arms.set_left_hand(hand, w)
+	_hand_busy = true
 
 
 func play_melee(_quick: bool) -> void:
@@ -278,7 +282,7 @@ func update_pose(delta: float, p: Player) -> void:
 		rot.x += 0.25 * e
 		pos += Vector3(-0.08, 0.08, 0.05) * e
 		_animate_magazine(u)
-	elif _mag_prop != null and _mag_prop.visible:
+	elif _hand_busy:
 		stop_reload()
 	if _draw_t > 0.0:
 		var d := _draw_t / 0.3
