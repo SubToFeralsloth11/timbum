@@ -115,10 +115,6 @@ var _fire_gated := false
 var _aim_gated := false
 ## LOCAL: cooldown between knife swings so the server budget isn't silently exceeded.
 var knife_cooldown := 0.0
-## LOCAL: set while the mouse is free, so the click that recaptures it (HUD) neither fires nor
-## aims; cleared once the button is released.
-var _fire_gated := false
-var _aim_gated := false
 var _step_timer := 0.0
 var _was_on_floor := true
 var _shown_weapon := ""
