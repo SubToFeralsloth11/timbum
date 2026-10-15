@@ -8,6 +8,7 @@ A blocky free-for-all shooter made with Godot 4.7. Play against bots offline, or
 - **Bots.** Easy, Normal and Hard bots navigate with a navmesh. They strafe, aim-track, throw grenades and fall back to their knife. They also pick up health when hurt and ammo when low. Bots fill the empty slots, and one drops out each time a human joins.
 - **Online play over IP.** Uses ENet on UDP port 7777 by default, with up to 12 players. The host's machine runs the match.
 - **9 weapons.** Block 9 pistol, Cuber .44 revolver, Bit-SMG, AR-Cube rifle, Brick Buster shotgun, Stacker LMG, Voxel Longshot sniper with a scope, Boom Block rocket launcher, and the Pixel Blade knife. Every player also carries frag grenades.
+- **Every match plays differently.** The map rotation is shuffled, the time of day changes (day, sunset or night), and half the matches roll a mutator: Low Gravity, Turbo, Big Heads, Vampire, Rocket Party, Snipers Only or Glass Cannon. You can switch mutators off in match setup.
 - **Gunplay.** Aiming down sights, recoil, spread bloom, damage falloff, headshots, hitmarkers, kill feed, kill streaks and multi-kills.
 - **5 maps.** Village, Desert Ruins, Factory, Sky Islands and Snow Fort. Each has its own sky, fog and lighting. Health, ammo and grenade pickups are spread around every map.
 - **Shop and locker.** Coins buy guns, 11 weapon skins (including camo, lava, neon, gold, diamond and galaxy), 10 hats and 9 outfits. The locker is where you equip your loadout and look.

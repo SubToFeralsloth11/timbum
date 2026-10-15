@@ -14,9 +14,10 @@ These were settled up front, choosing the standard option each time:
 | Networking | ENet, default port **7777**. The host is the server and also plays. Clients run their own movement and hit detection. The server owns health, kills, score, pickups, bots, projectiles, and the match clock. It sanity-checks every hit request: shooter alive, target alive, fire-rate budget, range. Offline play uses `OfflineMultiplayerPeer`, so the same code runs everywhere. |
 | Art | All art is procedural; there are no external assets. Voxel maps use 1 m blocks, a 16x16 pixel-art texture atlas, vertex ambient occlusion, and ramps for elevation changes. Characters, guns, and hats are built from boxes. |
 | Audio | All sound effects and the chiptune music are synthesised at startup into `AudioStreamWAV`. |
+| Variety | Map rotation is shuffled each cycle. Each match the server rolls a time of day (day/sunset/night) and, when mutators are on, a mutator half the time (`Data.MUTATORS`: low gravity, turbo, big heads, vampire, rocket party, snipers only, glass cannon). Both travel to clients inside `Net.config`. |
 | Economy | Coins come from kills, headshots, placement, level-ups, and a 24-hour daily reward. The shop sells guns, weapon skins (one equipped skin applies to every gun), hats, and outfits. Nothing is random; there are no loot boxes. Everything persists in `user://profile.json`. |
 | Maps | Village, Desert Ruins, Factory, Sky Islands, Snow Fort. Each is generated deterministically from code, so every peer builds identical geometry from the map id. |
-| Bots | Run on the server and use the Godot navigation mesh, baked at runtime from the map. Easy/Normal/Hard set reaction time, aim error, and spray control. Bots loot pickups when hurt, strafe, and use every gun and the knife. |
+| Bots | Run on the server and use the Godot navigation mesh, baked at runtime from the map. Easy/Normal/Hard set reaction time, aim error (a floor of error never goes away), turn speed, view range and trigger discipline; getting shot makes a bot flinch. Bots loot pickups when hurt, strafe, and use every gun and the knife. |
 
 ## Layout
 
@@ -84,8 +85,10 @@ Helpers: `Data.catalog(category) -> Dictionary` for category in `"weapons"|"skin
 ### MapBuilder (`scripts/world/map_builder.gd`, `class_name MapBuilder`)
 - `static func build(map_id: String, root: Node3D, quality: int) -> MapInfo` adds the chunk meshes, trimesh collision (layer 1), `WorldEnvironment`, `DirectionalLight3D`, and a `NavigationRegion3D` with a baked mesh to `root`.
 - `MapInfo` (`class_name MapInfo`, a `RefCounted`) has `id`, `display_name`, `spawns: Array[Vector3]` (feet positions), `pickups: Array[Dictionary]` (`{kind: "health"|"ammo"|"grenade", pos: Vector3}`), `kill_y: float`, `bounds: AABB`, and `nav_map: RID`.
+- `static func preview(map_id: String) -> ImageTexture` returns a cached top-down image of the map for menus. `root` must be in the scene tree when calling `build()`.
 
 ### Models (`scripts/models/models.gd`, `class_name Models`, static)
-- `build_gun(weapon_id, skin_id) -> Node3D`: the origin is the grip and forward is -Z. Real-world scale. Child `Marker3D` named `Muzzle`.
+- `build_gun(weapon_id, skin_id) -> Node3D`: the origin is the grip and forward is -Z. Real-world scale. Child `Marker3D`s: `Muzzle`, `Sight` (rear sight, for ADS), and `Support` (off-hand point; absent on the knife).
+- `Avatar.play_reload(duration)` / `stop_reload()`: third-person reload pose. Remote players' reloads are driven by the `FLAG_RELOAD` bit in their state flags. The first-person viewmodel (`scripts/game/viewmodel.gd`) animates the off hand fetching a magazine prop (`Viewmodel.MAGS`) via `ViewmodelArms.set_left_hand()`.
 - `build_avatar(outfit_id, hat_id) -> Avatar`. `Avatar` (`class_name Avatar`, `extends Node3D`) has its feet at its origin, faces -Z, and is 1.8 m tall with eyes at 1.6 m. API: `set_look_pitch(rad)`, `animate(delta, speed: float, on_floor: bool, crouching: bool)`, `hold_weapon(weapon_id, skin_id)`, `play_shoot()`, `play_death()`, `reset_pose()`, `set_first_person(enabled)` (shadows only), `flash_hit()`.
 - `build_hat(hat_id) -> Node3D`, `build_pickup(kind) -> Node3D`, `build_grenade() -> Node3D`, `build_rocket() -> Node3D`, `skin_material(skin_id) -> Material`.
