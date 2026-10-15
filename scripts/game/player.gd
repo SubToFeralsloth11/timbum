@@ -407,15 +407,13 @@ func _apply_crouch_shape() -> void:
 func refill_ammo() -> void:
 	ammo.clear()
 	for wid in slots:
-		var w: Dictionary = Data.WEAPONS[wid]
-		ammo[wid] = Vector2i(int(w.mag), int(w.reserve))
+		ammo[wid] = Vector2i(int(Data.WEAPONS[wid].mag), _reserve(wid))
 
 
 func add_ammo_pickup() -> void:
 	for wid in slots:
-		var w: Dictionary = Data.WEAPONS[wid]
 		var a: Vector2i = ammo[wid]
-		a.y = mini(a.y + int(w.mag) * 2, int(w.reserve) * 2)
+		a.y = mini(a.y + int(Data.WEAPONS[wid].mag) * 2 * _ammo_scale(wid), _reserve(wid) * 2)
 		ammo[wid] = a
 
 
@@ -424,10 +422,20 @@ func needs_ammo() -> bool:
 	if mode == Mode.REMOTE:
 		return (_remote_flags & FLAG_NEEDS_AMMO) != 0
 	for wid in slots:
-		var w: Dictionary = Data.WEAPONS[wid]
-		if int(w.mag) > 0 and (ammo[wid] as Vector2i).y < int(w.reserve) * 2:
+		if int(Data.WEAPONS[wid].mag) > 0 and (ammo[wid] as Vector2i).y < _reserve(wid) * 2:
 			return true
 	return false
+
+
+## Rocket Party is built around the Boom Block, so it carries (and crates refill) twice the usual
+## rockets; otherwise a good life ran dry after eight shots.
+func _ammo_scale(wid: String) -> int:
+	return 2 if wid == "rocket" and Net.config.mutator == "rocket_party" else 1
+
+
+## Starting reserve for `wid` this match; ammo crates top it up to twice this.
+func _reserve(wid: String) -> int:
+	return int(Data.WEAPONS[wid].reserve) * _ammo_scale(wid)
 
 
 func _tick_weapon(delta: float) -> void:
