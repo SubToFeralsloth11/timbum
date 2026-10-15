@@ -349,6 +349,9 @@ func _server_shot(shooter_id: int, wid: String, ends: PackedVector3Array, normal
 		return
 	if wid != "knife" and not shooter.slots.has(wid):
 		return
+	# Projectile weapons only fire through _server_projectile; a hitscan report for one is forged.
+	if Data.WEAPONS[wid].get("projectile", false):
+		return
 	if ends.size() > 16 or normals.size() != ends.size() or hit_list.size() > 16:
 		return
 	var w: Dictionary = Data.WEAPONS[wid]
