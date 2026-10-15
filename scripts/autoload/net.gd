@@ -6,7 +6,7 @@ signal status(text: String)
 signal players_changed
 
 const DEFAULT_PORT := 7777
-const PROTOCOL_VERSION := 3
+const PROTOCOL_VERSION := 4
 const CONNECT_TIMEOUT := 8.0
 const WORLD_SCENE := "res://scenes/world.tscn"
 const MENU_SCENE := "res://scenes/main_menu.tscn"
