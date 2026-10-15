@@ -611,7 +611,7 @@ func _try_fire(wid: String, w: Dictionary) -> void:
 	if w.get("projectile", false):
 		var spread := lerpf(float(w.spread_hip), float(w.spread_ads), aim_blend)
 		var dir := _spread_dir(aim.basis, spread)
-		world.request_projectile(self, "rocket", aim.origin + dir * 0.6, dir * float(w.speed))
+		world.request_projectile(self, "rocket", _launch_origin(aim.origin, dir, 0.6), dir * float(w.speed))
 	else:
 		_fire_hitscan(wid, w, aim)
 	_apply_kick(w)
@@ -750,7 +750,20 @@ func _throw_grenade() -> void:
 	var vel := dir * float(Data.GRENADE.throw_speed) + Vector3.UP * 3.0 + Vector3(velocity.x, 0.0, velocity.z) * 0.4
 	if mode == Mode.LOCAL:
 		viewmodel.play_melee(true)
-	world.request_projectile(self, "grenade", aim.origin + dir * 0.5, vel)
+	world.request_projectile(self, "grenade", _launch_origin(aim.origin, dir, 0.5), vel)
+
+
+## Where a rocket or grenade starts: `ahead` metres along `dir` from the eye, pulled back in front
+## of a wall or hitbox in between. A projectile spawned inside a block (eye 0.4 m from a wall) or
+## a point-blank hitbox would never register that hit and fly through it.
+func _launch_origin(eye: Vector3, dir: Vector3, ahead: float) -> Vector3:
+	var to := eye + dir * ahead
+	var q := PhysicsRayQueryParameters3D.create(eye, to, MASK_WORLD | MASK_HITBOX, _exclude)
+	q.collide_with_areas = true
+	var r := get_world_3d().direct_space_state.intersect_ray(q)
+	if r.is_empty():
+		return to
+	return eye + dir * maxf(0.0, eye.distance_to(r.position) - 0.1)
 
 
 func muzzle_position() -> Vector3:
