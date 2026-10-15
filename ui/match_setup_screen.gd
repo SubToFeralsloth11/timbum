@@ -7,7 +7,7 @@ const TIME_LIMITS: Array[int] = [5, 8, 10, 15]
 const ROTATION := "rotation"
 
 ## Last choices this session, shared by both modes.
-static var _choice := {"map": ROTATION, "bots_fill": 8, "difficulty": 1, "kill_limit": 20, "time_minutes": 8}
+static var _choice := {"map": ROTATION, "bots_fill": 8, "difficulty": 1, "kill_limit": 20, "time_minutes": 8, "mutators": true}
 
 var hosting := false
 
@@ -104,6 +104,9 @@ func _ready() -> void:
 		time_names.append("%d MIN" % t)
 	_rule(rules, "TIME LIMIT", _segmented(time_names, TIME_LIMITS.find(_choice.time_minutes),
 		func(i: int) -> void: _choice.time_minutes = TIME_LIMITS[i]))
+	var mutator_names: Array[String] = ["RANDOM", "OFF"]
+	_rule(rules, "MUTATORS", _segmented(mutator_names, 0 if _choice.mutators else 1,
+		func(i: int) -> void: _choice.mutators = i == 0))
 	var hint := UIKit.label("Bots fill every empty slot up to the player count.", &"DimLabel")
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	rv.add_child(hint)
@@ -293,6 +296,7 @@ func _config() -> Dictionary:
 		"difficulty": _choice.difficulty,
 		"kill_limit": _choice.kill_limit,
 		"time_limit": int(_choice.time_minutes) * 60,
+		"mutators": _choice.mutators,
 	}
 
 

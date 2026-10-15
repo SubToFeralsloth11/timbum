@@ -51,6 +51,10 @@ var _crouch := 0.0
 var _recoil := 0.0
 var _flash := 0.0
 var _dead := false
+## Reload animation: seconds left / total; while > 0 the gun dips and rolls and the off hand
+## drops to the hip and back (fetching a new magazine).
+var _reload_left := 0.0
+var _reload_len := 0.0
 var _first_person := false
 ## Two-handed hold: grip position relative to the shoulder centre (aim space), torso twist,
 ## and the off-hand point in gun-mount space (null = off hand hangs free).
@@ -203,9 +207,19 @@ func reset_pose() -> void:
 	_air = 0.0
 	_crouch = 0.0
 	_recoil = 0.0
+	_reload_left = 0.0
+	_reload_len = 0.0
 	_twist = _twist_target
 	_set_flash(false)
 	_apply_pose()
+
+## Aborts a reload animation (weapon switch, death).
+func stop_reload() -> void:
+	if _reload_len <= 0.0:
+		return
+	_reload_left = 0.0
+	set_process(true)
+
 
 
 ## Local player's own body: true = shadows only (invisible, still casts a shadow).
@@ -245,9 +259,15 @@ func _process(delta: float) -> void:
 			_set_flash(false)
 	if _recoil > 0.0:
 		_recoil = move_toward(_recoil, 0.0, delta * 7.0)
-		if not _dead:
-			_apply_pose()
-	if _flash <= 0.0 and _recoil <= 0.0:
+	# _reload_len stays > 0 for one extra frame so the final pose is applied at zero.
+	var reload_active := _reload_len > 0.0
+	if _reload_left > 0.0:
+		_reload_left = maxf(0.0, _reload_left - delta)
+	elif reload_active:
+		_reload_len = 0.0
+	if (_recoil > 0.0 or reload_active) and not _dead:
+		_apply_pose()
+	if _flash <= 0.0 and _recoil <= 0.0 and _reload_len <= 0.0:
 		set_process(false)
 
 
@@ -304,16 +324,49 @@ func _apply_pose() -> void:
 	var aim := Basis(Vector3.RIGHT, _pitch)
 	var center := torso_basis * Vector3(0.0, SHOULDER_Y, 0.0)
 	var bob := Vector3(0.0, -absf(sin(_phase)) * 0.02 * _swing + 0.015 * _recoil, 0.07 * _recoil)
-	var mount := Transform3D(inv * aim * Basis(Vector3.RIGHT, 0.2 * _recoil), inv * (center + aim * (_grip + bob)))
+	var r := _reload_envelope()
+	var reload_tilt := Basis(Vector3.RIGHT, -0.55 * r) * Basis(Vector3.BACK, 0.6 * r)
+	var mount := Transform3D(inv * aim * Basis(Vector3.RIGHT, 0.2 * _recoil) * reload_tilt,
+		inv * (center + aim * (_grip + bob + Vector3(-0.05, -0.08, 0.1) * r)))
 	_gun_mount.transform = mount
 	if _gun == null:
 		_arm_r.basis = inv * Basis(Vector3.RIGHT, swing * 0.8 + 0.1 * _air)
 	else:
 		_arm_r.basis = _point_down_to(mount.origin - _arm_r.position)
-	if _support != null:
+	var fetching := _reload_fetch()
+	if _support != null and fetching <= 0.0:
 		_arm_l.basis = _point_down_to(mount * (_support as Vector3) - _arm_l.position)
+	elif _support != null:
+		# Off hand swings down to the belt for a fresh magazine, then back to the gun.
+		var hold := _point_down_to(mount * (_support as Vector3) - _arm_l.position)
+		_arm_l.basis = hold.slerp(inv * Basis(Vector3.RIGHT, 0.25), fetching)
 	else:
 		_arm_l.basis = inv * Basis(Vector3.RIGHT, -swing * 0.8 - 0.4 * _air) * Basis(Vector3.BACK, -0.08)
+
+
+## 0..1 weight of the reload pose: eases in over the first 15%, out over the last 15%.
+func _reload_envelope() -> float:
+	if _reload_left <= 0.0 or _reload_len <= 0.0:
+		return 0.0
+	var u := 1.0 - _reload_left / _reload_len
+	return smoothstep(0.0, 0.15, u) * (1.0 - smoothstep(0.85, 1.0, u))
+
+
+## 0..1 how far the off hand is away fetching a magazine (peaks mid-reload).
+func _reload_fetch() -> float:
+	if _reload_left <= 0.0 or _reload_len <= 0.0:
+		return 0.0
+	var u := 1.0 - _reload_left / _reload_len
+	return smoothstep(0.2, 0.4, u) * (1.0 - smoothstep(0.6, 0.8, u))
+
+
+## Third-person reload over `duration` seconds. Ignored while dead.
+func play_reload(duration: float) -> void:
+	if _dead or duration <= 0.0:
+		return
+	_reload_len = duration
+	_reload_left = duration
+	set_process(true)
 
 
 ## Basis whose -Y axis (an arm hanging from its shoulder) points along `dir`.

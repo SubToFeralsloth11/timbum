@@ -6,16 +6,21 @@ extends Node
 ## Loop: perceive (throttled) -> pick a goal -> follow a navmesh path or fight -> aim -> shoot.
 
 ## Per-difficulty tuning: Easy, Normal, Hard.
-const REACTION := [0.6, 0.34, 0.2]
-const AIM_ERROR_DEG := [7.0, 3.6, 1.8]
-const TURN_SPEED_DEG := [200.0, 360.0, 560.0]
-const VIEW_DISTANCE := [45.0, 65.0, 90.0]
-const VIEW_FOV_DEG := [100.0, 120.0, 140.0]
-const HEADSHOT_CHANCE := [0.05, 0.15, 0.3]
-const BURST_TIME := [0.35, 0.55, 0.9]
-const GRENADE_CHANCE := [0.0, 0.25, 0.45]
+## Tuned so an average player wins most duels against Normal; Hard is a real challenge.
+const REACTION := [0.9, 0.55, 0.32]
+const AIM_ERROR_DEG := [11.0, 6.5, 3.5]
+## Fraction of the aim error that never goes away however long a bot tracks you.
+const MIN_ERROR := [0.7, 0.5, 0.35]
+const TURN_SPEED_DEG := [140.0, 230.0, 360.0]
+const VIEW_DISTANCE := [35.0, 50.0, 70.0]
+const VIEW_FOV_DEG := [90.0, 110.0, 130.0]
+const HEADSHOT_CHANCE := [0.02, 0.07, 0.15]
+const BURST_TIME := [0.25, 0.4, 0.6]
+## Minimum seconds between semi-auto trigger pulls (human click speed).
+const SEMI_INTERVAL := [0.55, 0.38, 0.25]
+const GRENADE_CHANCE := [0.0, 0.15, 0.3]
 ## Seconds a bot must track a target through the scope before taking a sniper shot.
-const SNIPER_SETTLE := [1.2, 0.8, 0.5]
+const SNIPER_SETTLE := [1.5, 1.0, 0.65]
 
 const PERCEIVE_INTERVAL := 0.15
 const REPATH_INTERVAL := 0.9
@@ -47,7 +52,7 @@ var _strafe_dir := 1.0
 var _strafe_timer := 0.0
 var _burst_timer := 0.0
 var _burst_pause := 0.0
-var _semi_toggle := false
+var _semi_wait := 0.0
 var _grenade_timer := 6.0
 var _stuck_timer := 0.0
 var _stuck_check_pos := Vector3.ZERO
@@ -216,7 +221,10 @@ func _fight(delta: float) -> void:
 	_aim_offset_timer -= delta
 	if _aim_offset_timer <= 0.0:
 		_new_aim_offset()
-	var error_scale := maxf(0.25, 1.0 - _tracking_time * 0.7)
+	var error_scale := maxf(MIN_ERROR[difficulty], 1.0 - _tracking_time * 0.35)
+	# Getting shot throws the bot's aim off, like a flinch.
+	if World.now() - p.last_hurt_time < 0.35:
+		error_scale *= 1.8
 	aim_point += _aim_offset * dist * error_scale
 
 	var thrown := _maybe_grenade(delta, dist)
@@ -258,7 +266,7 @@ func _fight(delta: float) -> void:
 
 	# Fire control.
 	var want_aim := wid != "knife" and wid != "shotgun" and (dist > 14.0 or wid == "sniper")
-	p.in_aim = want_aim and difficulty > 0
+	p.in_aim = want_aim and (difficulty > 0 or wid == "sniper")
 	if _reaction_left > 0.0 or thrown:
 		return
 	if wid == "sniper" and (p.aim_blend < 0.95 or _tracking_time < SNIPER_SETTLE[difficulty]):
@@ -278,11 +286,13 @@ func _fight(delta: float) -> void:
 		else:
 			_burst_pause -= delta
 			if _burst_pause <= 0.0:
-				_burst_timer = BURST_TIME[difficulty] * randf_range(0.7, 1.4) * (1.6 if dist < 10.0 else 1.0)
-				_burst_pause = randf_range(0.12, 0.35) * (1.5 if dist > 25.0 else 1.0)
+				_burst_timer = BURST_TIME[difficulty] * randf_range(0.7, 1.4) * (1.4 if dist < 10.0 else 1.0)
+				_burst_pause = randf_range(0.25, 0.55) * (1.5 if dist > 25.0 else 1.0)
 	else:
-		_semi_toggle = not _semi_toggle
-		p.in_fire = _semi_toggle and p.fire_cooldown <= 0.0
+		_semi_wait -= delta
+		if _semi_wait <= 0.0 and p.fire_cooldown <= 0.0:
+			p.in_fire = true
+			_semi_wait = SEMI_INTERVAL[difficulty] * randf_range(0.8, 1.4)
 
 
 func _target_velocity() -> Vector3:

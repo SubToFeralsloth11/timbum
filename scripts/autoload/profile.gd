@@ -263,41 +263,58 @@ func load_profile() -> void:
 	var text := FileAccess.get_file_as_string(SAVE_PATH)
 	var parsed: Variant = JSON.parse_string(text)
 	if typeof(parsed) != TYPE_DICTIONARY:
-		push_warning("Profile file is corrupt; starting fresh.")
+		push_warning("Profile file is corrupt; backing it up and starting fresh.")
+		DirAccess.copy_absolute(ProjectSettings.globalize_path(SAVE_PATH), ProjectSettings.globalize_path(SAVE_PATH + ".bak"))
 		return
 	load_from_dict(parsed)
+
+
+## Saved number or `fallback` when the value is missing or not a number (JSON numbers are floats).
+static func _num(v: Variant, fallback: int) -> int:
+	return int(v) if typeof(v) in [TYPE_INT, TYPE_FLOAT] else fallback
 
 
 ## Merges a saved dictionary over defaults and repairs anything invalid.
 func load_from_dict(d: Dictionary) -> void:
 	var loaded_name := sanitize_name(str(d.get("player_name", "")))
 	player_name = loaded_name if not loaded_name.is_empty() else "Player"
-	coins = maxi(0, int(d.get("coins", coins)))
-	xp = maxi(0, int(d.get("xp", 0)))
-	level = maxi(1, int(d.get("level", 1)))
-	last_daily = int(d.get("last_daily", 0))
+	coins = maxi(0, _num(d.get("coins"), coins))
+	xp = maxi(0, _num(d.get("xp"), 0))
+	level = maxi(1, _num(d.get("level"), 1))
+	last_daily = _num(d.get("last_daily"), 0)
 	owned = {}
 	var saved_owned: Variant = d.get("owned", {})
 	if typeof(saved_owned) == TYPE_DICTIONARY:
 		for cat: String in Data.CATEGORIES:
 			var ids: Array = []
-			for id in saved_owned.get(cat, []):
+			var saved_ids: Variant = saved_owned.get(cat, [])
+			if typeof(saved_ids) != TYPE_ARRAY:
+				saved_ids = []
+			for id: Variant in saved_ids:
 				if Data.catalog(cat).has(str(id)) and not ids.has(str(id)):
 					ids.append(str(id))
 			owned[cat] = ids
 	settings = DEFAULT_SETTINGS.duplicate()
 	var saved_settings: Variant = d.get("settings", {})
 	if typeof(saved_settings) == TYPE_DICTIONARY:
-		for key: String in saved_settings:
-			if settings.has(key) and typeof(saved_settings[key]) in [TYPE_INT, TYPE_FLOAT, TYPE_BOOL, TYPE_STRING]:
-				settings[key] = saved_settings[key]
+		for key: Variant in saved_settings:
+			# Only accept a value of the same kind as the default (ints and floats interchange).
+			var want := typeof(DEFAULT_SETTINGS.get(key))
+			var got := typeof(saved_settings[key])
+			var numeric := want in [TYPE_INT, TYPE_FLOAT] and got in [TYPE_INT, TYPE_FLOAT]
+			if settings.has(key) and (got == want or numeric):
+				settings[key] = int(saved_settings[key]) if want == TYPE_INT and numeric else saved_settings[key]
 	settings.quality = clampi(int(settings.quality), 0, 2)
+	settings.fov = clampf(float(settings.fov), 60.0, 110.0)
+	settings.mouse_sens = clampf(float(settings.mouse_sens), 0.05, 10.0)
+	if not Color.html_is_valid(str(settings.crosshair_color)):
+		settings.crosshair_color = DEFAULT_SETTINGS.crosshair_color
 	stats = DEFAULT_STATS.duplicate()
 	var saved_stats: Variant = d.get("stats", {})
 	if typeof(saved_stats) == TYPE_DICTIONARY:
-		for key: String in saved_stats:
+		for key: Variant in saved_stats:
 			if stats.has(key):
-				stats[key] = int(saved_stats[key])
+				stats[key] = maxi(0, _num(saved_stats[key], 0))
 	var saved_loadout: Variant = d.get("loadout", {})
 	loadout = {"primary": "smg", "secondary": "pistol"}
 	if typeof(saved_loadout) == TYPE_DICTIONARY:

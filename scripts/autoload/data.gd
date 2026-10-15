@@ -184,6 +184,19 @@ const MAPS := {
 	"sky": {"name": "Sky Islands", "desc": "Floating islands joined by bridges. Mind the drop."},
 	"snow": {"name": "Snow Fort", "desc": "Two frozen forts and a pine forest in between."},
 }
+## Match modifiers. When mutators are on, each match rolls one (or none) so matches feel different.
+const MUTATORS := {
+	"none": {"name": "Classic", "desc": "Standard free-for-all."},
+	"low_gravity": {"name": "Low Gravity", "desc": "Moon jumps! Gravity is cut by more than half."},
+	"speed": {"name": "Turbo", "desc": "Everyone moves 30% faster."},
+	"big_heads": {"name": "Big Heads", "desc": "Huge heads, huge headshot targets."},
+	"vampire": {"name": "Vampire", "desc": "Every kill heals you to full."},
+	"rocket_party": {"name": "Rocket Party", "desc": "Everyone's primary is the Boom Block."},
+	"snipers": {"name": "Snipers Only", "desc": "Everyone's primary is the Voxel Longshot."},
+	"glass_cannon": {"name": "Glass Cannon", "desc": "All damage is doubled. Think fast."},
+}
+const TIMES_OF_DAY: Array[String] = ["day", "day", "sunset", "night"]
+
 const MAP_ROTATION: Array[String] = ["village", "desert", "factory", "sky", "snow"]
 
 const BOT_NAMES: Array[String] = [

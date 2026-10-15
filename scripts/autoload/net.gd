@@ -17,6 +17,11 @@ const DEFAULT_CONFIG := {
 	"difficulty": 1,
 	"kill_limit": 20,
 	"time_limit": 480,
+	## Roll a random mutator each match.
+	"mutators": true,
+	## Rolled per match by the server and sent to clients with the config.
+	"mutator": "none",
+	"time_of_day": "day",
 }
 
 ## peer id -> peer_info dictionary (see Profile.peer_info()). Kept in sync on every peer.
@@ -27,7 +32,8 @@ var config := DEFAULT_CONFIG.duplicate()
 var current_map := "village"
 var offline := false
 
-var _rotation_index := -1
+## Maps left in the current shuffled rotation.
+var _rotation: Array[String] = []
 var _connect_timer: SceneTreeTimer
 ## Set when we leave on purpose so the disconnect handler stays quiet.
 var _leaving := false
@@ -108,7 +114,7 @@ func _start_server(cfg: Dictionary) -> void:
 	config = sanitize_config(cfg)
 	players = {1: Profile.peer_info()}
 	players_changed.emit()
-	_rotation_index = -1
+	_rotation.clear()
 	load_map(_pick_next_map())
 
 
@@ -120,14 +126,34 @@ static func sanitize_config(cfg: Dictionary) -> Dictionary:
 	out.difficulty = clampi(int(cfg.get("difficulty", out.difficulty)), 0, 2)
 	out.kill_limit = clampi(int(cfg.get("kill_limit", out.kill_limit)), 1, 200)
 	out.time_limit = clampi(int(cfg.get("time_limit", out.time_limit)), 60, 3600)
+	out.mutators = bool(cfg.get("mutators", out.mutators))
+	var mut := str(cfg.get("mutator", out.mutator))
+	out.mutator = mut if Data.MUTATORS.has(mut) else "none"
+	var tod := str(cfg.get("time_of_day", out.time_of_day))
+	out.time_of_day = tod if tod in Data.TIMES_OF_DAY else "day"
 	return out
 
 
+## Rotation plays every map once in a shuffled order, then reshuffles (never the same map twice in a row).
 func _pick_next_map() -> String:
 	if config.map != "rotation":
 		return config.map
-	_rotation_index = (_rotation_index + 1) % Data.MAP_ROTATION.size()
-	return Data.MAP_ROTATION[_rotation_index]
+	if _rotation.is_empty():
+		_rotation = Data.MAP_ROTATION.duplicate()
+		_rotation.shuffle()
+		if _rotation.size() > 1 and _rotation[0] == current_map:
+			_rotation.reverse()
+	return _rotation.pop_front()
+
+
+## Picks this match's mutator (half the matches are classic) and lighting.
+func _roll_match_variety() -> void:
+	config.mutator = "none"
+	if config.mutators and randf() < 0.5:
+		var options: Array = Data.MUTATORS.keys()
+		options.erase("none")
+		config.mutator = options.pick_random()
+	config.time_of_day = Data.TIMES_OF_DAY.pick_random()
 
 
 # ---------------------------------------------------------------- server: map flow
@@ -136,6 +162,7 @@ func _pick_next_map() -> String:
 func load_map(map_id: String) -> void:
 	assert(multiplayer.is_server())
 	current_map = map_id
+	_roll_match_variety()
 	for id: int in players:
 		if id != 1:
 			_rpc_load_match.rpc_id(id, map_id, config)

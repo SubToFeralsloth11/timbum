@@ -37,6 +37,8 @@ const FLAG_CROUCH := 1
 const FLAG_FLOOR := 2
 const FLAG_AIM := 4
 const FLAG_SPRINT := 8
+const FLAG_RELOAD := 16
+const FLAG_NEEDS_AMMO := 32
 
 static var _weapon_ids: Array = []
 
@@ -115,6 +117,10 @@ var _last_visual_pos := Vector3.ZERO
 var _applied_crouch := -1.0
 var _fall_speed := 0.0
 var _stand_query: PhysicsShapeQueryParameters3D
+## Match mutator effects (see Data.MUTATORS), set once in _ready from Net.config.
+var gravity_scale := 1.0
+var speed_scale := 1.0
+var _head_hit_y := 1.56
 
 
 func setup(p_world: World, p_id: int, p_info: Dictionary, p_mode: Mode, p_is_bot: bool) -> void:
@@ -164,6 +170,20 @@ func _ready() -> void:
 
 	var head_box := BoxShape3D.new()
 	head_box.size = Vector3(0.52, 0.52, 0.52)
+	match str(Net.config.mutator):
+		"low_gravity":
+			gravity_scale = 0.42
+		"speed":
+			speed_scale = 1.3
+		"big_heads":
+			# Head pivots at the neck (1.35 m); scaling it 1.8x lifts its centre to ~1.75 m.
+			head_box.size = Vector3.ONE * 0.52 * 1.8
+			_head_hit_y = 1.35 + 0.225 * 1.8
+			# Scale the head's children: the pivot's own basis is rewritten every pose update.
+			for part: Node in avatar.get_head().get_children():
+				if part is Node3D:
+					(part as Node3D).scale *= 1.8
+					(part as Node3D).position *= 1.8
 	_hit_head = _make_hitbox("HitHead", "head", head_box)
 	_hit_head_col = _hit_head.get_child(0)
 	_hit_body_shape = BoxShape3D.new()
@@ -193,7 +213,7 @@ func _ready() -> void:
 	else:
 		nametag = Label3D.new()
 		nametag.text = "%s  Lv %d" % [info.name, int(info.get("level", 1))]
-		nametag.position.y = 2.15
+		nametag.position.y = _head_hit_y + 0.6
 		nametag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 		nametag.pixel_size = 0.004
 		nametag.font_size = 44
@@ -235,7 +255,7 @@ func _physics_process(delta: float) -> void:
 			_read_input()
 			_simulate(delta)
 			_send_timer -= delta
-			if _send_timer <= 0.0:
+			if _send_timer <= 0.0 and alive:
 				_send_timer = SEND_INTERVAL
 				world.submit_local_state(self)
 		Mode.BOT:
@@ -243,12 +263,17 @@ func _physics_process(delta: float) -> void:
 				brain.think(delta)
 			_simulate(delta)
 		Mode.REMOTE:
-			_interpolate()
+			if alive:
+				_interpolate()
+			else:
+				_fall_corpse(delta)
 	_update_visuals(delta)
 
 
 func _unhandled_input(event: InputEvent) -> void:
 	if mode != Mode.LOCAL or world.input_blocked():
+		return
+	if not alive:
 		return
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		var motion := event as InputEventMouseMotion
@@ -308,7 +333,7 @@ func weapon_data() -> Dictionary:
 
 func _simulate(delta: float) -> void:
 	if not alive:
-		velocity = Vector3.ZERO
+		_fall_corpse(delta)
 		return
 	var w := weapon_data()
 	var want_crouch := in_crouch
@@ -328,7 +353,7 @@ func _simulate(delta: float) -> void:
 		speed = CROUCH_SPEED
 	elif sprinting:
 		speed = SPRINT_SPEED
-	speed = lerpf(speed, minf(speed, ADS_SPEED), aim_blend) * float(w.move_mult)
+	speed = lerpf(speed, minf(speed, ADS_SPEED), aim_blend) * float(w.move_mult) * speed_scale
 
 	var wish := Basis(Vector3.UP, yaw) * Vector3(in_move.x, 0.0, -in_move.y)
 	if wish.length_squared() > 1.0:
@@ -342,7 +367,7 @@ func _simulate(delta: float) -> void:
 			velocity.y = JUMP_VELOCITY
 			Sfx.play(&"jump", global_position, -6.0)
 	else:
-		velocity.y -= GRAVITY * delta
+		velocity.y -= GRAVITY * gravity_scale * delta
 	_fall_speed = -velocity.y
 	move_and_slide()
 	_tick_weapon(delta)
@@ -362,7 +387,7 @@ func _apply_crouch_shape() -> void:
 	_collider.position.y = h * 0.5
 	var drop := CROUCH_DROP * crouch_blend
 	head.position.y = STAND_EYE - drop
-	_hit_head_col.position.y = 1.56 - drop
+	_hit_head_col.position.y = _head_hit_y - drop
 	var body_h := 1.35 - drop
 	_hit_body_shape.size.y = body_h
 	_hit_body_col.position.y = body_h * 0.5
@@ -383,6 +408,17 @@ func add_ammo_pickup() -> void:
 		var a: Vector2i = ammo[wid]
 		a.y = mini(a.y + int(w.mag) * 2, int(w.reserve) * 2)
 		ammo[wid] = a
+
+
+## True when an ammo crate would add anything (reserve below its cap on some gun).
+func needs_ammo() -> bool:
+	if mode == Mode.REMOTE:
+		return (_remote_flags & FLAG_NEEDS_AMMO) != 0
+	for wid in slots:
+		var w: Dictionary = Data.WEAPONS[wid]
+		if int(w.mag) > 0 and (ammo[wid] as Vector2i).y < int(w.reserve) * 2:
+			return true
+	return false
 
 
 func _tick_weapon(delta: float) -> void:
@@ -433,7 +469,7 @@ func switch_to(slot: int) -> void:
 	previous_slot = current_slot
 	current_slot = slot
 	switch_timer = SWITCH_TIME
-	reloading = false
+	_cancel_reload()
 	_trigger_down = true
 	if mode == Mode.LOCAL:
 		Sfx.play(&"weapon_switch", null, -8.0)
@@ -448,12 +484,36 @@ func start_reload() -> void:
 		return
 	reloading = true
 	reload_timer = float(w.reload)
-	var per_shell: bool = w.get("reload_per_shell", false)
+	# Shotguns replay the animation per shell in _tick_reload.
+	_play_reload_anim(float(w.reload))
 	if mode == Mode.LOCAL:
 		Sfx.play(&"reload", null, -4.0)
-		viewmodel.play_reload(0.0 if per_shell else float(w.reload))
 	else:
 		Sfx.play(&"reload", global_position, -8.0)
+
+
+func _play_reload_anim(duration: float) -> void:
+	avatar.play_reload(duration)
+	if viewmodel != null:
+		viewmodel.play_reload(duration)
+
+
+func _cancel_reload() -> void:
+	reloading = false
+	avatar.stop_reload()
+	if viewmodel != null:
+		viewmodel.stop_reload()
+
+
+## Dead bodies drop to the ground (someone killed mid-jump) and otherwise stay put.
+func _fall_corpse(delta: float) -> void:
+	velocity.x = 0.0
+	velocity.z = 0.0
+	if is_on_floor():
+		velocity.y = 0.0
+		return
+	velocity.y -= GRAVITY * gravity_scale * delta
+	move_and_slide()
 
 
 func _tick_reload(delta: float, wid: String, w: Dictionary) -> void:
@@ -467,7 +527,8 @@ func _tick_reload(delta: float, wid: String, w: Dictionary) -> void:
 			a.y -= 1
 			if mode == Mode.LOCAL:
 				Sfx.play(&"reload", null, -10.0, 1.3)
-				viewmodel.play_reload(0.0)
+			if a.y > 0 and a.x < int(w.mag):
+				_play_reload_anim(float(w.reload))
 		ammo[wid] = a
 		if a.y > 0 and a.x < int(w.mag):
 			reload_timer = float(w.reload)
@@ -483,7 +544,7 @@ func _try_fire(wid: String, w: Dictionary) -> void:
 	if reloading:
 		# Shotguns can interrupt a shell-by-shell reload with a fresh trigger pull.
 		if w.get("reload_per_shell", false) and (ammo[wid] as Vector2i).x > 0 and not _trigger_down:
-			reloading = false
+			_cancel_reload()
 		else:
 			return
 	if fire_cooldown > 0.0 or (_trigger_down and not w.auto):
@@ -596,7 +657,7 @@ func _melee_attack(quick: bool) -> void:
 	var w: Dictionary = Data.WEAPONS.knife
 	melee_timer = MELEE_TIME if quick else 0.0
 	fire_cooldown = 60.0 / float(w.rpm)
-	reloading = false
+	_cancel_reload()
 	var aim := aim_transform()
 	var reach := float(w.range)
 	var space := get_world_3d().direct_space_state
@@ -669,6 +730,10 @@ func state_flags() -> int:
 		f |= FLAG_AIM
 	if sprinting:
 		f |= FLAG_SPRINT
+	if reloading:
+		f |= FLAG_RELOAD
+	if needs_ammo():
+		f |= FLAG_NEEDS_AMMO
 	f |= weapon_index(weapon_id()) << 8
 	return f
 
@@ -708,7 +773,14 @@ func _interpolate() -> void:
 	global_position = (a[1] as Vector3).lerp(b[1], t)
 	yaw = lerp_angle(a[2], b[2], t)
 	pitch = lerpf(a[3], b[3], t)
+	var was_reloading := (_remote_flags & FLAG_RELOAD) != 0
 	_remote_flags = b[4]
+	var now_reloading := (_remote_flags & FLAG_RELOAD) != 0
+	if now_reloading and not was_reloading:
+		var w: Dictionary = Data.WEAPONS[weapon_from_index(_remote_flags >> 8)]
+		avatar.play_reload(float(w.reload) * (3.0 if w.get("reload_per_shell", false) else 1.0))
+	elif was_reloading and not now_reloading:
+		avatar.stop_reload()
 	crouching = (_remote_flags & FLAG_CROUCH) != 0
 	sprinting = (_remote_flags & FLAG_SPRINT) != 0
 	aim_blend = 1.0 if (_remote_flags & FLAG_AIM) != 0 else 0.0
@@ -787,8 +859,8 @@ func on_damaged(new_health: float, attacker_id: int) -> void:
 func die() -> void:
 	alive = false
 	health = 0.0
-	reloading = false
-	in_fire = false
+	_cancel_reload()
+	_clear_intent()
 	aim_blend = 0.0
 	velocity = Vector3.ZERO
 	collision_layer = 0
@@ -814,7 +886,9 @@ func respawn(pos: Vector3, p_yaw: float) -> void:
 	health = Data.MAX_HEALTH
 	alive = true
 	grenades = Data.GRENADE.per_life
-	reloading = false
+	_clear_intent()
+	_cancel_reload()
+	_remote_flags = FLAG_FLOOR
 	fire_cooldown = 0.0
 	switch_timer = SWITCH_TIME
 	_snapshots.clear()
@@ -838,10 +912,25 @@ func respawn(pos: Vector3, p_yaw: float) -> void:
 		brain.on_respawn()
 
 
+## Drops every queued action so nothing pressed while dead fires on respawn.
+func _clear_intent() -> void:
+	in_move = Vector2.ZERO
+	in_fire = false
+	in_aim = false
+	in_jump = false
+	in_crouch = false
+	in_sprint = false
+	in_reload = false
+	in_grenade = false
+	in_melee = false
+	in_slot = -1
+
+
 func _start_death_cam() -> void:
 	var start := camera.global_transform
 	camera.top_level = true
 	camera.global_transform = start
+	camera.fov = float(Profile.get_setting("fov"))
 	var back := Basis(Vector3.UP, yaw) * Vector3(0.0, 0.0, 3.2)
 	var eye := global_position + Vector3.UP * 2.6 + back
 	var q := PhysicsRayQueryParameters3D.create(global_position + Vector3.UP * 1.2, eye, MASK_WORLD)

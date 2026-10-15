@@ -20,6 +20,8 @@ var _arm_r: Node3D
 var _arm_l: Node3D
 var _mount: Node3D
 var _meshes: Array[MeshInstance3D] = []
+## Left hand resting point on the current gun (arms space), restored after reload animations.
+var _support_point := DEFAULT_SUPPORT
 
 
 ## Builds the arms. Called by Models.build_viewmodel_arms().
@@ -59,7 +61,15 @@ func fit_to_gun(gun: Node3D) -> void:
 	_arm_l.visible = support != null
 	_mount.basis = Basis.IDENTITY if support or gun == null else Basis.from_euler(ONE_HANDED_TILT)
 	if support:
-		_place(_arm_l, _mount.transform * (gun.transform * support.position), ELBOW_L)
+		_support_point = _mount.transform * (gun.transform * support.position)
+		_place(_arm_l, _support_point, ELBOW_L)
+
+
+## Puts the left hand at `hand` (arms space) blended with its resting point on the gun by
+## `weight` (0 = on the gun, 1 = fully at `hand`). Used by reload animations.
+func set_left_hand(hand: Vector3, weight: float) -> void:
+	if _arm_l.visible:
+		_place(_arm_l, _support_point.lerp(hand, clampf(weight, 0.0, 1.0)), ELBOW_L)
 
 
 func get_gun_mount() -> Node3D:

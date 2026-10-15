@@ -52,6 +52,7 @@ var _kill_label_t := 0.0
 var _announce_t := 0.0
 var _pickup_t := 0.0
 var _scores_dirty := true
+var _crosshair_color := Color.WHITE
 ## Floating damage numbers: [Label, world position, age]
 var _damage_numbers: Array = []
 const DAMAGE_NUMBER_LIFE := 0.8
@@ -104,12 +105,20 @@ func _ready() -> void:
 
 	if int(Profile.stats.matches) < 3:
 		_show_controls_hint()
+	_show_match_intro()
+	_refresh_crosshair_color()
+	Profile.changed.connect(_refresh_crosshair_color)
 
 	_pause = PauseMenu.new()
 	_pause.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_pause.visible = false
 	_pause.resume_requested.connect(_close_pause)
 	add_child(_pause)
+
+
+func _refresh_crosshair_color() -> void:
+	var html := str(Profile.get_setting("crosshair_color"))
+	_crosshair_color = Color.html(html) if Color.html_is_valid(html) else Color.WHITE
 
 
 # ---------------------------------------------------------------- building
@@ -309,7 +318,9 @@ func _build_scoreboard() -> void:
 	_root.add_child(_scoreboard)
 	var v := VBoxContainer.new()
 	_scoreboard.add_child(v)
-	var title := _label("%s  -  FREE FOR ALL" % Data.MAPS[Net.current_map].name.to_upper(), 24, Color(1, 0.85, 0.4))
+	var mut: Dictionary = Data.MUTATORS[str(Net.config.mutator)]
+	var title := _label("%s  -  %s  -  %s" % [Data.MAPS[Net.current_map].name.to_upper(), str(mut.name).to_upper(),
+		str(Net.config.time_of_day).to_upper()], 24, Color(1, 0.85, 0.4))
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(title)
 	v.add_child(_score_row(["#", "PLAYER", "KILLS", "DEATHS", "HS"], Color(0.7, 0.75, 0.85), false))
@@ -409,7 +420,8 @@ func _process(delta: float) -> void:
 
 	var t := int(ceil(world.time_left))
 	_clock_label.text = "%d:%02d" % [t / 60, t % 60]
-	_clock_label.add_theme_color_override("font_color", Color(1, 0.4, 0.35) if t <= 30 else Color.WHITE)
+	# self_modulate tints without the re-layout a theme override triggers.
+	_clock_label.self_modulate = Color(1, 0.4, 0.35) if t <= 30 else Color.WHITE
 
 	_kill_label_t -= delta
 	_kill_label.modulate.a = clampf(_kill_label_t, 0.0, 1.0)
@@ -448,12 +460,12 @@ func _process(delta: float) -> void:
 		var a: Vector2i = p.ammo[wid]
 		_ammo_label.text = str(a.x)
 		_reserve_label.text = "/ %d" % a.y
-		_ammo_label.add_theme_color_override("font_color", Color(1, 0.35, 0.3) if a.x <= int(w.mag) / 4 else Color.WHITE)
+		_ammo_label.self_modulate = Color(1, 0.35, 0.3) if a.x <= int(w.mag) / 4 else Color.WHITE
 		if p.reloading:
 			_hint_label.text = "RELOADING"
 		elif a.x == 0 and a.y == 0:
 			_hint_label.text = "NO AMMO - FIND AN AMMO CRATE"
-		elif a.x <= int(w.mag) / 4:
+		elif a.x <= int(w.mag) / 4 and a.y > 0:
 			_hint_label.text = "[R] RELOAD"
 		else:
 			_hint_label.text = ""
@@ -469,7 +481,7 @@ func _process(delta: float) -> void:
 	_crosshair.visible = p.alive and not _results.visible and ((not scoped and p.aim_blend < 0.6) or wid == "knife")
 	_crosshair.spread = p.current_spread()
 	_crosshair.fov = p.camera.fov if p.camera != null else 85.0
-	_crosshair.color = Color.html(str(Profile.get_setting("crosshair_color")))
+	_crosshair.color = _crosshair_color
 	_crosshair.queue_redraw()
 	_damage_ring.update_view(p)
 
@@ -560,6 +572,31 @@ func _update_damage_numbers(delta: float) -> void:
 		l.visible = not cam.is_position_behind(pos)
 		l.position = cam.unproject_position(pos) - l.size * 0.5
 		l.modulate.a = clampf((DAMAGE_NUMBER_LIFE - entry[2]) / 0.3, 0.0, 1.0)
+
+
+## Big centred card announcing the map, mutator and time of day; fades after a few seconds.
+func _show_match_intro() -> void:
+	var mut: Dictionary = Data.MUTATORS[str(Net.config.mutator)]
+	var box := VBoxContainer.new()
+	box.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+	box.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	box.position.y = 120
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_root.add_child(box)
+	var map_label := _label(Data.MAPS[Net.current_map].name.to_upper(), 46, Color(1, 0.85, 0.35))
+	map_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(map_label)
+	var sub := "%s  ·  %s" % [str(mut.name).to_upper(), str(Net.config.time_of_day).to_upper()]
+	var sub_label := _label(sub, 24, Color(0.6, 0.9, 1.0) if Net.config.mutator != "none" else Color.WHITE)
+	sub_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(sub_label)
+	var desc := _label(str(mut.desc), 18, Color(0.85, 0.85, 0.9))
+	desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(desc)
+	var tw := create_tween()
+	tw.tween_interval(4.0)
+	tw.tween_property(box, "modulate:a", 0.0, 0.8)
+	tw.tween_callback(box.queue_free)
 
 
 func _show_controls_hint() -> void:

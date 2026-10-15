@@ -44,7 +44,11 @@ var _my_streak := 0
 # Server-only state.
 var _ready_peers := {}
 var _respawn_at := {}
-var _last_fire := {}
+## "<entity>:<weapon>" -> [tokens, last refill time]; see _take_fire_token.
+var _fire_tokens := {}
+## Entity id -> time of last server respawn; client state is ignored briefly afterwards so stale
+## pre-respawn positions can't drag the player back (or below kill_y again).
+var _respawned_at := {}
 var _spawned_at := {}
 var _last_damage := {}
 var _grenades := {}
@@ -69,6 +73,7 @@ func _ready() -> void:
 	map_root.name = "Map"
 	add_child(map_root)
 	map_info = MapBuilder.build(Net.current_map, map_root, int(Profile.get_setting("quality")))
+	_apply_time_of_day(map_root, str(Net.config.time_of_day))
 	_entities_root = Node3D.new()
 	_entities_root.name = "Entities"
 	add_child(_entities_root)
@@ -205,7 +210,7 @@ func _server_add_entity(eid: int, info: Dictionary, is_bot: bool) -> void:
 		"headshots": 0, "streak": 0, "best_streak": 0, "bot": is_bot}
 	_spawned_at[eid] = now()
 	_grenades[eid] = int(Data.GRENADE.per_life)
-	_broadcast(&"_s_spawn_entity", [eid, info, is_bot, spawn[0], spawn[1], Data.MAX_HEALTH, true])
+	_broadcast(&"_s_spawn_entity", [eid, _apply_loadout_mutator(info), is_bot, spawn[0], spawn[1], Data.MAX_HEALTH, true])
 	_broadcast(&"_s_scores", [scores])
 
 
@@ -215,6 +220,7 @@ func _server_remove_entity(eid: int) -> void:
 	_spawned_at.erase(eid)
 	_grenades.erase(eid)
 	_last_damage.erase(eid)
+	_respawned_at.erase(eid)
 	_broadcast(&"_s_despawn", [eid])
 	_broadcast(&"_s_scores", [scores])
 
@@ -282,6 +288,7 @@ func _pick_spawn(for_id: int) -> Array:
 func _server_respawn(eid: int) -> void:
 	var spawn := _pick_spawn(eid)
 	_spawned_at[eid] = now()
+	_respawned_at[eid] = now()
 	_grenades[eid] = int(Data.GRENADE.per_life)
 	_broadcast(&"_s_respawn", [eid, spawn[0], spawn[1]])
 
@@ -305,10 +312,7 @@ func _server_shot(shooter_id: int, wid: String, ends: PackedVector3Array, normal
 	if ends.size() > 16 or normals.size() != ends.size() or hit_list.size() > 16:
 		return
 	var w: Dictionary = Data.WEAPONS[wid]
-	var t := now()
-	var key := "%d:%s" % [shooter_id, wid]
-	var rate_ok := t - float(_last_fire.get(key, -100.0)) >= 60.0 / float(w.rpm) * 0.7
-	_last_fire[key] = t
+	var rate_ok := _take_fire_token("%d:%s" % [shooter_id, wid], float(w.rpm))
 	for pid: int in _ready_peers:
 		if pid != shooter_id:
 			_s_shot_fx.rpc_id(pid, shooter_id, wid, ends, normals)
@@ -317,18 +321,38 @@ func _server_shot(shooter_id: int, wid: String, ends: PackedVector3Array, normal
 	if not rate_ok:
 		return
 	_spawned_at[shooter_id] = -100.0
+	# One shot can never deal more to a single target than every pellet landing as a headshot.
 	var max_dmg := float(w.damage) * float(w.head_mult) * float(w.pellets) + 0.01
+	var per_target := {}
+	var head_hit := {}
 	for h: Variant in hit_list:
 		if typeof(h) != TYPE_ARRAY or (h as Array).size() != 3:
 			continue
 		var tid := int(h[0])
+		per_target[tid] = minf(float(per_target.get(tid, 0.0)) + clampf(float(h[1]), 0.0, max_dmg), max_dmg)
+		head_hit[tid] = bool(head_hit.get(tid, false)) or bool(h[2])
+	for tid: int in per_target:
 		var target: Player = entities.get(tid)
 		if target == null or not target.alive or tid == shooter_id:
 			continue
 		var dist := shooter.global_position.distance_to(target.global_position)
 		if wid == "knife" and dist > 4.5:
 			continue
-		_server_damage(target, clampf(float(h[1]), 0.0, max_dmg), shooter_id, wid, bool(h[2]), shooter.global_position)
+		_server_damage(target, per_target[tid], shooter_id, wid, head_hit[tid], shooter.global_position)
+
+
+## Fire-rate check as a token bucket (refills at the weapon's rpm, bursts of 3), so shots that
+## arrive bunched up after lag still count while sustained over-rate fire is rejected.
+func _take_fire_token(key: String, rpm: float) -> bool:
+	const BURST := 3.0
+	var t := now()
+	var bucket: Array = _fire_tokens.get(key, [BURST, t])
+	var tokens := minf(BURST, float(bucket[0]) + (t - float(bucket[1])) * rpm / 60.0)
+	if tokens < 1.0:
+		_fire_tokens[key] = [tokens, t]
+		return false
+	_fire_tokens[key] = [tokens - 1.0, t]
+	return true
 
 
 func _server_damage(target: Player, amount: float, attacker_id: int, wid: String, head: bool, from_pos: Vector3) -> void:
@@ -336,6 +360,8 @@ func _server_damage(target: Player, amount: float, attacker_id: int, wid: String
 		return
 	if attacker_id != target.id and now() - float(_spawned_at.get(target.id, -100.0)) < SPAWN_PROTECTION:
 		return
+	if Net.config.mutator == "glass_cannon":
+		amount *= 2.0
 	var hp := maxf(0.0, target.health - amount)
 	var dealt := target.health - hp
 	_last_damage[target.id] = now()
@@ -370,6 +396,8 @@ func _server_kill(victim_id: int, killer_id: int, wid: String, head: bool) -> vo
 		k.best_streak = maxi(int(k.best_streak), int(k.streak))
 		if head:
 			k.headshots += 1
+		if Net.config.mutator == "vampire" and entities.has(killer_id) and entities[killer_id].alive:
+			_broadcast(&"_s_health", [killer_id, Data.MAX_HEALTH])
 	_respawn_at[victim_id] = now() + Data.RESPAWN_TIME
 	_broadcast(&"_s_killed", [victim_id, killer_id, wid, head])
 	_broadcast(&"_s_scores", [scores])
@@ -385,10 +413,8 @@ func _server_projectile(owner_id: int, kind: String, origin: Vector3, vel: Vecto
 		return
 	if kind == "rocket":
 		var w: Dictionary = Data.WEAPONS.rocket
-		var key := "%d:rocket" % owner_id
-		if not shooter.slots.has("rocket") or now() - float(_last_fire.get(key, -100.0)) < 60.0 / float(w.rpm) * 0.7:
+		if not shooter.slots.has("rocket") or not _take_fire_token("%d:rocket" % owner_id, float(w.rpm)):
 			return
-		_last_fire[key] = now()
 		vel = vel.limit_length(float(w.speed))
 	elif kind == "grenade":
 		if int(_grenades.get(owner_id, 0)) <= 0:
@@ -456,6 +482,9 @@ func _server_pickups(t: float) -> void:
 					if p.health >= Data.MAX_HEALTH:
 						continue
 					_broadcast(&"_s_health", [eid, minf(Data.MAX_HEALTH, p.health + HEALTH_PICKUP)])
+				"ammo":
+					if not p.needs_ammo():
+						continue
 				"grenade":
 					if int(_grenades.get(eid, 0)) >= int(Data.GRENADE.per_life):
 						continue
@@ -585,9 +614,14 @@ func _c_ready() -> void:
 
 @rpc("any_peer", "call_remote", "unreliable_ordered")
 func _c_state(pos: Vector3, p_yaw: float, p_pitch: float, flags: int) -> void:
-	var p: Player = entities.get(multiplayer.get_remote_sender_id())
-	if p != null and p.mode == Player.Mode.REMOTE and p.alive:
-		p.push_snapshot(pos, p_yaw, p_pitch, flags)
+	var sender := multiplayer.get_remote_sender_id()
+	var p: Player = entities.get(sender)
+	if p == null or p.mode != Player.Mode.REMOTE or not p.alive:
+		return
+	# Packets sent before the client learned it respawned would teleport it back to its corpse.
+	if now() - float(_respawned_at.get(sender, -100.0)) < 0.4:
+		return
+	p.push_snapshot(pos, p_yaw, p_pitch, flags)
 
 
 @rpc("any_peer", "call_remote", "reliable")
@@ -827,6 +861,52 @@ func _s_match_end(rows: Array) -> void:
 
 
 # ================================================================ helpers
+
+## Rocket Party / Snipers Only swap everyone's primary for this match.
+static func _apply_loadout_mutator(info: Dictionary) -> Dictionary:
+	var forced := ""
+	match str(Net.config.mutator):
+		"rocket_party": forced = "rocket"
+		"snipers": forced = "sniper"
+	if forced.is_empty():
+		return info
+	var out := info.duplicate()
+	out.primary = forced
+	return out
+
+
+## Re-lights the built map for sunset or night. Every peer gets the same value from Net.config.
+static func _apply_time_of_day(map_root: Node3D, time_of_day: String) -> void:
+	if time_of_day == "day":
+		return
+	var sun := map_root.find_children("*", "DirectionalLight3D", true, false)
+	var envs := map_root.find_children("*", "WorldEnvironment", true, false)
+	if sun.is_empty() or envs.is_empty():
+		return
+	var light := sun[0] as DirectionalLight3D
+	var env := (envs[0] as WorldEnvironment).environment
+	var sky := env.sky.sky_material as ProceduralSkyMaterial
+	if time_of_day == "sunset":
+		light.rotation_degrees.x = -12.0
+		light.light_color = Color(1.0, 0.62, 0.38)
+		light.light_energy *= 0.85
+		sky.sky_top_color = Color(0.26, 0.3, 0.55)
+		sky.sky_horizon_color = Color(1.0, 0.6, 0.38)
+		env.fog_light_color = Color(0.95, 0.6, 0.45)
+		env.ambient_light_color = Color(0.95, 0.72, 0.6)
+	else:
+		# Night: cool moonlight bright enough to fight in; lamp blocks and muzzle flashes pop.
+		light.rotation_degrees.x = -40.0
+		light.light_color = Color(0.6, 0.7, 1.0)
+		light.light_energy *= 0.32
+		sky.sky_top_color = Color(0.02, 0.03, 0.08)
+		sky.sky_horizon_color = Color(0.1, 0.13, 0.25)
+		sky.ground_horizon_color = Color(0.08, 0.1, 0.18)
+		env.fog_light_color = Color(0.1, 0.12, 0.22)
+		env.ambient_light_color = Color(0.45, 0.52, 0.8)
+		env.ambient_light_energy *= 0.55
+		env.glow_enabled = true
+
 
 static func weapon_label(wid: String) -> String:
 	match wid:

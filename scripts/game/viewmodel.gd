@@ -56,6 +56,21 @@ void fragment() {
 static var _shader: Shader
 static var _converted := {}
 
+## Reload props per weapon, in gun space: [magwell centre, prop size, prop x-tilt, colour,
+## direction the new magazine/shell/rocket is pushed in from].
+const MAGS := {
+	"pistol": [Vector3(0, -0.06, 0.015), Vector3(0.024, 0.085, 0.03), -0.22, Color(0.36, 0.38, 0.42), Vector3.DOWN],
+	"revolver": [Vector3(0.03, 0.012, 0.0), Vector3(0.036, 0.036, 0.03), 0.0, Color(0.85, 0.65, 0.25), Vector3.RIGHT],
+	"smg": [Vector3(0, -0.065, -0.11), Vector3(0.028, 0.15, 0.034), 0.0, Color(0.36, 0.38, 0.42), Vector3.DOWN],
+	"rifle": [Vector3(0, -0.07, -0.112), Vector3(0.03, 0.14, 0.05), 0.2, Color(0.36, 0.38, 0.42), Vector3.DOWN],
+	"lmg": [Vector3(-0.01, -0.06, -0.1), Vector3(0.088, 0.108, 0.128), 0.0, Color(0.25, 0.28, 0.2), Vector3.DOWN],
+	"sniper": [Vector3(0, -0.012, -0.1), Vector3(0.032, 0.048, 0.066), 0.0, Color(0.36, 0.38, 0.42), Vector3.DOWN],
+	"shotgun": [Vector3(0, 0.0, -0.12), Vector3(0.02, 0.02, 0.055), 0.0, Color(0.75, 0.12, 0.1), Vector3.DOWN],
+	"rocket": [Vector3(0, 0.1, 0.32), Vector3(0.08, 0.08, 0.22), 0.0, Color(0.7, 0.15, 0.12), Vector3.BACK],
+}
+## Where the left hand goes to fetch a new magazine (arms space; below the screen edge).
+const HAND_OFFSCREEN := Vector3(-0.08, -0.4, 0.05)
+
 var _pivot: Node3D
 var _arms: ViewmodelArms
 var _gun: Node3D
@@ -77,7 +92,9 @@ var _draw_t := 0.0
 var _melee_t := 0.0
 var _flash_t := 0.0
 var _sprint_blend := 0.0
-var _land_dip := 0.0
+var _mag_prop: MeshInstance3D
+var _mag_box: BoxMesh
+var _mag_weapon := ""
 
 
 func setup(outfit_id: String, skin_id: String) -> void:
@@ -154,6 +171,69 @@ func play_reload(length: float) -> void:
 	_reload_t = _reload_len
 
 
+## Cancels a running reload animation (weapon switch).
+func stop_reload() -> void:
+	_reload_t = 0.0
+	_arms.set_left_hand(Vector3.ZERO, 0.0)
+	if _mag_prop != null:
+		_mag_prop.visible = false
+
+
+## Left hand leaves the gun, fetches a fresh magazine (shell / speedloader / rocket) from
+## below the screen, pushes it into the gun and returns. `u` is reload progress 0..1.
+func _animate_magazine(u: float) -> void:
+	if not MAGS.has(_weapon):
+		return
+	var spec: Array = MAGS[_weapon]
+	var size: Vector3 = spec[1]
+	var push_dir: Vector3 = spec[4]
+	if _mag_prop == null:
+		_mag_box = BoxMesh.new()
+		_mag_prop = MeshInstance3D.new()
+		_mag_prop.mesh = _mag_box
+		_mag_prop.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_arms.add_child(_mag_prop)
+	var gun_xf := _arms.get_gun_mount().transform * _gun.transform
+	var seat_basis := gun_xf.basis * Basis(Vector3.RIGHT, float(spec[2]))
+	var seated := gun_xf * (spec[0] as Vector3)
+	# The hand holds the far end of the magazine, i.e. the end that goes in last.
+	var grip_offset := seat_basis * (push_dir * absf(push_dir.dot(size)) * 0.5)
+	var approach := seated + seat_basis * (push_dir * 0.2)
+	var offscreen := HAND_OFFSCREEN
+	if _weapon == "shotgun":
+		offscreen = seated + Vector3(0.0, -0.18, 0.06)
+	var w := 0.0
+	var hand := offscreen
+	var mag_pos := Vector3.ZERO
+	var show_mag := false
+	if u < 0.15:
+		w = 0.0
+	elif u < 0.3:
+		w = smoothstep(0.15, 0.3, u)
+	elif u < 0.45:
+		w = 1.0
+	elif u < 0.7:
+		w = 1.0
+		hand = offscreen.lerp(approach + grip_offset, smoothstep(0.45, 0.7, u))
+		show_mag = true
+	elif u < 0.8:
+		w = 1.0
+		hand = (approach + grip_offset).lerp(seated + grip_offset, smoothstep(0.7, 0.78, u))
+		show_mag = true
+	else:
+		hand = seated + grip_offset
+		w = 1.0 - smoothstep(0.8, 0.95, u)
+	if show_mag:
+		mag_pos = hand - grip_offset
+		if _mag_weapon != _weapon:
+			_mag_weapon = _weapon
+			_mag_box.size = size
+			_mag_prop.material_override = _converted_material(Models.flat_material(spec[3], 0.6))
+		_mag_prop.transform = Transform3D(seat_basis, mag_pos)
+	_mag_prop.visible = show_mag
+	_arms.set_left_hand(hand, w)
+
+
 func play_melee(_quick: bool) -> void:
 	_melee_t = 0.32
 
@@ -189,10 +269,17 @@ func update_pose(delta: float, p: Player) -> void:
 	if p.crouching:
 		rot.z += 0.06 * (1.0 - ads)
 	if _reload_t > 0.0:
-		var ph := sin((1.0 - _reload_t / _reload_len) * PI)
-		rot.x -= ph * 0.55
-		rot.z += ph * 0.35
-		pos.y -= ph * 0.07
+		var u := 1.0 - _reload_t / _reload_len
+		var e := smoothstep(0.0, 0.15, u) * (1.0 - smoothstep(0.85, 1.0, u))
+		var tilt := 0.25 if _weapon == "rocket" else 1.0
+		# Lift the gun toward the screen centre and cant it so the magwell faces the camera.
+		rot.z += 0.4 * e * tilt
+		rot.y += 0.3 * e * tilt
+		rot.x += 0.25 * e
+		pos += Vector3(-0.08, 0.08, 0.05) * e
+		_animate_magazine(u)
+	elif _mag_prop != null and _mag_prop.visible:
+		stop_reload()
 	if _draw_t > 0.0:
 		var d := _draw_t / 0.3
 		pos.y -= d * d * 0.28
