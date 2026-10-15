@@ -187,8 +187,9 @@ func _choose_weapon() -> void:
 		want = 2
 	if primary == "rocket" and dist < 6.0:
 		want = 1 if sa.x + sa.y > 0 else 2
-	if target != null and dist < 2.2 and difficulty > 0 and p.current_slot != 2:
-		p.in_melee = p.melee_timer <= 0.0 and randf() < 0.2
+	var reacted := target != null and _target_visible and _reaction_left <= 0.0
+	if reacted and dist < 2.2 and difficulty > 0 and p.current_slot != 2:
+		p.in_melee = p.melee_timer <= 0.0 and randf() < 0.06
 	if want != p.current_slot and p.switch_timer <= 0.0:
 		p.in_slot = want
 	if target == null and not p.reloading:
@@ -231,7 +232,7 @@ func _fight(delta: float) -> void:
 		error_scale *= 1.8
 	aim_point += _aim_offset * dist * error_scale
 
-	var thrown := _maybe_grenade(delta, dist)
+	var thrown := _reaction_left <= 0.0 and _maybe_grenade(delta, dist)
 	if not thrown:
 		_turn_toward(aim_point, delta)
 

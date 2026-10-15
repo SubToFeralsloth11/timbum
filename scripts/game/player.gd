@@ -213,7 +213,8 @@ func _ready() -> void:
 	else:
 		nametag = Label3D.new()
 		nametag.text = "%s  Lv %d" % [info.name, int(info.get("level", 1))]
-		nametag.position.y = _head_hit_y + 0.6
+		# Clears the tallest hat; Big Heads scales head and hat by 1.8.
+		nametag.position.y = 2.15 + (0.76 if Net.config.mutator == "big_heads" else 0.0)
 		nametag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 		nametag.pixel_size = 0.004
 		nametag.font_size = 44
@@ -776,9 +777,11 @@ func _interpolate() -> void:
 	var was_reloading := (_remote_flags & FLAG_RELOAD) != 0
 	_remote_flags = b[4]
 	var now_reloading := (_remote_flags & FLAG_RELOAD) != 0
-	if now_reloading and not was_reloading:
-		var w: Dictionary = Data.WEAPONS[weapon_from_index(_remote_flags >> 8)]
-		avatar.play_reload(float(w.reload) * (3.0 if w.get("reload_per_shell", false) else 1.0))
+	var reload_w: Dictionary = Data.WEAPONS[weapon_from_index(_remote_flags >> 8)]
+	var replay: bool = reload_w.get("reload_per_shell", false) and not avatar.is_reloading()
+	if now_reloading and (not was_reloading or replay):
+		# Starts the pose; shotguns replay it shell by shell while they keep loading.
+		avatar.play_reload(float(reload_w.reload))
 	elif was_reloading and not now_reloading:
 		avatar.stop_reload()
 	crouching = (_remote_flags & FLAG_CROUCH) != 0

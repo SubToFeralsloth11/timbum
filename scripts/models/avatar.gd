@@ -213,6 +213,11 @@ func reset_pose() -> void:
 	_set_flash(false)
 	_apply_pose()
 
+
+func is_reloading() -> bool:
+	return _reload_left > 0.0
+
+
 ## Aborts a reload animation (weapon switch, death).
 func stop_reload() -> void:
 	if _reload_len <= 0.0:

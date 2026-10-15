@@ -11,13 +11,13 @@ These were settled up front, choosing the standard option each time:
 |---|---|
 | Mode | Free-for-all deathmatch. First to the kill limit (default 20) or the most kills when time runs out (default 8 min). After a match: results screen, coins/XP, then the next map in rotation 12 s later. |
 | Players | 2-12 per match. Bots fill up to the target player count (default 8). When a human joins, one bot leaves; when a human leaves, a bot comes back. |
-| Networking | ENet, default port **7777**. The host is the server and also plays. Clients run their own movement and hit detection. The server owns health, kills, score, pickups, bots, projectiles, and the match clock. It sanity-checks every hit request: shooter alive, target alive, fire-rate budget, range. Offline play uses `OfflineMultiplayerPeer`, so the same code runs everywhere. |
+| Networking | ENet, default port **7777**. The host is the server and also plays. Clients run their own movement and hit detection (trusted, no server-side line-of-sight check). The server owns health, kills, score, pickups, bots, projectiles, and the match clock. It sanity-checks every hit request: shooter and target alive, weapon in the shooter's loadout, a token-bucket fire-rate budget, total damage per target capped at one shot's maximum, and knife range. Offline play uses `OfflineMultiplayerPeer`, so the same code runs everywhere. |
 | Art | All art is procedural; there are no external assets. Voxel maps use 1 m blocks, a 16x16 pixel-art texture atlas, vertex ambient occlusion, and ramps for elevation changes. Characters, guns, and hats are built from boxes. |
 | Audio | All sound effects and the chiptune music are synthesised at startup into `AudioStreamWAV`. |
 | Variety | Map rotation is shuffled each cycle. Each match the server rolls a time of day (day/sunset/night) and, when mutators are on, a mutator half the time (`Data.MUTATORS`: low gravity, turbo, big heads, vampire, rocket party, snipers only, glass cannon). Both travel to clients inside `Net.config`. |
 | Economy | Coins come from kills, headshots, placement, level-ups, and a 24-hour daily reward. The shop sells guns, weapon skins (one equipped skin applies to every gun), hats, and outfits. Nothing is random; there are no loot boxes. Everything persists in `user://profile.json`. |
 | Maps | Village, Desert Ruins, Factory, Sky Islands, Snow Fort. Each is generated deterministically from code, so every peer builds identical geometry from the map id. |
-| Bots | Run on the server and use the Godot navigation mesh, baked at runtime from the map. Easy/Normal/Hard set reaction time, aim error (a floor of error never goes away), turn speed, view range and trigger discipline; getting shot makes a bot flinch. Bots loot pickups when hurt, strafe, and use every gun and the knife. |
+| Bots | Run on the server and use the Godot navigation mesh, baked at runtime from the map. Easy/Normal/Hard set reaction time, aim error (a floor of error never goes away), turn speed, view range and trigger discipline; getting shot makes a bot flinch, and melee/grenades also wait for the reaction delay. Each bot rolls an aggression personality (cautious lurkers vs hunters). Bots loot pickups when hurt, strafe, and use every gun and the knife. |
 
 ## Layout
 
@@ -78,7 +78,7 @@ Helpers: `Data.catalog(category) -> Dictionary` for category in `"weapons"|"skin
 ### Net (autoload, `scripts/autoload/net.gd`)
 - `const DEFAULT_PORT := 7777`
 - `play_offline(config: Dictionary)`, `host(port: int, config: Dictionary) -> Error`, `join(ip: String, port: int) -> Error`, `leave()` (closes the session and returns to the main menu).
-- `config` keys: `map` (map id or `"rotation"`), `bots_fill` (target total players, int), `difficulty` (0 easy, 1 normal, 2 hard), `kill_limit`, `time_limit` (seconds).
+- `config` keys: `map` (map id or `"rotation"`), `bots_fill` (target total players, int), `difficulty` (0 easy, 1 normal, 2 hard), `kill_limit`, `time_limit` (seconds), `mutators` (bool). The server adds `mutator` and `time_of_day` per match before sending the config to clients.
 - `signal status(text: String)` reports connection progress or errors to the menu.
 - `players: Dictionary` maps peer id to `peer_info`, kept on every peer.
 

@@ -146,13 +146,17 @@ func _pick_next_map() -> String:
 	return _rotation.pop_front()
 
 
-## Picks this match's mutator (half the matches are classic) and lighting.
+## Picks this match's mutator (half the matches are classic, never the same mutator twice in a
+## row) and lighting.
 func _roll_match_variety() -> void:
+	var previous: String = config.mutator
 	config.mutator = "none"
-	if config.mutators and randf() < 0.5:
+	if config.mutators and (previous != "none" or randf() < 0.6):
 		var options: Array = Data.MUTATORS.keys()
 		options.erase("none")
-		config.mutator = options.pick_random()
+		options.erase(previous)
+		if previous == "none" or randf() < 0.5:
+			config.mutator = options.pick_random()
 	config.time_of_day = Data.TIMES_OF_DAY.pick_random()
 
 
