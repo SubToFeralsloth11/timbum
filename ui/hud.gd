@@ -52,6 +52,8 @@ var _kill_label_t := 0.0
 var _announce_t := 0.0
 var _pickup_t := 0.0
 var _scores_dirty := true
+## Last entity to hold the lead outright (0 before anyone has); lead changes involving us are announced.
+var _last_leader := 0
 var _crosshair_color := Color.WHITE
 ## Floating damage numbers: [Label, world position, age]
 var _damage_numbers: Array = []
@@ -512,10 +514,27 @@ func refresh_scores() -> void:
 	var limit := int(Net.config.kill_limit)
 	if rows.is_empty():
 		_goal_label.text = "First to %d kills" % limit
-	else:
-		_goal_label.text = "Leader: %s  %d / %d" % [rows[0].name, rows[0].kills, limit]
+		return
+	_goal_label.text = "Leader: %s  %d / %d" % [rows[0].name, rows[0].kills, limit]
+	var top := int(rows[0].kills)
+	var runner_up := int(rows[1].kills) if rows.size() > 1 else 0
 	if my_rank > 0:
-		_rank_label.text = "You: %d kills  -  #%d of %d" % [rows[my_rank - 1].kills, my_rank, rows.size()]
+		var mine := int(rows[my_rank - 1].kills)
+		var gap := "  -  %d behind the leader" % (top - mine)
+		if top == 0:
+			gap = ""
+		elif mine == top:
+			gap = "  -  leading by %d" % (top - runner_up) if top > runner_up else "  -  tied for the lead"
+		_rank_label.text = "You: %d kills  -  #%d of %d%s" % [mine, my_rank, rows.size(), gap]
+	# Only an outright lead counts, so ties don't flicker the callout.
+	if top > runner_up:
+		var leader := int(rows[0].id)
+		if leader != _last_leader:
+			if leader == me:
+				announce("YOU TAKE THE LEAD")
+			elif _last_leader == me:
+				announce("%s TAKES THE LEAD" % str(rows[0].name).to_upper())
+			_last_leader = leader
 
 
 func _sorted_rows() -> Array:
@@ -646,7 +665,11 @@ func show_kill(victim: String, head: bool) -> void:
 	_kill_label_t = 2.0
 
 
+## Shows a big callout; one arriving while another is still fresh (a streak and a lead change
+## from the same kill) is stacked under it instead of replacing it.
 func announce(text: String) -> void:
+	if _announce_t > 1.6 and not _announce_label.text.is_empty() and not _announce_label.text.contains(text):
+		text = _announce_label.text + "\n" + text
 	_announce_label.text = text
 	_announce_t = 2.4
 	_announce_label.scale = Vector2(1.4, 1.4)
