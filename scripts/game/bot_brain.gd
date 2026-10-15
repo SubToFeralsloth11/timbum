@@ -30,6 +30,9 @@ const HEARING_DISTANCE := 7.0
 
 var p: Player
 var difficulty := 1
+## Personality: < 1 cautious (keeps distance, lurks near pickups), > 1 aggressive (pushes in,
+## hunts players across the map). Rolled per bot so matches don't all play the same.
+var aggression := 1.0
 
 var target: Player
 var _target_visible := false
@@ -63,6 +66,7 @@ var _jump_timer := 0.0
 func _ready() -> void:
 	p = get_parent() as Player
 	difficulty = clampi(int(Net.config.difficulty), 0, 2)
+	aggression = randf_range(0.6, 1.5)
 	_perceive_timer = randf() * PERCEIVE_INTERVAL
 	_stuck_check_pos = p.global_position
 
@@ -232,7 +236,7 @@ func _fight(delta: float) -> void:
 		_turn_toward(aim_point, delta)
 
 	# Movement: hold preferred range and strafe.
-	var range_pref := _preferred_range()
+	var range_pref := _preferred_range() / aggression
 	var to_target := target.global_position - p.global_position
 	var flat := Vector3(to_target.x, 0.0, to_target.z).normalized()
 	var right := flat.cross(Vector3.UP)
@@ -368,7 +372,11 @@ func _pick_roam_goal() -> Vector3:
 					best = node.position
 		if best_d < INF:
 			return best
-	if randf() < 0.35 and not p.world.pickup_nodes.is_empty():
+	if aggression > 1.1 and randf() < 0.6:
+		var prey: Array = p.world.entities.values().filter(func(o: Player) -> bool: return o != p and o.alive)
+		if not prey.is_empty():
+			return (prey.pick_random() as Player).global_position
+	if randf() < 0.35 / aggression and not p.world.pickup_nodes.is_empty():
 		return p.world.pickup_nodes.pick_random().position
 	return info.spawns.pick_random()
 
