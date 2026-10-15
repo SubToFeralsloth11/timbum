@@ -1,7 +1,8 @@
 extends Node
 ## Procedural audio: synthesised sound effects (pooled flat + positional voices) and
-## chiptune music with crossfades. All synthesis runs on WorkerThreadPool tasks; a sound
-## requested before its worker result arrives is rendered on the spot (a few ms).
+## chiptune music with crossfades. All synthesis runs on WorkerThreadPool tasks (AudioJob)
+## whose results are polled in _process; a sound requested before its worker result
+## arrives is rendered on the spot (a few ms).
 ## Headless runs (dedicated servers, tests) skip all audio work: every call is a no-op.
 
 const FLAT_VOICES := 12
@@ -25,7 +26,7 @@ var _music_players: Array[AudioStreamPlayer] = []
 var _music_active := 0
 var _music_track := &""
 var _music_tween: Tween
-var _tasks := PackedInt64Array()
+var _jobs: Array[AudioJob] = []
 ## Milliseconds spent synthesising, keyed "sfx" / track name (worker time) and "sfx_main"
 ## (main-thread on-demand renders). Read by tests and diagnostics.
 var timings := {"sfx_main": 0.0}
@@ -62,16 +63,46 @@ func _init() -> void:
 		p.volume_linear = 0.0
 		add_child(p)
 		_music_players.append(p)
-	# Effects and the menu track are needed right away; the rest may queue behind other work.
-	_tasks.append(WorkerThreadPool.add_task(_render_sfx, true, "Sfx effects"))
-	for track in MUSIC_TRACKS:
-		_tasks.append(WorkerThreadPool.add_task(_render_music.bind(track), track == &"menu", "Sfx music %s" % track))
+	# Two parallel jobs: the menu track alone (wanted first, slowest), and effects followed
+	# by the remaining tracks.
+	_start_job(AudioJob.new(false, [&"menu"]))
+	_start_job(AudioJob.new(true, [&"match", &"results"]))
 
 
+func _start_job(job: AudioJob) -> void:
+	job.task_id = WorkerThreadPool.add_task(AudioJob.run.bind(job), true, "Sfx render")
+	_jobs.append(job)
+
+
+## Cancels in-flight renders. Only jobs that already started are waited on (they stop within
+## one sound or bar): during engine shutdown the pool may never pick up a queued task, and
+## waiting on one would hang forever.
 func _exit_tree() -> void:
-	for id in _tasks:
-		WorkerThreadPool.wait_for_task_completion(id)
-	_tasks.clear()
+	for job in _jobs:
+		job.cancelled = true
+	for job in _jobs:
+		if job.started:
+			WorkerThreadPool.wait_for_task_completion(job.task_id)
+	_jobs.clear()
+
+
+func _process(_delta: float) -> void:
+	for i in range(_jobs.size() - 1, -1, -1):
+		var job := _jobs[i]
+		var res := job.take()
+		timings.merge(res.timings, true)
+		for sound: StringName in res.sfx:
+			if not _streams.has(sound):
+				_streams[sound] = res.sfx[sound]
+		for track: StringName in res.music:
+			_music[track] = res.music[track]
+			if track == _music_track:
+				_crossfade_to(res.music[track])
+		if res.done:
+			WorkerThreadPool.wait_for_task_completion(job.task_id)
+			_jobs.remove_at(i)
+	if _jobs.is_empty():
+		set_process(false)
 
 
 ## Plays `sound`. `pos` = Vector3 for positional 3D audio, null for a flat (UI) sound.
@@ -173,34 +204,3 @@ func _render_now(sound: StringName) -> Array:
 	timings.sfx_main += (Time.get_ticks_usec() - t) / 1000.0
 	_streams[sound] = takes
 	return takes
-
-
-## Worker: renders every effect and hands each one to the main thread as it completes.
-func _render_sfx() -> void:
-	var t := Time.get_ticks_usec()
-	for sound in SfxBank.NAMES:
-		_store_sfx.call_deferred(sound, SfxBank.render(sound))
-	_store_timing.call_deferred("sfx", (Time.get_ticks_usec() - t) / 1000.0)
-
-
-## Worker: composes and renders one music track.
-func _render_music(track: StringName) -> void:
-	var t := Time.get_ticks_usec()
-	var stream := Chiptune.render(track)
-	_store_timing.call_deferred(String(track), (Time.get_ticks_usec() - t) / 1000.0)
-	_store_music.call_deferred(track, stream)
-
-
-func _store_sfx(sound: StringName, takes: Array[AudioStreamWAV]) -> void:
-	if not _streams.has(sound):
-		_streams[sound] = takes
-
-
-func _store_timing(key: String, ms: float) -> void:
-	timings[key] = ms
-
-
-func _store_music(track: StringName, stream: AudioStreamWAV) -> void:
-	_music[track] = stream
-	if track == _music_track and _music_players[_music_active].stream != stream:
-		_crossfade_to(stream)

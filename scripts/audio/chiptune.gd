@@ -32,8 +32,9 @@ const RHYTHMS := {
 enum Inst { LEAD, ARP, BASS }
 
 
-## Composes and renders `track`; returns null for unknown tracks.
-static func render(track: StringName) -> AudioStreamWAV:
+## Composes and renders `track`; returns null for unknown tracks, or when `job` is
+## cancelled mid-render (checked once per note and per bar).
+static func render(track: StringName, job: AudioJob = null) -> AudioStreamWAV:
 	if not TRACKS.has(track):
 		return null
 	var spec: Dictionary = TRACKS[track]
@@ -53,8 +54,12 @@ static func render(track: StringName) -> AudioStreamWAV:
 	var root: int = spec.root
 	var scale: Array[int] = spec.scale
 	for e in notes:
+		if job and job.cancelled:
+			return null
 		_note(buf, Inst.LEAD, e[0], e[1], e[2], 0.2, step_len)
 	for bar in bars:
+		if job and job.cancelled:
+			return null
 		var deg: int = prog[bar % prog.size()]
 		var chord: Array[int] = [
 			_midi(root, scale, deg), _midi(root, scale, deg + 2), _midi(root, scale, deg + 4), _midi(root, scale, deg + 7)]
