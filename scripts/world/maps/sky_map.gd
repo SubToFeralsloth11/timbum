@@ -8,7 +8,9 @@ const B := preload("res://scripts/world/block_atlas.gd")
 const G := preload("res://scripts/world/voxel_grid.gd")
 
 const SIZE := Vector3i(64, 40, 64)
-const KILL_Y := -15.0
+## Above the low decorative rocks (tops at 10-11) so nobody who drops onto
+## one is stranded there alive; the lowest walkable floor is 17.
+const KILL_Y := 13.0
 const SEED := 4404
 const ATMOSPHERE := {
 	"sky_top": Color("3576d4"), "sky_horizon": Color("c4e2f8"), "ground_bottom": Color("8fbfe6"),
