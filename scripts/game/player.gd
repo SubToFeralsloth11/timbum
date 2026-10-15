@@ -604,7 +604,10 @@ func _try_fire(wid: String, w: Dictionary) -> void:
 		_trigger_down = true
 		return
 	_trigger_down = true
-	fire_cooldown = 60.0 / float(w.rpm)
+	# Carry the part of a tick the cooldown overshot when the trigger is held, so automatic fire
+	# keeps its rated rpm instead of rounding every shot up to whole physics ticks.
+	var overshoot := fire_cooldown if fire_cooldown > -get_physics_process_delta_time() else 0.0
+	fire_cooldown = 60.0 / float(w.rpm) + minf(overshoot, 0.0)
 	a.x -= 1
 	ammo[wid] = a
 	var aim := aim_transform()
