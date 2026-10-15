@@ -4,7 +4,7 @@ extends Node3D
 ## Materials are swapped for a shader that squashes depth toward the near plane,
 ## so the gun draws over walls instead of clipping into them, while still being lit by the scene.
 
-const HIP_POS := Vector3(0.17, -0.19, -0.36)
+const HIP_POS := Vector3(0.13, -0.15, -0.4)
 const ADS_DEPTH := -0.24
 const SPRINT_ROT := Vector3(-0.35, 0.7, 0.25)
 
@@ -57,8 +57,7 @@ static var _shader: Shader
 static var _converted := {}
 
 var _pivot: Node3D
-var _arms: Node3D
-var _mount: Node3D
+var _arms: ViewmodelArms
 var _gun: Node3D
 var _muzzle: Node3D
 var _flash: MeshInstance3D
@@ -86,11 +85,8 @@ func setup(outfit_id: String, skin_id: String) -> void:
 	_pivot = Node3D.new()
 	_pivot.name = "Pivot"
 	add_child(_pivot)
-	_arms = Models.build_viewmodel_arms(outfit_id)
+	_arms = Models.build_viewmodel_arms(outfit_id) as ViewmodelArms
 	_pivot.add_child(_arms)
-	_mount = _arms.find_child("GunMount", true, false) as Node3D
-	if _mount == null:
-		_mount = _arms
 	_convert(_arms)
 
 	_flash = MeshInstance3D.new()
@@ -117,33 +113,23 @@ func set_weapon(wid: String) -> void:
 	if wid == _weapon:
 		return
 	_weapon = wid
-	if _gun != null:
-		_gun.queue_free()
 	_gun = Models.build_gun(wid, _skin)
-	_mount.add_child(_gun)
+	_arms.attach_gun(_gun)
 	_convert(_gun)
-	_muzzle = _gun.find_child("Muzzle", true, false) as Node3D
+	_muzzle = _gun.get_node_or_null(^"Muzzle") as Node3D
 	_scoped = Data.WEAPONS[wid].get("scope", false)
 	_ads_pos = _compute_ads_pos()
 	play_draw()
 
 
-## Places the pivot so the top centre of the gun (its sights) sits on the camera axis.
+## Places the pivot so the gun's rear sight sits just under the camera axis.
 func _compute_ads_pos() -> Vector3:
-	var to_pivot := _pivot.global_transform.affine_inverse() * _gun.global_transform
-	var top := -INF
-	var center_x := 0.0
-	var found := false
-	for mi: MeshInstance3D in _gun.find_children("*", "MeshInstance3D", true, false):
-		var xf := to_pivot * (_gun.global_transform.affine_inverse() * mi.global_transform)
-		var box := xf * mi.get_aabb()
-		if box.end.y > top:
-			top = box.end.y
-			center_x = box.get_center().x
-		found = true
-	if not found:
+	var sight := _gun.get_node_or_null(^"Sight") as Node3D
+	if sight == null:
 		return Vector3(0.0, -0.12, ADS_DEPTH)
-	return Vector3(-center_x, -top - 0.012, ADS_DEPTH)
+	var local := _pivot.global_transform.affine_inverse() * sight.global_position
+	# Keep the rear sight ~20 cm in front of the eye whatever the gun's length.
+	return Vector3(-local.x, -local.y - 0.006, -0.2 - local.z)
 
 
 func muzzle_position() -> Vector3:

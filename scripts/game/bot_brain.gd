@@ -14,6 +14,8 @@ const VIEW_FOV_DEG := [100.0, 120.0, 140.0]
 const HEADSHOT_CHANCE := [0.05, 0.15, 0.3]
 const BURST_TIME := [0.35, 0.55, 0.9]
 const GRENADE_CHANCE := [0.0, 0.25, 0.45]
+## Seconds a bot must track a target through the scope before taking a sniper shot.
+const SNIPER_SETTLE := [1.2, 0.8, 0.5]
 
 const PERCEIVE_INTERVAL := 0.15
 const REPATH_INTERVAL := 0.9
@@ -32,6 +34,7 @@ var _reaction_left := 0.0
 var _tracking_time := 0.0
 var _aim_offset := Vector3.ZERO
 var _aim_offset_timer := 0.0
+var _aim_head := false
 
 var _path := PackedVector3Array()
 var _path_index := 0
@@ -208,7 +211,7 @@ func _fight(delta: float) -> void:
 	var aim_point := target.global_position + Vector3.UP * (1.0 if target.crouching else 1.25)
 	if wid == "rocket":
 		aim_point = target.global_position + Vector3.UP * 0.2 + _target_velocity() * (dist / float(w.speed))
-	elif _aim_offset_timer > 0.0 and _aim_offset.y > 0.0 and randf() < HEADSHOT_CHANCE[difficulty]:
+	elif _aim_head:
 		aim_point = target.head.global_position
 	_aim_offset_timer -= delta
 	if _aim_offset_timer <= 0.0:
@@ -258,7 +261,7 @@ func _fight(delta: float) -> void:
 	p.in_aim = want_aim and difficulty > 0
 	if _reaction_left > 0.0 or thrown:
 		return
-	if wid == "sniper" and p.aim_blend < 0.95:
+	if wid == "sniper" and (p.aim_blend < 0.95 or _tracking_time < SNIPER_SETTLE[difficulty]):
 		return
 	var aim_dir := -Basis.from_euler(Vector3(p.pitch, p.yaw, 0.0)).z
 	var needed := (aim_point - p.head.global_position).normalized()
@@ -292,6 +295,7 @@ func _new_aim_offset() -> void:
 	var err := tan(deg_to_rad(AIM_ERROR_DEG[difficulty]))
 	_aim_offset = Vector3(randf_range(-1, 1), randf_range(-0.6, 1.0), randf_range(-1, 1)).normalized() * err * randf_range(0.3, 1.0)
 	_aim_offset_timer = randf_range(0.25, 0.6)
+	_aim_head = randf() < HEADSHOT_CHANCE[difficulty]
 
 
 func _maybe_grenade(delta: float, dist: float) -> bool:

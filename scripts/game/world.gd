@@ -11,7 +11,7 @@ const SNAPSHOT_INTERVAL := 0.05
 const CLOCK_INTERVAL := 1.0
 const REGEN_INTERVAL := 0.25
 const RESULTS_TIME := 12.0
-const SPAWN_PROTECTION := 1.5
+const SPAWN_PROTECTION := 2.0
 const REGEN_DELAY := 5.0
 const REGEN_RATE := 12.0
 const PICKUP_RESPAWN := 20.0
@@ -243,16 +243,24 @@ func _make_bot_info() -> Dictionary:
 	}
 
 
+## Picks a spawn far from living enemies, strongly avoiding any spawn an enemy can see.
 func _pick_spawn(for_id: int) -> Array:
-	var spawns := map_info.spawns
+	var space := get_world_3d().direct_space_state
 	var ranked: Array = []
-	for s: Vector3 in spawns:
+	for s: Vector3 in map_info.spawns:
 		var nearest := 1e9
+		var seen := false
 		for eid: int in entities:
 			var p: Player = entities[eid]
-			if eid != for_id and p.alive:
-				nearest = minf(nearest, s.distance_squared_to(p.global_position))
-		ranked.append([nearest, s])
+			if eid == for_id or not p.alive:
+				continue
+			var d := s.distance_squared_to(p.global_position)
+			nearest = minf(nearest, d)
+			if not seen and d < 70.0 * 70.0:
+				var q := PhysicsRayQueryParameters3D.create(s + Vector3.UP * 1.6, p.global_position + Vector3.UP * 1.6, Player.MASK_WORLD)
+				seen = space.intersect_ray(q).is_empty()
+		# Visible spawns rank below every hidden one.
+		ranked.append([nearest - (1e8 if seen else 0.0), s])
 	ranked.sort_custom(func(a: Array, b: Array) -> bool: return a[0] > b[0])
 	var pick: Vector3 = ranked[randi() % mini(3, ranked.size())][1]
 	var to_center := map_info.bounds.get_center() - pick
