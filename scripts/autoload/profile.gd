@@ -152,11 +152,21 @@ func xp_for_level(lvl: int) -> int:
 
 
 func can_claim_daily() -> bool:
-	return Time.get_unix_time_from_system() - last_daily >= 86400
+	return _daily_elapsed() >= 86400
 
 
 func seconds_until_daily() -> int:
-	return maxi(0, int(86400 - (Time.get_unix_time_from_system() - last_daily)))
+	return maxi(0, int(86400 - _daily_elapsed()))
+
+
+## Seconds since the last daily claim. A claim time in the future means the system clock
+## was moved back; the 24 h wait restarts from now instead of locking the reward until the
+## clock catches up.
+func _daily_elapsed() -> float:
+	var now := Time.get_unix_time_from_system()
+	if last_daily > now:
+		last_daily = int(now)
+	return now - last_daily
 
 
 func claim_daily() -> int:
