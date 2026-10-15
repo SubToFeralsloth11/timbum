@@ -3,7 +3,7 @@ extends MenuScreen
 ## Join a hosted game by IP and port. Remembers the last address in Profile settings.
 
 ## Status words that mean the attempt is over (Net reports free-form text).
-const END_WORDS: Array[String] = ["fail", "lost", "disconnect", "refused", "timed out", "timeout", "error", "could not", "invalid", "full", "kicked", "closed"]
+const END_WORDS: Array[String] = ["fail", "lost", "disconnect", "refused", "timed out", "timeout", "error", "could not", "invalid", "full", "kicked", "closed", "mismatch"]
 
 var _ip: LineEdit
 var _port: LineEdit
@@ -76,6 +76,10 @@ func _ready() -> void:
 	buttons.add_child(_join)
 
 	Net.status.connect(_on_status)
+	# Leaving the page abandons a pending attempt, so it can't pull the player into a match later.
+	back_requested.connect(func() -> void:
+		if _connecting:
+			_on_cancel())
 	_set_connecting(false)
 
 
