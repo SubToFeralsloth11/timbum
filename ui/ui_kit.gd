@@ -171,12 +171,17 @@ static func weapon_stats(id: String) -> Array:
 	var reach: float = float(w.get("range", 0.0)) if w.slot == "melee" else minf(float(w.falloff_end), 120.0)
 	var reach_text := "%.1fm" % reach if w.slot == "melee" else ("%dm" % roundi(reach) if reach < 120.0 else "MAX")
 	var mag := int(w.mag)
+	# Reload: full-magazine time (shell by shell for the shotgun); a fuller bar is a faster reload.
+	var per_shell: bool = w.get("reload_per_shell", false)
+	var reload_full := float(w.reload) * (mag if per_shell else 1)
+	var reload_text := "-" if mag == 0 else "%.1fs" % reload_full
 	return [
 		["Damage", dmg / 120.0, dmg_text],
 		["Fire rate", float(w.rpm) / 900.0, "%d rpm" % roundi(float(w.rpm))],
 		["Range", reach / 120.0, reach_text],
 		["Mobility", (float(w.move_mult) - 0.8) / 0.32, "%d%%" % roundi(float(w.move_mult) * 100.0)],
 		["Magazine", sqrt(mag / 100.0), "-" if mag == 0 else str(mag)],
+		["Reload", 0.0 if mag == 0 else (4.5 - reload_full) / 4.0, reload_text],
 	]
 
 
