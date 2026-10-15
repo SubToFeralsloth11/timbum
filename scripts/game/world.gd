@@ -50,6 +50,8 @@ var _ready_peers := {}
 ## Peers who voted to skip the rest of the results screen.
 var _skip_votes := {}
 var _advancing := false
+## When the results screen ends and the next match loads (World.now() seconds).
+var _results_until := 0.0
 var _respawn_at := {}
 ## Shooter key ("<entity>" for guns, "<entity>:knife") -> [debt seconds, time]; see _take_fire_token.
 var _fire_tokens := {}
@@ -567,7 +569,8 @@ func _server_end_match() -> void:
 			"headshots": s.headshots, "best_streak": s.best_streak, "bot": s.bot, "level": s.level})
 	rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 		return a.kills > b.kills if a.kills != b.kills else a.deaths < b.deaths)
-	_broadcast(&"_s_match_end", [rows, Net.plan_next_match()])
+	_results_until = now() + RESULTS_TIME
+	_broadcast(&"_s_match_end", [rows, Net.plan_next_match(), RESULTS_TIME])
 	get_tree().create_timer(RESULTS_TIME).timeout.connect(_server_advance)
 
 
@@ -707,7 +710,7 @@ func _c_ready() -> void:
 		if not pickup_nodes[i].active:
 			_s_pickup_state.rpc_id(pid, i, false, _pickup_ready_at[i] - now())
 	if match_over:
-		_s_match_end.rpc_id(pid, results, next_up)
+		_s_match_end.rpc_id(pid, results, next_up, maxf(0.0, _results_until - now()))
 		_server_tally_skip()
 		return
 	_server_add_entity(pid, Net.players[pid], false)
@@ -977,7 +980,7 @@ func _s_chat(sender_name: String, text: String) -> void:
 
 
 @rpc("authority", "call_remote", "reliable")
-func _s_match_end(rows: Array, next: Dictionary) -> void:
+func _s_match_end(rows: Array, next: Dictionary, wait: float) -> void:
 	match_over = true
 	results = rows
 	next_up = next
@@ -997,7 +1000,7 @@ func _s_match_end(rows: Array, next: Dictionary) -> void:
 		})
 	Sfx.play(&"match_end")
 	Sfx.play_music(&"results")
-	hud.show_results(rows, placement, rewards, RESULTS_TIME, next)
+	hud.show_results(rows, placement, rewards, wait, next)
 
 
 @rpc("authority", "call_remote", "reliable")
