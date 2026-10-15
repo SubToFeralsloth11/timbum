@@ -994,6 +994,15 @@ func respawn(pos: Vector3, p_yaw: float) -> void:
 	_remote_flags = FLAG_FLOOR
 	fire_cooldown = 0.0
 	switch_timer = SWITCH_TIME
+	melee_timer = 0.0
+	grenade_cooldown = 0.0
+	knife_cooldown = 0.0
+	crouching = false
+	crouch_blend = 0.0
+	sprinting = false
+	aim_blend = 0.0
+	_trigger_down = false
+	_applied_crouch = -1.0
 	_snapshots.clear()
 	refill_ammo()
 	if current_slot != 0:
@@ -1013,6 +1022,7 @@ func respawn(pos: Vector3, p_yaw: float) -> void:
 		_end_death_cam()
 	if brain != null:
 		brain.on_respawn()
+	_apply_crouch_shape()
 
 
 ## Drops every queued action so nothing pressed while dead fires on respawn.
