@@ -53,6 +53,8 @@ const PRESSURE_RANGE := Vector2(0.8, 1.2)
 const LEADER_BIAS_PER_KILL := 1.5
 const LEADER_BIAS_MAX := 7.5
 const CROWD_PENALTY := 5.0
+## Placeholder for "no position yet", far outside every map.
+const NO_POS := Vector3(0.0, -100000.0, 0.0)
 
 var p: Player
 var difficulty := 1
@@ -88,6 +90,10 @@ var _path := PackedVector3Array()
 var _path_index := 0
 var _goal := Vector3.ZERO
 var _has_goal := false
+## The pickup the current goal leads to (null if none), so a taken one is abandoned on the way.
+var _goal_pickup: PickupNode
+## Last-seen position already searched; _roam heads to a last-seen spot once per new sighting.
+var _chase_pos := NO_POS
 var _repath_timer := 0.0
 var _perceive_timer := 0.0
 
@@ -118,6 +124,19 @@ func on_respawn() -> void:
 	_path = PackedVector3Array()
 	_last_seen_time = -100.0
 	_grenade_timer = randf_range(4.0, 10.0)
+	_goal_pickup = null
+	_chase_pos = NO_POS
+	_path_index = 0
+	_repath_timer = 0.0
+	_reaction_left = 0.0
+	_tracking_time = 0.0
+	_target_vel = Vector3.ZERO
+	_read_vel = Vector3.ZERO
+	_burst_timer = 0.0
+	_burst_pause = 0.0
+	_semi_wait = 0.0
+	_stuck_timer = 0.0
+	_stuck_check_pos = p.global_position
 
 
 func think(delta: float) -> void:
@@ -453,9 +472,16 @@ func _turn_toward(point: Vector3, delta: float) -> void:
 
 func _roam(delta: float) -> void:
 	var now := World.now()
-	if now - _last_seen_time < MEMORY_TIME:
-		if not _has_goal or _goal.distance_to(_last_seen_pos) > 3.0:
-			_set_goal(_last_seen_pos)
+	# A pickup we were heading for got taken: pick something else instead of visiting the empty pad.
+	if _goal_pickup != null and not _goal_pickup.active:
+		_goal_pickup = null
+		_has_goal = false
+	# Search where the target was last seen, once per sighting: after reaching it (or the nearest
+	# reachable point) carry on roaming instead of re-pathing to the same spot every frame.
+	if now - _last_seen_time < MEMORY_TIME and _last_seen_pos.distance_to(_chase_pos) > 3.0:
+		_chase_pos = _last_seen_pos
+		_goal_pickup = null
+		_set_goal(_last_seen_pos)
 	elif not _has_goal:
 		_set_goal(_pick_roam_goal())
 	_go_toward(_goal, delta)
@@ -466,12 +492,13 @@ func _roam(delta: float) -> void:
 
 
 func _pick_roam_goal() -> Vector3:
+	_goal_pickup = null
 	var info := p.world.map_info
 	var needs_health := p.health < 60.0
 	var cur: Vector2i = p.ammo[p.slots[0]]
 	var needs_ammo := cur.x + cur.y < int(Data.WEAPONS[p.slots[0]].mag)
 	if needs_health or needs_ammo:
-		var best := Vector3.ZERO
+		var best: PickupNode = null
 		var best_d := INF
 		for i in p.world.pickup_nodes.size():
 			var node := p.world.pickup_nodes[i]
@@ -481,15 +508,19 @@ func _pick_roam_goal() -> Vector3:
 				var d := p.global_position.distance_to(node.position)
 				if d < best_d:
 					best_d = d
-					best = node.position
-		if best_d < INF:
-			return best
+					best = node
+		if best != null:
+			_goal_pickup = best
+			return best.position
 	if aggression > 1.1 and randf() < 0.6:
 		var prey: Array = p.world.entities.values().filter(func(o: Player) -> bool: return o != p and o.alive)
 		if not prey.is_empty():
 			return (prey.pick_random() as Player).global_position
-	if randf() < 0.35 / aggression and not p.world.pickup_nodes.is_empty():
-		return p.world.pickup_nodes.pick_random().position
+	if randf() < 0.35 / aggression:
+		var pads := p.world.pickup_nodes.filter(func(n: PickupNode) -> bool: return n.active)
+		if not pads.is_empty():
+			_goal_pickup = pads.pick_random()
+			return _goal_pickup.position
 	return info.spawns.pick_random()
 
 
@@ -501,6 +532,8 @@ func _set_goal(point: Vector3) -> void:
 
 func _go_toward(point: Vector3, delta: float) -> void:
 	_repath_timer -= delta
+	if _goal.distance_to(point) > 2.0:
+		_goal_pickup = null
 	if _repath_timer <= 0.0 or _goal.distance_to(point) > 2.0:
 		_repath_timer = REPATH_INTERVAL
 		_goal = point
