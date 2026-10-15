@@ -111,6 +111,10 @@ var _hit_body_col: CollisionShape3D
 var _hit_body_shape: BoxShape3D
 var _exclude: Array[RID] = []
 var _trigger_down := false
+var _fire_gated := false
+var _aim_gated := false
+## LOCAL: cooldown between knife swings so the server budget isn't silently exceeded.
+var knife_cooldown := 0.0
 ## LOCAL: set while the mouse is free, so the click that recaptures it (HUD) neither fires nor
 ## aims; cleared once the button is released.
 var _fire_gated := false
@@ -457,8 +461,8 @@ func _reserve(wid: String) -> int:
 func _tick_weapon(delta: float) -> void:
 	fire_cooldown -= delta
 	switch_timer -= delta
-	melee_timer -= delta
 	grenade_cooldown -= delta
+	knife_cooldown = maxf(0.0, knife_cooldown - delta)
 	bloom = move_toward(bloom, 0.0, delta * 7.0)
 	recoil = move_toward(recoil, 0.0, delta * (6.0 + recoil * 5.0))
 	if not in_fire:
@@ -700,9 +704,13 @@ func _apply_kick(w: Dictionary) -> void:
 
 func _melee_attack(quick: bool) -> void:
 	var w: Dictionary = Data.WEAPONS.knife
+	var interval := 60.0 / float(w.rpm)
+	if knife_cooldown > 0.0:
+		return
 	melee_timer = MELEE_TIME if quick else 0.0
+	knife_cooldown = interval
 	# Never shortens a gun's refire time: the server keeps one fire-rate budget per shooter.
-	fire_cooldown = maxf(fire_cooldown, 60.0 / float(w.rpm))
+	fire_cooldown = maxf(fire_cooldown, interval)
 	_cancel_reload()
 	var aim := aim_transform()
 	var reach := float(w.range)
