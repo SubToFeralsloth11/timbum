@@ -10,8 +10,8 @@ These were settled up front, choosing the standard option each time:
 | Topic | Decision |
 |---|---|
 | Mode | Free-for-all deathmatch. First to the kill limit (default 20) or the most kills when time runs out (default 8 min). After a match: results screen (final table, match highlights for best streak / most headshots / fewest deaths, an itemised coins/XP breakdown, and the next map/mutator/time of day, which the server decides at match end with `Net.plan_next_match()` and sends in `_s_match_end`), then that match 12 s later, or as soon as a majority of the session's humans vote to skip (`World.vote_skip()`). The results screen also has primary/secondary pickers; a change is saved to the profile and sent with `Net.update_my_info()`, so it applies from the first spawn of the next match. |
-| Players | 2-12 per match. Bots fill up to the target player count (default 8). When a human joins, one bot leaves (a dead bot if possible, otherwise one nobody is fighting, then the lowest scorer); when a human leaves, a bot comes back. |
-| Networking | ENet, default port **7777**. The host is the server and also plays. Clients run their own movement and hit detection (trusted, no server-side line-of-sight check). The server owns health, kills, score, pickups, bots, projectiles, and the match clock. It sanity-checks every hit request: shooter and target alive, weapon in the shooter's loadout, a fire-rate budget per shooter shared by all guns (each shot costs its weapon's refire interval, with slack for 3 bunched shots; the knife has its own), total damage per target capped at one shot's maximum, and knife range. Spawning grants 2 s of protection from other players' damage (`World.SPAWN_PROTECTION`); firing a shot, rocket or grenade ends your own protection early. The server announces it with `_s_protection(eid, seconds)`, which every peer shows as a pulsing cyan shell on the avatar (`Avatar.set_protected`) and the protected player sees as a "SPAWN PROTECTED" countdown above the crosshair. Offline play uses `OfflineMultiplayerPeer`, so the same code runs everywhere. |
+| Players | 2-12 per match. Bots fill up to the target player count (default 8). When a human joins, one bot leaves (a dead bot if possible, otherwise one nobody is fighting, then the lowest scorer); when a human leaves, a bot comes back. Respawns rank spawns by distance to the nearest living player, with any spawn a living player can see ranked below every hidden one; the pick varies among the best three, but only between spawns as hidden as the best one and at least 5 m from any living player. |
+| Networking | ENet, default port **7777**. The host is the server and also plays. Clients run their own movement and hit detection (trusted, no server-side line-of-sight check). The server owns health, kills, score, pickups, bots, projectiles, and the match clock. It sanity-checks every hit request: shooter and target alive, weapon in the shooter's loadout and not a projectile weapon (rockets only deal damage through the server's own projectile), a fire-rate budget per shooter shared by all guns (each shot costs its weapon's refire interval, with slack for 3 bunched shots; the knife has its own), total damage per target capped at one shot's maximum, and knife range. Spawning grants 2 s of protection from other players' damage (`World.SPAWN_PROTECTION`); firing a shot, rocket or grenade ends your own protection early. The server announces it with `_s_protection(eid, seconds)`, which every peer shows as a pulsing cyan shell on the avatar (`Avatar.set_protected`) and the protected player sees as a "SPAWN PROTECTED" countdown above the crosshair. Offline play uses `OfflineMultiplayerPeer`, so the same code runs everywhere. `Net.PROTOCOL_VERSION` must match between host and client; the host kicks mismatched clients. |
 | Art | All art is procedural; there are no external assets. Voxel maps use 1 m blocks, a 16x16 pixel-art texture atlas, vertex ambient occlusion, and ramps for elevation changes. Characters, guns, and hats are built from boxes. |
 | Audio | All sound effects and the chiptune music are synthesised at startup into `AudioStreamWAV`. |
 | Variety | Map rotation is shuffled each cycle. Each match the server rolls a time of day (day/sunset/night) and, when mutators are on, a mutator half the time (`Data.MUTATORS`: low gravity, turbo, big heads, vampire, rocket party, snipers only, glass cannon). Both travel to clients inside `Net.config`. Loadout mutators are applied by the server at spawn (`World._apply_loadout_mutator`): Rocket Party makes the rocket the primary and moves the player's own primary into the secondary slot, and doubles the rocket's reserve and crate refill (`Player._ammo_scale`); Snipers Only replaces the primary and keeps the sidearm. |
@@ -45,14 +45,11 @@ ui/                          menus, shop, locker, settings panel, HUD
 | 4 | Pickups (`Area3D`) |
 | 5 | Projectiles |
 
-## Visual layers
+## Rendering the viewmodel
 
-| Layer | Use |
-|---|---|
-| 1 | Everything normal |
-| 2 | First-person viewmodel only; drawn by an overlay camera. The main camera's cull mask excludes it. |
+Everything uses visual layer 1. The first-person arms and gun (`scripts/game/viewmodel.gd`) swap their materials for a shader that squashes depth toward the near plane, so the gun draws over walls instead of clipping into them while still being lit by the scene.
 
-The local player's own avatar stays on layer 1 with `cast_shadow = SHADOW_CASTING_SETTING_SHADOWS_ONLY`.
+The local player's own avatar uses `cast_shadow = SHADOW_CASTING_SETTING_SHADOWS_ONLY`.
 
 ## Contracts between modules
 
@@ -65,7 +62,7 @@ Helpers: `Data.catalog(category) -> Dictionary` for category in `"weapons"|"skin
 - Fields: `player_name`, `coins`, `xp`, `level`, `owned: Dictionary` (category -> Array[String]), `loadout: Dictionary` (`primary`, `secondary`), `equipped: Dictionary` (`skin`, `hat`, `outfit`), `settings: Dictionary`, `stats: Dictionary`.
 - `is_owned(category, id) -> bool`, `buy(category, id) -> bool`, `equip(category, id) -> bool`. Equipping a weapon sets the loadout slot from `Data.WEAPONS[id].slot`.
 - `can_claim_daily() -> bool`, `claim_daily() -> int`, `xp_for_level(level) -> int`.
-- `record_match(result: Dictionary) -> Dictionary`. Takes `{kills, deaths, headshots, placement, players, won, best_streak}` and returns `{coins, xp, levels_gained, breakdown}`; `breakdown` is `[[label, coins, xp], ...]`, one row per reward source, which the results screen lists.
+- `record_match(result: Dictionary) -> Dictionary`. Takes `{kills, deaths, headshots, placement, players, won, best_streak}` and returns `{coins, xp, levels_gained, breakdown}`; `breakdown` is `[[label, coins, xp], ...]`, one row per reward source, which the results screen lists. A win (victory XP and the `wins` stat) only counts when `players > 1`.
 - `get_setting(key)`, `set_setting(key, value)` (applies the setting and saves), `apply_settings()`, `save()`.
 - `peer_info() -> Dictionary`: what this player sends to the server, `{name, outfit, hat, skin, primary, secondary}`.
 
