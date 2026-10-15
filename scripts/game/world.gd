@@ -885,16 +885,20 @@ func _s_match_end(rows: Array) -> void:
 
 # ================================================================ helpers
 
-## Rocket Party / Snipers Only swap everyone's primary for this match.
+## Rocket Party hands everyone the Boom Block and keeps their own primary as the backup in place
+## of the sidearm, so the gun they bought still matters. Snipers Only swaps the primary for the
+## Voxel Longshot and keeps the sidearm.
 static func _apply_loadout_mutator(info: Dictionary) -> Dictionary:
-	var forced := ""
+	var out := info
 	match str(Net.config.mutator):
-		"rocket_party": forced = "rocket"
-		"snipers": forced = "sniper"
-	if forced.is_empty():
-		return info
-	var out := info.duplicate()
-	out.primary = forced
+		"rocket_party":
+			out = info.duplicate()
+			out.primary = "rocket"
+			if str(info.primary) != "rocket":
+				out.secondary = info.primary
+		"snipers":
+			out = info.duplicate()
+			out.primary = "sniper"
 	return out
 
 

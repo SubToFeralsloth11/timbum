@@ -191,7 +191,7 @@ const MUTATORS := {
 	"speed": {"name": "Turbo", "desc": "Everyone moves 30% faster."},
 	"big_heads": {"name": "Big Heads", "desc": "Huge heads, huge headshot targets."},
 	"vampire": {"name": "Vampire", "desc": "Every kill heals you to full."},
-	"rocket_party": {"name": "Rocket Party", "desc": "Everyone's primary is the Boom Block."},
+	"rocket_party": {"name": "Rocket Party", "desc": "Everyone spawns with the Boom Block. Your own primary is the backup."},
 	"snipers": {"name": "Snipers Only", "desc": "Everyone's primary is the Voxel Longshot."},
 	"glass_cannon": {"name": "Glass Cannon", "desc": "All damage is doubled. Think fast."},
 }
