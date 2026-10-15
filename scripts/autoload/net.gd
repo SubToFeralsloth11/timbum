@@ -64,7 +64,9 @@ func play_offline(cfg: Dictionary) -> void:
 func host(port: int, cfg: Dictionary) -> Error:
 	_close_peer()
 	var peer := ENetMultiplayerPeer.new()
-	var err := peer.create_server(port, Data.MAX_PLAYERS - 1)
+	# One spare slot past the 11 clients that fit, so a 12th joiner connects and is told
+	# "Server is full." by _rpc_register instead of timing out.
+	var err := peer.create_server(port, Data.MAX_PLAYERS)
 	if err != OK:
 		status.emit("Could not host on port %d (%s). Is it already in use?" % [port, error_string(err)])
 		return err
