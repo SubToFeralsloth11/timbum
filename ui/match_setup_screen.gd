@@ -16,6 +16,12 @@ var _players_label: Label
 var _port_edit: LineEdit
 var _status: Label
 var _start: Button
+var _players_slider: HSlider
+var _map_group: ButtonGroup
+var _difficulty_row: HBoxContainer
+var _kill_row: HBoxContainer
+var _time_row: HBoxContainer
+var _mutator_row: HBoxContainer
 ## Map preview rects still waiting for their texture.
 var _preview_queue: Array[TextureRect] = []
 
@@ -48,6 +54,7 @@ func _ready() -> void:
 	grid.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	mv.add_child(grid)
 	var group := ButtonGroup.new()
+	_map_group = group
 	_add_map_card(grid, group, ROTATION, "Rotation", "Play every map in turn.")
 	for id: String in Data.MAP_ROTATION:
 		_add_map_card(grid, group, id, Data.MAPS[id].name, Data.MAPS[id].desc)
@@ -70,6 +77,7 @@ func _ready() -> void:
 
 	var players_row := UIKit.hbox(10)
 	var players := HSlider.new()
+	_players_slider = players
 	players.min_value = 2
 	players.max_value = Data.MAX_PLAYERS
 	players.step = 1
@@ -93,20 +101,24 @@ func _ready() -> void:
 	var difficulty_names: Array[String] = []
 	for d in Data.DIFFICULTY_NAMES:
 		difficulty_names.append(d.to_upper())
-	_rule(rules, "BOTS", _segmented(difficulty_names, _choice.difficulty, func(i: int) -> void: _choice.difficulty = i))
+	_difficulty_row = _segmented(difficulty_names, _choice.difficulty, func(i: int) -> void: _choice.difficulty = i)
+	_rule(rules, "BOTS", _difficulty_row)
 	var kill_names: Array[String] = []
 	for k in KILL_LIMITS:
 		kill_names.append(str(k))
-	_rule(rules, "KILL LIMIT", _segmented(kill_names, KILL_LIMITS.find(_choice.kill_limit),
-		func(i: int) -> void: _choice.kill_limit = KILL_LIMITS[i]))
+	_kill_row = _segmented(kill_names, KILL_LIMITS.find(_choice.kill_limit),
+		func(i: int) -> void: _choice.kill_limit = KILL_LIMITS[i])
+	_rule(rules, "KILL LIMIT", _kill_row)
 	var time_names: Array[String] = []
 	for t in TIME_LIMITS:
 		time_names.append("%d MIN" % t)
-	_rule(rules, "TIME LIMIT", _segmented(time_names, TIME_LIMITS.find(_choice.time_minutes),
-		func(i: int) -> void: _choice.time_minutes = TIME_LIMITS[i]))
+	_time_row = _segmented(time_names, TIME_LIMITS.find(_choice.time_minutes),
+		func(i: int) -> void: _choice.time_minutes = TIME_LIMITS[i])
+	_rule(rules, "TIME LIMIT", _time_row)
 	var mutator_names: Array[String] = ["RANDOM", "OFF"]
-	_rule(rules, "MUTATORS", _segmented(mutator_names, 0 if _choice.mutators else 1,
-		func(i: int) -> void: _choice.mutators = i == 0))
+	_mutator_row = _segmented(mutator_names, 0 if _choice.mutators else 1,
+		func(i: int) -> void: _choice.mutators = i == 0)
+	_rule(rules, "MUTATORS", _mutator_row)
 	var hint := UIKit.label("Bots fill every empty slot up to the player count.", &"DimLabel")
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	rv.add_child(hint)
@@ -132,6 +144,19 @@ func _ready() -> void:
 func on_shown() -> void:
 	_status.text = ""
 	_start.disabled = false
+	# Choices are shared with the other mode's screen, which may have changed them.
+	_players_slider.set_value_no_signal(_choice.bots_fill)
+	_update_players_label()
+	_pick_segment(_difficulty_row, _choice.difficulty)
+	_pick_segment(_kill_row, KILL_LIMITS.find(_choice.kill_limit))
+	_pick_segment(_time_row, TIME_LIMITS.find(_choice.time_minutes))
+	_pick_segment(_mutator_row, 0 if _choice.mutators else 1)
+	_select_map(_choice.map)
+
+
+func _pick_segment(row: HBoxContainer, selected: int) -> void:
+	for i in row.get_child_count():
+		(row.get_child(i) as Button).set_pressed_no_signal(i == selected)
 
 
 func _rule_name(text: String) -> Label:
@@ -228,10 +253,11 @@ func _process(_delta: float) -> void:
 
 func _select_map(id: String) -> void:
 	_choice.map = id
-	var grid_card := find_child(id, true, false) as Button
-	if grid_card != null:
-		grid_card.set_pressed_no_signal(true)
-		_map_desc.text = grid_card.get_meta(&"desc")
+	# set_pressed_no_signal skips the ButtonGroup, so release the other cards here.
+	for b in _map_group.get_buttons():
+		b.set_pressed_no_signal(b.name == id)
+		if b.name == id:
+			_map_desc.text = b.get_meta(&"desc")
 
 
 func _build_host_section(parent: VBoxContainer) -> void:
@@ -331,4 +357,3 @@ func _on_status(text: String) -> void:
 		return
 	_status.remove_theme_color_override("font_color")
 	_status.text = text
-	_start.disabled = false
