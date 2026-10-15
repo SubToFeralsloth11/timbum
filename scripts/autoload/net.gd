@@ -249,6 +249,9 @@ func _rpc_register(info: Dictionary, version: int) -> void:
 	if not multiplayer.is_server():
 		return
 	var id := multiplayer.get_remote_sender_id()
+	# A repeat would rename the peer and reload its match.
+	if players.has(id):
+		return
 	if version != PROTOCOL_VERSION:
 		_kick(id, "Version mismatch: host runs protocol %d, you run %d." % [PROTOCOL_VERSION, version])
 		return
