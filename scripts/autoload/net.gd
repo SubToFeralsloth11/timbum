@@ -146,8 +146,8 @@ func _pick_next_map() -> String:
 	return _rotation.pop_front()
 
 
-## Picks this match's mutator (half the matches are classic, never the same mutator twice in a
-## row) and lighting.
+## Picks this match's mutator (roughly half the matches are classic; never the same mutator
+## twice in a row) and lighting.
 func _roll_match_variety() -> void:
 	var previous: String = config.mutator
 	config.mutator = "none"

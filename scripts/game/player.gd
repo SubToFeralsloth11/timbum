@@ -213,8 +213,8 @@ func _ready() -> void:
 	else:
 		nametag = Label3D.new()
 		nametag.text = "%s  Lv %d" % [info.name, int(info.get("level", 1))]
-		# Clears the tallest hat; Big Heads scales head and hat by 1.8.
-		nametag.position.y = 2.15 + (0.76 if Net.config.mutator == "big_heads" else 0.0)
+		# Clears the tallest hat tip (2.27 m, or 2.99 m when Big Heads scales head and hat 1.8x).
+		nametag.position.y = 2.45 + (0.72 if Net.config.mutator == "big_heads" else 0.0)
 		nametag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 		nametag.pixel_size = 0.004
 		nametag.font_size = 44
@@ -778,8 +778,15 @@ func _interpolate() -> void:
 	_remote_flags = b[4]
 	var now_reloading := (_remote_flags & FLAG_RELOAD) != 0
 	var reload_w: Dictionary = Data.WEAPONS[weapon_from_index(_remote_flags >> 8)]
-	var replay: bool = reload_w.get("reload_per_shell", false) and not avatar.is_reloading()
+	# Shotguns replay the pose per shell, after a short gap so a replay never starts right
+	# before the flag clears (which would cut it off in a twitch).
+	if now_reloading and not avatar.is_reloading():
+		_reload_gap += get_physics_process_delta_time()
+	else:
+		_reload_gap = 0.0
+	var replay: bool = reload_w.get("reload_per_shell", false) and _reload_gap > 0.15
 	if now_reloading and (not was_reloading or replay):
+		_reload_gap = 0.0
 		# Starts the pose; shotguns replay it shell by shell while they keep loading.
 		avatar.play_reload(float(reload_w.reload))
 	elif was_reloading and not now_reloading:
