@@ -42,6 +42,8 @@ var _shake := 0.0
 var _my_multi := 0
 var _my_last_kill := -100.0
 var _my_streak := 0
+## Client: attacker id -> [hits, damage] dealt to the local player this life, for the death screen.
+var _my_damage_taken := {}
 
 # Server-only state.
 var _ready_peers := {}
@@ -802,10 +804,14 @@ func _s_damaged(eid: int, hp: float, attacker_id: int, from_pos: Vector3) -> voi
 	var p: Player = entities.get(eid)
 	if p == null:
 		return
+	var before := p.health
 	p.on_damaged(hp, attacker_id)
 	if attacker_id != eid:
 		fx.blood(p.global_position + Vector3.UP * 1.1)
 	if p == local_player:
+		if p.alive:
+			var taken: Array = _my_damage_taken.get(attacker_id, [0, 0.0])
+			_my_damage_taken[attacker_id] = [int(taken[0]) + 1, float(taken[1]) + maxf(0.0, before - hp)]
 		hud.show_damage(from_pos)
 		Sfx.play(&"hurt", null, -3.0)
 		shake(0.25)
@@ -831,7 +837,7 @@ func _s_killed(victim_id: int, killer_id: int, wid: String, head: bool) -> void:
 	if victim != null:
 		fx.death_burst(victim.global_position + Vector3.UP * 0.9, Color(info_color(victim)))
 		Sfx.play(&"death", victim.global_position)
-		victim.die()
+		victim.die(entities.get(killer_id) if victim == local_player else null)
 	hud.add_killfeed(display_name(killer_id), weapon_label(wid), display_name(victim_id), head, killer_id == victim_id)
 	var me := my_id()
 	if killer_id == me and victim_id != me:
@@ -855,7 +861,26 @@ func _s_killed(victim_id: int, killer_id: int, wid: String, head: bool) -> void:
 	if victim_id == me:
 		_my_streak = 0
 		_my_multi = 0
-		hud.show_death(display_name(killer_id) if killer_id != me else "", weapon_label(wid), Data.RESPAWN_TIME)
+		hud.show_death(display_name(killer_id) if killer_id != me else "", weapon_label(wid), Data.RESPAWN_TIME, _death_detail(killer_id))
+		_my_damage_taken.clear()
+
+
+## One line for the death screen: how far away the killer was, how many of their hits it took
+## and how much health they had left, so a death says what to do differently.
+func _death_detail(killer_id: int) -> String:
+	if killer_id == my_id():
+		return ""
+	var parts: Array[String] = []
+	var killer: Player = entities.get(killer_id)
+	if killer != null and local_player != null:
+		parts.append("From %d m" % roundi(killer.global_position.distance_to(local_player.global_position)))
+	var taken: Array = _my_damage_taken.get(killer_id, [0, 0.0])
+	if int(taken[0]) > 0:
+		parts.append("%d hit%s, %d damage" % [int(taken[0]), "" if int(taken[0]) == 1 else "s", roundi(float(taken[1]))])
+	# Vampire refills the killer's health before the kill arrives, so their HP would say nothing.
+	if killer != null and killer.alive and Net.config.mutator != "vampire":
+		parts.append("they had %d HP left" % ceili(killer.health))
+	return "  ·  ".join(parts)
 
 
 @rpc("authority", "call_remote", "reliable")

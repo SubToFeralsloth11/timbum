@@ -38,6 +38,7 @@ var _chat_input: LineEdit
 var _death_panel: Control
 var _death_title: Label
 var _death_sub: Label
+var _death_detail: Label
 var _death_timer_label: Label
 var _scoreboard: PanelContainer
 var _score_rows: VBoxContainer
@@ -314,12 +315,13 @@ func _build_death() -> void:
 	tint.set_anchors_preset(Control.PRESET_FULL_RECT)
 	tint.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_death_panel.add_child(tint)
+	# Below the middle of the screen, where the death cam frames the killer.
 	var v := VBoxContainer.new()
-	v.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	v.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
 	v.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	v.grow_vertical = Control.GROW_DIRECTION_BOTH
-	v.alignment = BoxContainer.ALIGNMENT_CENTER
-	v.position.y -= 60
+	v.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	v.alignment = BoxContainer.ALIGNMENT_END
+	v.offset_bottom = -150.0
 	_death_panel.add_child(v)
 	_death_title = _label("ELIMINATED", 54, Color(1, 0.3, 0.3))
 	_death_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -327,6 +329,9 @@ func _build_death() -> void:
 	_death_sub = _label("", 24)
 	_death_sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(_death_sub)
+	_death_detail = _label("", 20, Color(1.0, 0.85, 0.55))
+	_death_detail.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(_death_detail)
 	_death_timer_label = _label("", 20, Color(0.85, 0.85, 0.85))
 	_death_timer_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(_death_timer_label)
@@ -787,13 +792,16 @@ func pickup_message(kind: String) -> void:
 	_pickup_t = 1.6
 
 
-func show_death(killer: String, weapon: String, respawn_time: float) -> void:
+## `detail` is the "From 14 m · 3 hits, 100 damage · they had 45 HP left" line ("" hides it).
+func show_death(killer: String, weapon: String, respawn_time: float, detail := "") -> void:
 	_death_panel.visible = true
 	_death_left = respawn_time
 	if killer.is_empty():
 		_death_sub.text = "You took yourself out (%s)" % weapon
 	else:
 		_death_sub.text = "Killed by %s  with %s" % [killer, weapon]
+	_death_detail.text = detail
+	_death_detail.visible = not detail.is_empty()
 
 
 func hide_death() -> void:

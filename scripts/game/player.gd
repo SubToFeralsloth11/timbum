@@ -131,6 +131,9 @@ var _reload_gap := 0.0
 ## REMOTE: seconds left in which a reload flag still set in buffered snapshots is stale because
 ## the player fired (which cancels a shotgun's shell-by-shell reload); see remote_fired().
 var _reload_hold := 0.0
+## LOCAL, while dead: where the death cam settles and who it watches (null: look at the corpse).
+var _death_cam_eye := Vector3.ZERO
+var _death_cam_target: Player
 
 
 func setup(p_world: World, p_id: int, p_info: Dictionary, p_mode: Mode, p_is_bot: bool) -> void:
@@ -859,7 +862,9 @@ func _update_visuals(delta: float) -> void:
 		avatar.set_look_pitch(pitch)
 		avatar.animate(delta, anim_speed, on_floor_visual, crouching)
 		_footsteps(delta)
-	if camera != null and alive:
+	if camera != null and not alive and camera.top_level:
+		_update_death_cam(delta)
+	elif camera != null and alive:
 		camera.rotation.x = pitch + deg_to_rad(recoil)
 		var base_fov := float(Profile.get_setting("fov"))
 		var target_fov := lerpf(base_fov, minf(float(weapon_data().ads_fov), base_fov), aim_blend)
@@ -916,7 +921,8 @@ func protection_left() -> float:
 	return maxf(0.0, protected_until - World.now())
 
 
-func die() -> void:
+## `killer` (optional) is who the local player's death cam turns to watch.
+func die(killer: Player = null) -> void:
 	alive = false
 	health = 0.0
 	set_protection(0.0)
@@ -933,7 +939,7 @@ func die() -> void:
 	if mode == Mode.LOCAL:
 		avatar.set_first_person(false)
 		viewmodel.visible = false
-		_start_death_cam()
+		_start_death_cam(killer)
 
 
 func respawn(pos: Vector3, p_yaw: float) -> void:
@@ -987,22 +993,48 @@ func _clear_intent() -> void:
 	in_slot = -1
 
 
-func _start_death_cam() -> void:
+## The camera rises behind the corpse, on the side away from the killer, and turns to keep the
+## killer in frame (zooming in when they are far away) until respawn. Without a killer it
+## looks down at the corpse.
+func _start_death_cam(killer: Player) -> void:
 	var start := camera.global_transform
 	camera.top_level = true
 	camera.global_transform = start
 	camera.fov = float(Profile.get_setting("fov"))
-	var back := Basis(Vector3.UP, yaw) * Vector3(0.0, 0.0, 3.2)
-	var eye := global_position + Vector3.UP * 2.6 + back
+	_death_cam_target = killer if killer != null and killer != self else null
+	var back := Basis(Vector3.UP, yaw) * Vector3(0.0, 0.0, 1.0)
+	if _death_cam_target != null:
+		var away := global_position - _death_cam_target.global_position
+		away.y = 0.0
+		if away.length() > 0.5:
+			back = away.normalized()
+	var eye := global_position + Vector3.UP * 2.6 + back * 3.2
 	var q := PhysicsRayQueryParameters3D.create(global_position + Vector3.UP * 1.2, eye, MASK_WORLD)
 	var r := get_world_3d().direct_space_state.intersect_ray(q)
 	if not r.is_empty():
 		eye = (r.position as Vector3).lerp(global_position + Vector3.UP * 1.2, 0.15)
-	var look := Transform3D(Basis.IDENTITY, eye).looking_at(global_position + Vector3.UP * 0.6, Vector3.UP)
-	var tw := create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	tw.tween_property(camera, "global_transform", look, 0.6)
+	_death_cam_eye = eye
+
+
+func _update_death_cam(delta: float) -> void:
+	var k := minf(1.0, delta * 6.0)
+	var pos := camera.global_position.lerp(_death_cam_eye, k)
+	var focus := global_position + Vector3.UP * 0.6
+	var base_fov := float(Profile.get_setting("fov"))
+	var target_fov := base_fov
+	if _death_cam_target != null and is_instance_valid(_death_cam_target):
+		focus = _death_cam_target.global_position + Vector3.UP * 1.1
+		# Frame about 7 m around the killer vertically, so a distant one is still recognisable.
+		target_fov = clampf(rad_to_deg(2.0 * atan(3.5 / maxf(0.1, pos.distance_to(focus)))), 24.0, base_fov)
+	if pos.distance_squared_to(focus) < 0.01:
+		return
+	var look := Transform3D(Basis.IDENTITY, pos).looking_at(focus, Vector3.UP)
+	var rot := camera.global_basis.get_rotation_quaternion().slerp(look.basis.get_rotation_quaternion(), k)
+	camera.global_transform = Transform3D(Basis(rot), pos)
+	camera.fov = lerpf(camera.fov, target_fov, minf(1.0, delta * 3.0))
 
 
 func _end_death_cam() -> void:
+	_death_cam_target = null
 	camera.top_level = false
 	camera.transform = Transform3D.IDENTITY
