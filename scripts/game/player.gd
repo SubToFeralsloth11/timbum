@@ -965,6 +965,13 @@ func die(killer: Player = null) -> void:
 	_cancel_reload()
 	_clear_intent()
 	aim_blend = 0.0
+	sprinting = false
+	crouching = false
+	crouch_blend = 0.0
+	melee_timer = 0.0
+	grenade_cooldown = 0.0
+	knife_cooldown = 0.0
+	_applied_crouch = -1.0
 	velocity = Vector3.ZERO
 	collision_layer = 0
 	_hit_head.collision_layer = 0
