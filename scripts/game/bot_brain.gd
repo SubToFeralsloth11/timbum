@@ -28,6 +28,14 @@ const DRIFT_ERROR_SCALE := 1.12
 ## FLINCH_TIME, so the bot recovers its aim instead of snapping back.
 const FLINCH_TIME := 0.5
 const FLINCH_PEAK := 1.1
+## Reading movement: a bot's sense of its target's velocity catches up at READ_RATE (1/s,
+## exponential) to READ_ACCURACY of the real thing, and its aim trails the target by TRACK_LAG
+## seconds of the unread part of their sideways motion. Steady strafing is mostly read within a
+## second; changing direction resets it, so strafing helps a little, juking a lot, and standing
+## still not at all.
+const READ_RATE := [2.5, 3.5, 5.0]
+const READ_ACCURACY := [0.6, 0.75, 0.85]
+const TRACK_LAG := [0.14, 0.1, 0.07]
 
 const PERCEIVE_INTERVAL := 0.15
 const REPATH_INTERVAL := 0.9
@@ -69,6 +77,12 @@ var _head_blend := 0.0
 ## Multiplier on aim error (and, halved, on reaction time) against the current target:
 ## < 1 when the target is running away with the match, > 1 when the target trails this bot.
 var _pressure := 1.0
+## Target velocity measured from its motion (works for interpolated humans too), and how much of
+## it the bot has read so far; see READ_RATE.
+var _target_vel := Vector3.ZERO
+var _read_vel := Vector3.ZERO
+var _last_target_pos := Vector3.ZERO
+var _last_read_frame := -10
 
 var _path := PackedVector3Array()
 var _path_index := 0
@@ -183,6 +197,9 @@ func _perceive() -> void:
 			_reaction_left = REACTION[difficulty] * randf_range(0.8, 1.3) * (0.5 + 0.5 * _pressure)
 			_tracking_time = 0.0
 			_new_aim_offset(true)
+			_last_target_pos = best.global_position
+			_target_vel = Vector3.ZERO
+			_read_vel = Vector3.ZERO
 		_target_visible = true
 		_last_seen_pos = best.global_position
 		_last_seen_time = now
@@ -292,6 +309,7 @@ func _fight(delta: float) -> void:
 	if since_hurt < FLINCH_TIME:
 		error_scale *= 1.0 + FLINCH_PEAK * (1.0 - since_hurt / FLINCH_TIME)
 	aim_point += _aim_offset * dist * error_scale
+	aim_point -= _unread_motion(delta) * TRACK_LAG[difficulty]
 
 	var thrown := _reaction_left <= 0.0 and _maybe_grenade(delta, dist)
 	if not thrown:
@@ -359,6 +377,25 @@ func _fight(delta: float) -> void:
 		if _semi_wait <= 0.0 and p.fire_cooldown <= 0.0:
 			p.in_fire = true
 			_semi_wait = SEMI_INTERVAL[difficulty] * randf_range(0.8, 1.4)
+
+
+## Updates the bot's read of its target's movement and returns the sideways (across the line of
+## sight) part of the target's velocity the bot hasn't caught up with yet.
+func _unread_motion(delta: float) -> Vector3:
+	var pos := target.global_position
+	var moved := pos - _last_target_pos
+	_last_target_pos = pos
+	# A gap in sampling (the target was out of sight) or a teleport (respawn) is not motion.
+	var frame := Engine.get_physics_frames()
+	var contiguous := frame - _last_read_frame == 1
+	_last_read_frame = frame
+	if not contiguous or delta <= 0.0 or moved.length() > 3.0:
+		return Vector3.ZERO
+	_target_vel = _target_vel.lerp(moved / delta, 1.0 - exp(-15.0 * delta))
+	_read_vel = _read_vel.lerp(_target_vel * READ_ACCURACY[difficulty], 1.0 - exp(-READ_RATE[difficulty] * delta))
+	var unread := _target_vel - _read_vel
+	var los := (pos - p.global_position).normalized()
+	return unread - los * unread.dot(los)
 
 
 func _target_velocity() -> Vector3:
