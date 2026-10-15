@@ -288,12 +288,16 @@ func save() -> void:
 func load_profile() -> void:
 	if not persist or not FileAccess.file_exists(SAVE_PATH):
 		player_name = "Player%d" % (randi() % 900 + 100)
+		# Keep the generated name from changing every launch until something else saves.
+		save()
 		return
 	var text := FileAccess.get_file_as_string(SAVE_PATH)
 	var parsed: Variant = JSON.parse_string(text)
 	if typeof(parsed) != TYPE_DICTIONARY:
 		push_warning("Profile file is corrupt; backing it up and starting fresh.")
 		DirAccess.copy_absolute(ProjectSettings.globalize_path(SAVE_PATH), ProjectSettings.globalize_path(SAVE_PATH + ".bak"))
+		player_name = "Player%d" % (randi() % 900 + 100)
+		save()
 		return
 	load_from_dict(parsed)
 
@@ -336,6 +340,9 @@ func load_from_dict(d: Dictionary) -> void:
 	settings.quality = clampi(int(settings.quality), 0, 2)
 	settings.fov = clampf(float(settings.fov), 60.0, 110.0)
 	settings.mouse_sens = clampf(float(settings.mouse_sens), 0.05, 10.0)
+	settings.ads_sens_mult = clampf(float(settings.ads_sens_mult), 0.05, 3.0)
+	for key: String in ["master_volume", "music_volume", "sfx_volume"]:
+		settings[key] = clampf(float(settings[key]), 0.0, 1.0)
 	if not Color.html_is_valid(str(settings.crosshair_color)):
 		settings.crosshair_color = DEFAULT_SETTINGS.crosshair_color
 	stats = DEFAULT_STATS.duplicate()
