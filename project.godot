@@ -1,0 +1,50 @@
+; Engine configuration file.
+
+config_version=5
+
+[application]
+
+config/name="Timbum"
+config/description="Blocky free-for-all FPS with bots and LAN/IP multiplayer."
+config/version="1.0.0"
+run/main_scene="res://scenes/main_menu.tscn"
+config/features=PackedStringArray("4.7", "Forward Plus")
+config/icon="res://icon.svg"
+
+[audio]
+
+buses/default_bus_layout="res://default_bus_layout.tres"
+
+[autoload]
+
+Data="*res://scripts/autoload/data.gd"
+Profile="*res://scripts/autoload/profile.gd"
+Sfx="*res://scripts/autoload/sfx.gd"
+Net="*res://scripts/autoload/net.gd"
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+
+[layer_names]
+
+3d_physics/layer_1="world"
+3d_physics/layer_2="bodies"
+3d_physics/layer_3="hitboxes"
+3d_physics/layer_4="pickups"
+3d_physics/layer_5="projectiles"
+3d_render/layer_1="world"
+3d_render/layer_2="viewmodel"
+
+[physics]
+
+3d/physics_engine="Jolt Physics"
+common/physics_ticks_per_second=60
+
+[rendering]
+
+textures/canvas_textures/default_texture_filter=0
+anti_aliasing/quality/msaa_3d=1
