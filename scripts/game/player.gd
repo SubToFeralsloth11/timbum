@@ -996,7 +996,8 @@ func _clear_intent() -> void:
 
 ## The camera rises behind the corpse, on the side away from the killer, and turns to keep the
 ## killer in frame (zooming in when they are far away) until respawn. Without a killer it
-## looks down at the corpse.
+## looks down at the corpse; so does it while a wall hides the killer from both the raised eye
+## and the corpse's own head, so the killer is never framed through scenery.
 func _start_death_cam(killer: Player) -> void:
 	var start := camera.global_transform
 	camera.top_level = true
@@ -1019,12 +1020,22 @@ func _start_death_cam(killer: Player) -> void:
 
 func _update_death_cam(delta: float) -> void:
 	var k := minf(1.0, delta * 6.0)
-	var pos := camera.global_position.lerp(_death_cam_eye, k)
+	var eye := _death_cam_eye
 	var focus := global_position + Vector3.UP * 0.6
 	var base_fov := float(Profile.get_setting("fov"))
 	var target_fov := base_fov
+	var watching_killer := false
 	if _death_cam_target != null and is_instance_valid(_death_cam_target):
-		focus = _death_cam_target.global_position + Vector3.UP * 1.1
+		var killer_pos := _death_cam_target.global_position + Vector3.UP * 1.1
+		# Seen from the raised eye, else from where the player fell, else watch the corpse.
+		for from: Vector3 in [eye, global_position + Vector3.UP * 1.6]:
+			if _clear_line(from, killer_pos):
+				eye = from
+				focus = killer_pos
+				watching_killer = true
+				break
+	var pos := camera.global_position.lerp(eye, k)
+	if watching_killer:
 		# Frame about 7 m around the killer vertically, so a distant one is still recognisable.
 		target_fov = clampf(rad_to_deg(2.0 * atan(3.5 / maxf(0.1, pos.distance_to(focus)))), 24.0, base_fov)
 	if pos.distance_squared_to(focus) < 0.01:
@@ -1033,6 +1044,11 @@ func _update_death_cam(delta: float) -> void:
 	var rot := camera.global_basis.get_rotation_quaternion().slerp(look.basis.get_rotation_quaternion(), k)
 	camera.global_transform = Transform3D(Basis(rot), pos)
 	camera.fov = lerpf(camera.fov, target_fov, minf(1.0, delta * 3.0))
+
+
+func _clear_line(from: Vector3, to: Vector3) -> bool:
+	var q := PhysicsRayQueryParameters3D.create(from, to, MASK_WORLD)
+	return get_world_3d().direct_space_state.intersect_ray(q).is_empty()
 
 
 func _end_death_cam() -> void:
