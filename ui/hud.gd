@@ -547,7 +547,9 @@ func _process(delta: float) -> void:
 		_reserve_label.text = "/ %d" % a.y
 		_ammo_label.self_modulate = Color(1, 0.35, 0.3) if a.x <= int(w.mag) / 4 else Color.WHITE
 		if p.reloading:
-			_hint_label.text = "RELOADING"
+			# A shell-by-shell reload can be cut short; say so, so a loaded tube never feels locked.
+			var can_cut: bool = w.get("reload_per_shell", false) and a.x > 0
+			_hint_label.text = "RELOADING - FIRE TO STOP" if can_cut else "RELOADING"
 		elif a.x == 0 and a.y == 0:
 			_hint_label.text = "NO AMMO - FIND AN AMMO CRATE"
 		elif a.x <= int(w.mag) / 4 and a.y > 0:

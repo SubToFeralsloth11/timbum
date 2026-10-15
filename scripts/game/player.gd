@@ -572,8 +572,9 @@ func _tick_reload(delta: float, wid: String, w: Dictionary) -> void:
 
 func _try_fire(wid: String, w: Dictionary) -> void:
 	if reloading:
-		# Shotguns can interrupt a shell-by-shell reload with a fresh trigger pull.
-		if w.get("reload_per_shell", false) and (ammo[wid] as Vector2i).x > 0 and not _trigger_down:
+		# Shotguns can interrupt a shell-by-shell reload with a fresh trigger pull. A pull while the
+		# pump is still cycling waits (held) for the shot instead of throwing the reload away.
+		if w.get("reload_per_shell", false) and (ammo[wid] as Vector2i).x > 0 and not _trigger_down and fire_cooldown <= 0.0:
 			_cancel_reload()
 		else:
 			return
