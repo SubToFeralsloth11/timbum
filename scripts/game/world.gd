@@ -225,6 +225,8 @@ func _server_remove_entity(eid: int) -> void:
 	_broadcast(&"_s_scores", [scores])
 
 
+## Keeps bots + humans at `bots_fill`. When a bot has to leave, it is the one whose exit
+## disturbs the match least: dead bots first, then bots out of combat, then the lowest scorer.
 func _balance_bots() -> void:
 	if not multiplayer.is_server() or match_over:
 		return
@@ -233,8 +235,10 @@ func _balance_bots() -> void:
 	for eid: int in entities:
 		if eid < 0:
 			bots.append(eid)
+	if bots.size() > want:
+		bots.sort_custom(func(a: int, b: int) -> bool: return _bot_leave_cost(a) < _bot_leave_cost(b))
 	while bots.size() > want:
-		var eid: int = bots.pop_back()
+		var eid: int = bots.pop_front()
 		_bot_names_used.erase(entities[eid].info.name)
 		_server_remove_entity(eid)
 	while bots.size() < want:
@@ -242,6 +246,18 @@ func _balance_bots() -> void:
 		_next_bot_id -= 1
 		_server_add_entity(eid, _make_bot_info(), true)
 		bots.append(eid)
+
+
+## Lower = better candidate to remove. Dead bots rank first; alive bots hurt within REGEN_DELAY
+## (someone is fighting them, so removing them would steal a kill) rank last; ties go to the
+## fewest kills.
+func _bot_leave_cost(eid: int) -> int:
+	var cost := int(scores.get(eid, {}).get("kills", 0))
+	if entities[eid].alive:
+		cost += 10000
+		if now() - float(_last_damage.get(eid, -100.0)) < REGEN_DELAY:
+			cost += 1000
+	return cost
 
 
 func _make_bot_info() -> Dictionary:
