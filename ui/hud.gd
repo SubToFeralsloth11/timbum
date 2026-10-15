@@ -29,6 +29,7 @@ var _killfeed: VBoxContainer
 var _kill_label: Label
 var _announce_label: Label
 var _pickup_label: Label
+var _protect_label: Label
 var _chat_log: VBoxContainer
 var _chat_input: LineEdit
 var _death_panel: Control
@@ -264,6 +265,13 @@ func _build_center() -> void:
 	_pickup_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_pickup_label.position.y -= 130
 	_root.add_child(_pickup_label)
+	_protect_label = _label("", 20, Color(0.45, 0.85, 1.0))
+	_protect_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	_protect_label.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_protect_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_protect_label.position.y -= 70
+	_protect_label.visible = false
+	_root.add_child(_protect_label)
 
 
 func _build_chat() -> void:
@@ -449,6 +457,7 @@ func _process(delta: float) -> void:
 
 	if p == null:
 		_crosshair.visible = false
+		_protect_label.visible = false
 		return
 	var hp_frac := p.health / Data.MAX_HEALTH
 	_health_label.text = str(int(ceil(p.health)))
@@ -481,6 +490,11 @@ func _process(delta: float) -> void:
 		_reserve_label.text = ""
 		_hint_label.text = ""
 	_hint_label.visible = p.alive
+	var shield := p.protection_left() if p.alive else 0.0
+	_protect_label.visible = shield > 0.0
+	if shield > 0.0:
+		_protect_label.text = "SPAWN PROTECTED  %.1f s" % shield
+		_protect_label.modulate.a = 0.65 + 0.35 * sin(Time.get_ticks_msec() * 0.012)
 	_grenade_label.text = "GRENADES  " + "■ ".repeat(p.grenades) + "□ ".repeat(maxi(0, int(Data.GRENADE.per_life) - p.grenades))
 
 	var scoped: bool = w.get("scope", false) and p.aim_blend > 0.85 and p.alive

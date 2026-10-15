@@ -208,9 +208,9 @@ func _server_add_entity(eid: int, info: Dictionary, is_bot: bool) -> void:
 	var spawn := _pick_spawn(eid)
 	scores[eid] = {"name": str(info.name), "level": int(info.get("level", 1)), "kills": 0, "deaths": 0,
 		"headshots": 0, "streak": 0, "best_streak": 0, "bot": is_bot}
-	_spawned_at[eid] = now()
 	_grenades[eid] = int(Data.GRENADE.per_life)
 	_broadcast(&"_s_spawn_entity", [eid, _apply_loadout_mutator(info), is_bot, spawn[0], spawn[1], Data.MAX_HEALTH, true])
+	_server_protect(eid)
 	_broadcast(&"_s_scores", [scores])
 
 
@@ -303,10 +303,27 @@ func _pick_spawn(for_id: int) -> Array:
 
 func _server_respawn(eid: int) -> void:
 	var spawn := _pick_spawn(eid)
-	_spawned_at[eid] = now()
 	_respawned_at[eid] = now()
 	_grenades[eid] = int(Data.GRENADE.per_life)
 	_broadcast(&"_s_respawn", [eid, spawn[0], spawn[1]])
+	_server_protect(eid)
+
+
+## Starts `eid`'s SPAWN_PROTECTION window and shows it on every peer.
+func _server_protect(eid: int) -> void:
+	_spawned_at[eid] = now()
+	_broadcast(&"_s_protection", [eid, SPAWN_PROTECTION])
+
+
+## Firing (a shot, rocket or grenade) ends the shooter's own spawn protection early.
+func _server_unprotect(eid: int) -> void:
+	if _protection_left(eid) > 0.0:
+		_broadcast(&"_s_protection", [eid, 0.0])
+	_spawned_at[eid] = -100.0
+
+
+func _protection_left(eid: int) -> float:
+	return maxf(0.0, SPAWN_PROTECTION - (now() - float(_spawned_at.get(eid, -100.0))))
 
 
 func _on_peer_disconnected(pid: int) -> void:
@@ -336,7 +353,7 @@ func _server_shot(shooter_id: int, wid: String, ends: PackedVector3Array, normal
 		_s_shot_fx(shooter_id, wid, ends, normals)
 	if not rate_ok:
 		return
-	_spawned_at[shooter_id] = -100.0
+	_server_unprotect(shooter_id)
 	# One shot can never deal more to a single target than every pellet landing as a headshot.
 	var max_dmg := float(w.damage) * float(w.head_mult) * float(w.pellets) + 0.01
 	var per_target := {}
@@ -379,7 +396,7 @@ func _take_fire_token(shooter_id: int, wid: String) -> bool:
 func _server_damage(target: Player, amount: float, attacker_id: int, wid: String, head: bool, from_pos: Vector3) -> void:
 	if match_over or not target.alive or amount <= 0.0:
 		return
-	if attacker_id != target.id and now() - float(_spawned_at.get(target.id, -100.0)) < SPAWN_PROTECTION:
+	if attacker_id != target.id and _protection_left(target.id) > 0.0:
 		return
 	if Net.config.mutator == "glass_cannon":
 		amount *= 2.0
@@ -444,7 +461,7 @@ func _server_projectile(owner_id: int, kind: String, origin: Vector3, vel: Vecto
 		vel = vel.limit_length(float(Data.GRENADE.throw_speed) + 12.0)
 	else:
 		return
-	_spawned_at[owner_id] = -100.0
+	_server_unprotect(owner_id)
 	var pid := _next_projectile_id
 	_next_projectile_id += 1
 	_broadcast(&"_s_spawn_projectile", [pid, kind, owner_id, origin, vel])
@@ -622,6 +639,8 @@ func _c_ready() -> void:
 	for eid: int in entities:
 		var p: Player = entities[eid]
 		_s_spawn_entity.rpc_id(pid, eid, p.info, p.is_bot, p.global_position, p.yaw, p.health, p.alive)
+		if _protection_left(eid) > 0.0:
+			_s_protection.rpc_id(pid, eid, _protection_left(eid))
 	_s_scores.rpc_id(pid, scores)
 	_s_clock.rpc_id(pid, time_left)
 	for i in pickup_nodes.size():
@@ -801,6 +820,13 @@ func _s_respawn(eid: int, pos: Vector3, p_yaw: float) -> void:
 	if p == local_player:
 		hud.hide_death()
 		Sfx.play(&"spawn", null, -6.0)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _s_protection(eid: int, seconds: float) -> void:
+	var p: Player = entities.get(eid)
+	if p != null:
+		p.set_protection(seconds)
 
 
 @rpc("authority", "call_remote", "reliable")

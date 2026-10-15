@@ -51,6 +51,7 @@ var _crouch := 0.0
 var _recoil := 0.0
 var _flash := 0.0
 var _dead := false
+var _protected := false
 ## Reload animation: seconds left / total; while > 0 the gun dips and rolls and the off hand
 ## drops to the hip and back (fetching a new magazine).
 var _reload_left := 0.0
@@ -278,7 +279,23 @@ func _process(delta: float) -> void:
 
 func _set_flash(on: bool) -> void:
 	_flash = FLASH_TIME if on else 0.0
-	var overlay: Material = Models.hit_overlay_material() if on else null
+	_apply_overlay()
+
+
+## Spawn protection shimmer; a hit flash shows over it while active.
+func set_protected(on: bool) -> void:
+	if on == _protected:
+		return
+	_protected = on
+	_apply_overlay()
+
+
+func _apply_overlay() -> void:
+	var overlay: Material = null
+	if _flash > 0.0:
+		overlay = Models.hit_overlay_material()
+	elif _protected:
+		overlay = Models.shield_overlay_material()
 	for g in _geoms:
 		g.material_overlay = overlay
 
@@ -422,5 +439,4 @@ func _refresh_geoms() -> void:
 	for g in find_children("*", "GeometryInstance3D", true, false):
 		_geoms.append(g)
 	set_first_person(_first_person)
-	if _flash > 0.0:
-		_set_flash(true)
+	_apply_overlay()

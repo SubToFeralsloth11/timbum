@@ -56,6 +56,8 @@ var grenades: int = Data.GRENADE.per_life
 ## Who last damaged us and when (World.now() seconds); bots use it to turn and fight back.
 var last_attacker := 0
 var last_hurt_time := -100.0
+## World.now() until which spawn protection is shown (set by the server's _s_protection).
+var protected_until := -100.0
 
 var yaw := 0.0
 var pitch := 0.0
@@ -851,6 +853,8 @@ func _update_visuals(delta: float) -> void:
 	else:
 		anim_speed = Vector2(velocity.x, velocity.z).length()
 		on_floor_visual = is_on_floor()
+	if protected_until > 0.0 and World.now() >= protected_until:
+		set_protection(0.0)
 	if alive:
 		avatar.set_look_pitch(pitch)
 		avatar.animate(delta, anim_speed, on_floor_visual, crouching)
@@ -902,9 +906,20 @@ func on_damaged(new_health: float, attacker_id: int) -> void:
 	avatar.flash_hit()
 
 
+## Spawn protection: `seconds` > 0 starts the shimmer, 0 ends it (expiry, or firing ended it).
+func set_protection(seconds: float) -> void:
+	protected_until = World.now() + seconds if seconds > 0.0 else -100.0
+	avatar.set_protected(seconds > 0.0)
+
+
+func protection_left() -> float:
+	return maxf(0.0, protected_until - World.now())
+
+
 func die() -> void:
 	alive = false
 	health = 0.0
+	set_protection(0.0)
 	_cancel_reload()
 	_clear_intent()
 	aim_blend = 0.0

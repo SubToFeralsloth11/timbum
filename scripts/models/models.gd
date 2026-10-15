@@ -43,6 +43,7 @@ static var _outfit_materials: Dictionary = {}
 static var _meshes: Dictionary = {}
 static var _noise_texture: ImageTexture
 static var _overlay: StandardMaterial3D
+static var _shield_overlay: ShaderMaterial
 
 
 # --- Public API ------------------------------------------------------------------------------
@@ -251,6 +252,24 @@ static func hit_overlay_material() -> StandardMaterial3D:
 		_overlay.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		_overlay.albedo_color = Color(1.0, 0.18, 0.15, 0.6)
 	return _overlay
+
+
+## Shared pulsing cyan shell used while an Avatar has spawn protection.
+static func shield_overlay_material() -> ShaderMaterial:
+	if _shield_overlay == null:
+		var shader := Shader.new()
+		shader.code = """
+shader_type spatial;
+render_mode unshaded, blend_add, cull_back, depth_draw_never, shadows_disabled;
+void fragment() {
+	float rim = 1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0);
+	float pulse = 0.55 + 0.45 * sin(TIME * 9.0);
+	ALBEDO = vec3(0.3, 0.8, 1.0) * (0.25 + rim * 0.9) * pulse;
+}
+"""
+		_shield_overlay = ShaderMaterial.new()
+		_shield_overlay.shader = shader
+	return _shield_overlay
 
 
 ## Shared flat-colour material with a subtle pixel-noise texture. Cached per parameters.
