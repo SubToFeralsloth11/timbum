@@ -428,6 +428,12 @@ func _server_force_kill(p: Player) -> void:
 
 
 func _server_kill(victim_id: int, killer_id: int, wid: String, head: bool) -> void:
+	# The death screen's numbers come from here, before Vampire refills the killer, so every peer
+	# shows the server's values rather than its own interpolated positions.
+	var killer: Player = entities.get(killer_id) if killer_id != victim_id else null
+	var victim: Player = entities.get(victim_id)
+	var killer_hp := killer.health if killer != null and killer.alive else -1.0
+	var killer_dist := killer.global_position.distance_to(victim.global_position) if killer != null and victim != null else -1.0
 	if scores.has(victim_id):
 		var v: Dictionary = scores[victim_id]
 		v.deaths += 1
@@ -444,7 +450,7 @@ func _server_kill(victim_id: int, killer_id: int, wid: String, head: bool) -> vo
 		if Net.config.mutator == "vampire" and entities.has(killer_id) and entities[killer_id].alive:
 			_broadcast(&"_s_health", [killer_id, Data.MAX_HEALTH])
 	_respawn_at[victim_id] = now() + Data.RESPAWN_TIME
-	_broadcast(&"_s_killed", [victim_id, killer_id, wid, head])
+	_broadcast(&"_s_killed", [victim_id, killer_id, wid, head, killer_hp, killer_dist])
 	_broadcast(&"_s_scores", [scores])
 	if scores.has(killer_id) and int(scores[killer_id].kills) >= int(Net.config.kill_limit):
 		_server_end_match()
@@ -832,7 +838,7 @@ func _s_hit_confirm(head: bool, killed: bool, amount: float, pos: Vector3) -> vo
 
 
 @rpc("authority", "call_remote", "reliable")
-func _s_killed(victim_id: int, killer_id: int, wid: String, head: bool) -> void:
+func _s_killed(victim_id: int, killer_id: int, wid: String, head: bool, killer_hp: float, killer_dist: float) -> void:
 	var victim: Player = entities.get(victim_id)
 	if victim != null:
 		fx.death_burst(victim.global_position + Vector3.UP * 0.9, Color(info_color(victim)))
@@ -861,25 +867,24 @@ func _s_killed(victim_id: int, killer_id: int, wid: String, head: bool) -> void:
 	if victim_id == me:
 		_my_streak = 0
 		_my_multi = 0
-		hud.show_death(display_name(killer_id) if killer_id != me else "", weapon_label(wid), Data.RESPAWN_TIME, _death_detail(killer_id))
+		hud.show_death(display_name(killer_id) if killer_id != me else "", weapon_label(wid), Data.RESPAWN_TIME, _death_detail(killer_id, killer_hp, killer_dist))
 		_my_damage_taken.clear()
 
 
 ## One line for the death screen: how far away the killer was, how many of their hits it took
-## and how much health they had left, so a death says what to do differently.
-func _death_detail(killer_id: int) -> String:
+## and how much health they had left, so a death says what to do differently. `killer_hp` and
+## `killer_dist` are the server's values at the kill (negative: unknown or not applicable).
+func _death_detail(killer_id: int, killer_hp: float, killer_dist: float) -> String:
 	if killer_id == my_id():
 		return ""
 	var parts: Array[String] = []
-	var killer: Player = entities.get(killer_id)
-	if killer != null and local_player != null:
-		parts.append("From %d m" % roundi(killer.global_position.distance_to(local_player.global_position)))
+	if killer_dist >= 0.0:
+		parts.append("From %d m" % roundi(killer_dist))
 	var taken: Array = _my_damage_taken.get(killer_id, [0, 0.0])
 	if int(taken[0]) > 0:
 		parts.append("%d hit%s, %d damage" % [int(taken[0]), "" if int(taken[0]) == 1 else "s", roundi(float(taken[1]))])
-	# Vampire refills the killer's health before the kill arrives, so their HP would say nothing.
-	if killer != null and killer.alive and Net.config.mutator != "vampire":
-		parts.append("they had %d HP left" % ceili(killer.health))
+	if killer_hp > 0.0:
+		parts.append("they had %d HP left" % ceili(killer_hp))
 	return "  ·  ".join(parts)
 
 
