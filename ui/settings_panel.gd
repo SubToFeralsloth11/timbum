@@ -6,14 +6,16 @@ extends PanelContainer
 signal closed
 
 const QUALITY_NAMES: Array[String] = ["Low", "Medium", "High"]
-## Actions in display order with friendly names; bindings are read from the InputMap.
+## Rebindable actions in display order with friendly names; bindings come from Profile.
 const CONTROLS: Array = [
 	["move_forward", "Move forward"], ["move_back", "Move back"], ["move_left", "Strafe left"],
-	["move_right", "Strafe right"], ["jump", "Jump"], ["sprint", "Sprint"], ["crouch", "Crouch"],
+	["move_right", "Strafe right"], ["jump", "Jump"], ["sprint", "Sprint"],
+	["crouch", "Crouch / slide (while sprinting)"], ["lean_left", "Peek left"], ["lean_right", "Peek right"],
 	["fire", "Fire"], ["aim", "Aim down sights"], ["reload", "Reload"], ["weapon_1", "Primary"],
-	["weapon_2", "Secondary"], ["weapon_3", "Knife"], ["quick_swap", "Quick swap"],
-	["next_weapon", "Next weapon"], ["prev_weapon", "Previous weapon"], ["grenade", "Throw grenade"],
-	["melee", "Quick melee"], ["scoreboard", "Scoreboard"], ["chat", "Chat"], ["pause", "Pause menu"],
+	["weapon_2", "Secondary"], ["weapon_3", "Knife"], ["quick_swap", "Last weapon"],
+	["next_weapon", "Next weapon"], ["prev_weapon", "Previous weapon"], ["grenade", "Frag grenade"],
+	["tactical", "Tactical grenade"], ["melee", "Quick melee"], ["grapple", "Grapple hook"],
+	["scoreboard", "Scoreboard"], ["chat", "Chat"],
 ]
 const SAVE_DELAY := 0.35
 
@@ -23,6 +25,9 @@ var _pending := {}
 var _save_timer: Timer
 ## key -> callable refreshing that row's control from Profile.
 var _refreshers := {}
+## Binding button waiting for a key: {action, index, button}; empty when not listening.
+var _capture := {}
+var _bind_buttons: Array[Button] = []
 
 
 func _ready() -> void:
@@ -110,14 +115,43 @@ func refresh() -> void:
 
 
 func close() -> void:
+	_capture = {}
 	_flush()
 	closed.emit()
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if is_visible_in_tree() and event.is_action_pressed(&"ui_cancel"):
+	if is_visible_in_tree() and _capture.is_empty() and event.is_action_pressed(&"ui_cancel"):
 		get_viewport().set_input_as_handled()
 		close()
+
+
+## While a binding button is listening, the next key or mouse press becomes the binding before
+## anything else (menus, the pause toggle) sees it. Esc cancels; Backspace or Delete clears.
+func _input(event: InputEvent) -> void:
+	if _capture.is_empty() or not is_visible_in_tree():
+		return
+	var key := event as InputEventKey
+	var mouse := event as InputEventMouseButton
+	if not ((key != null and key.pressed and not key.echo) or (mouse != null and mouse.pressed)):
+		return
+	get_viewport().set_input_as_handled()
+	var action: String = _capture.action
+	var index: int = _capture.index
+	_capture = {}
+	if key != null and key.physical_keycode == KEY_ESCAPE:
+		Sfx.play(&"ui_error", null, -6.0)
+	elif key != null and key.physical_keycode in [KEY_BACKSPACE, KEY_DELETE]:
+		Profile.set_binding(action, index, "")
+		Sfx.play(&"ui_click")
+	else:
+		var code := Profile.code_from_event(event)
+		if Profile.is_bindable(code):
+			Profile.set_binding(action, index, code)
+			Sfx.play(&"ui_click")
+		else:
+			Sfx.play(&"ui_error", null, -6.0)
+	_refresh_bindings()
 
 
 func _exit_tree() -> void:
@@ -125,6 +159,8 @@ func _exit_tree() -> void:
 
 
 func _show_page(idx: int) -> void:
+	_capture = {}
+	_refresh_bindings()
 	for i in _pages.size():
 		_pages[i].visible = i == idx
 
@@ -249,39 +285,49 @@ func _reset_defaults() -> void:
 
 
 func _build_controls(parent: VBoxContainer) -> void:
+	var tip := UIKit.label("Click a binding, then press a key or mouse button. Backspace clears it, Esc cancels. A key moves off any action that had it.", &"DimLabel")
+	tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	parent.add_child(tip)
 	var grid := GridContainer.new()
-	grid.columns = 2
-	grid.add_theme_constant_override("h_separation", 24)
-	grid.add_theme_constant_override("v_separation", 8)
+	grid.columns = 3
+	grid.add_theme_constant_override("h_separation", 12)
+	grid.add_theme_constant_override("v_separation", 6)
 	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	parent.add_child(grid)
 	for entry: Array in CONTROLS:
-		if not InputMap.has_action(entry[0]):
-			continue
 		var name_label := UIKit.label(entry[1])
 		name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		grid.add_child(name_label)
-		var keys := UIKit.hbox(6)
-		for ev in InputMap.action_get_events(entry[0]):
-			keys.add_child(UIKit.badge(binding_text(ev)))
-		grid.add_child(keys)
+		for index in Profile.MAX_BINDINGS:
+			var b := UIKit.button("", &"", false)
+			b.custom_minimum_size = Vector2(170, 34)
+			b.set_meta(&"action", entry[0])
+			b.set_meta(&"index", index)
+			b.pressed.connect(_start_capture.bind(b))
+			grid.add_child(b)
+			_bind_buttons.append(b)
+	var reset := UIKit.button("RESET CONTROLS", &"DangerButton")
+	reset.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	reset.pressed.connect(func() -> void:
+		_capture = {}
+		Profile.reset_bindings()
+		_refresh_bindings())
+	parent.add_child(reset)
+	_refreshers["_bindings"] = _refresh_bindings
 
 
-## Human-readable name of an input binding.
-static func binding_text(ev: InputEvent) -> String:
-	if ev is InputEventKey:
-		var k := ev as InputEventKey
-		# Bindings are physical (layout-independent); show the key cap of the user's layout. The
-		# headless display server can't map layouts, so it falls back to the QWERTY name.
-		var code := k.keycode if k.physical_keycode == KEY_NONE else k.physical_keycode
-		if k.physical_keycode != KEY_NONE and DisplayServer.get_name() != "headless":
-			code = DisplayServer.keyboard_get_keycode_from_physical(k.physical_keycode)
-		return OS.get_keycode_string(code).to_upper()
-	if ev is InputEventMouseButton:
-		match (ev as InputEventMouseButton).button_index:
-			MOUSE_BUTTON_LEFT: return "LEFT MOUSE"
-			MOUSE_BUTTON_RIGHT: return "RIGHT MOUSE"
-			MOUSE_BUTTON_MIDDLE: return "MIDDLE MOUSE"
-			MOUSE_BUTTON_WHEEL_UP: return "WHEEL UP"
-			MOUSE_BUTTON_WHEEL_DOWN: return "WHEEL DOWN"
-	return ev.as_text().to_upper()
+func _start_capture(b: Button) -> void:
+	Sfx.play(&"ui_click")
+	_capture = {"action": str(b.get_meta(&"action")), "index": int(b.get_meta(&"index")), "button": b}
+	_refresh_bindings()
+
+
+func _refresh_bindings() -> void:
+	for b in _bind_buttons:
+		var action := str(b.get_meta(&"action"))
+		var index := int(b.get_meta(&"index"))
+		if not _capture.is_empty() and _capture.button == b:
+			b.text = "PRESS A KEY..."
+			continue
+		var codes := Profile.get_binding(action)
+		b.text = Profile.code_text(codes[index]) if index < codes.size() else "-"
