@@ -18,7 +18,21 @@ const HEADSHOT_CHANCE := [0.01, 0.04, 0.09]
 const BURST_TIME := [0.25, 0.35, 0.5]
 ## Minimum seconds between semi-auto trigger pulls (human click speed).
 const SEMI_INTERVAL := [0.6, 0.45, 0.32]
-const GRENADE_CHANCE := [0.0, 0.12, 0.25]
+## Grenades: while a target is in throwing range a bot considers a throw every THROW_CHECK
+## seconds and goes for it with this chance; after a throw it waits THROW_REST before the next.
+const FRAG_CHANCE := [0.2, 0.35, 0.5]
+const TACTICAL_CHANCE := [0.3, 0.5, 0.65]
+const THROW_CHECK := Vector2(2.5, 5.0)
+const THROW_REST := Vector2(8.0, 14.0)
+## Frag range (m) to the target, or to where a target that ducked into cover was last seen.
+const FRAG_RANGE := Vector2(7.0, 24.0)
+const TACTICAL_RANGE := Vector2(6.0, 22.0)
+## A target out of sight for this long (s) gets a frag lobbed at its last-seen spot.
+const FLUSH_WINDOW := Vector2(0.4, 3.0)
+## Bots smoke themselves cover at or below this health.
+const SMOKE_HEALTH := 70.0
+## Metres of open air a throw needs straight ahead of the eye.
+const THROW_CLEARANCE := 3.0
 ## Seconds a bot must track a target through the scope before taking a sniper shot.
 const SNIPER_SETTLE := [1.8, 1.3, 0.9]
 ## How fast (1/s, exponential) the aim error drifts toward its next goal: ~90% of the way in 0.33 s.
@@ -102,8 +116,8 @@ var _strafe_timer := 0.0
 var _burst_timer := 0.0
 var _burst_pause := 0.0
 var _semi_wait := 0.0
-var _grenade_timer := 6.0
-var _tactical_timer := 8.0
+var _grenade_timer := 4.0
+var _tactical_timer := 2.5
 var _stuck_timer := 0.0
 var _stuck_check_pos := Vector3.ZERO
 var _crouch_timer := 0.0
@@ -124,8 +138,8 @@ func on_respawn() -> void:
 	_has_goal = false
 	_path = PackedVector3Array()
 	_last_seen_time = -100.0
-	_grenade_timer = randf_range(4.0, 10.0)
-	_tactical_timer = randf_range(6.0, 14.0)
+	_grenade_timer = randf_range(2.0, 6.0)
+	_tactical_timer = randf_range(1.0, 4.0)
 	_goal_pickup = null
 	_chase_pos = NO_POS
 	_path_index = 0
@@ -162,6 +176,7 @@ func think(delta: float) -> void:
 	else:
 		_tracking_time = 0.0
 		_roam(delta)
+		_maybe_flush(delta)
 	_check_stuck(delta)
 
 
@@ -457,47 +472,91 @@ func _new_aim_offset(snap := false) -> void:
 
 func _maybe_grenade(delta: float, dist: float) -> bool:
 	_grenade_timer -= delta
-	if _grenade_timer > 0.0 or p.grenades <= 0 or dist < 7.0 or dist > 24.0:
+	if _grenade_timer > 0.0 or dist < FRAG_RANGE.x or dist > FRAG_RANGE.y or target.protection_left() > 0.0:
 		return false
-	# The throw must happen this frame: the aim below is set for one frame only, and a press queued
-	# behind a weapon switch, melee or the grenade cooldown would leave later at whatever aim then.
-	if p.in_slot >= 0 or p.switch_timer > 0.0 or p.melee_timer > 0.0 or p.grenade_cooldown > 0.0 or target.protection_left() > 0.0:
-		return false
-	_grenade_timer = randf_range(8.0, 16.0)
-	if randf() > GRENADE_CHANCE[difficulty]:
-		return false
-	_aim_throw()
-	p.in_grenade = true
-	return true
+	return _try_throw("grenade", target.global_position)
+
+
+## A target that just ducked out of sight behind cover gets a frag lobbed where it was last seen.
+func _maybe_flush(delta: float) -> void:
+	if target == null or not target.alive:
+		return
+	var gone := World.now() - _last_seen_time
+	if gone < FLUSH_WINDOW.x or gone > FLUSH_WINDOW.y:
+		return
+	_grenade_timer -= delta
+	var dist := p.global_position.distance_to(_last_seen_pos)
+	if _grenade_timer > 0.0 or dist < FRAG_RANGE.x or dist > FRAG_RANGE.y:
+		return
+	if _try_throw("grenade", _last_seen_pos):
+		# Stop to throw: the move intent was set for the old facing.
+		p.in_move = Vector2.ZERO
 
 
 ## Now and then a bot throws its tactical: a flash at a target in mid range, or a smoke on it
 ## when the bot is hurt and wants cover.
 func _maybe_tactical(delta: float, dist: float) -> bool:
 	_tactical_timer -= delta
-	if _tactical_timer > 0.0 or p.tacticals <= 0 or dist < 6.0 or dist > 20.0:
+	if _tactical_timer > 0.0 or dist < TACTICAL_RANGE.x or dist > TACTICAL_RANGE.y:
+		return false
+	if p.tactical_id() == "smoke" and p.health > SMOKE_HEALTH:
+		return false
+	return _try_throw(p.tactical_id(), target.global_position)
+
+
+## Rolls for a throw of `kind` ("grenade" or the tactical) at `point` and, on success, aims and
+## presses it. The press must go off this frame: the aim is set for this frame only, and a press
+## queued behind a weapon switch, melee or the throw cooldown would leave later at whatever aim then.
+func _try_throw(kind: String, point: Vector3) -> bool:
+	var frag := kind == "grenade"
+	if (p.grenades if frag else p.tacticals) <= 0:
 		return false
 	if p.in_slot >= 0 or p.switch_timer > 0.0 or p.melee_timer > 0.0 or p.grenade_cooldown > 0.0:
 		return false
-	if p.tactical_id() == "smoke" and p.health > 55.0:
+	var wait := randf_range(THROW_CHECK.x, THROW_CHECK.y)
+	if frag:
+		_grenade_timer = wait
+	else:
+		_tactical_timer = wait
+	var chance: float = FRAG_CHANCE[difficulty] if frag else TACTICAL_CHANCE[difficulty]
+	if randf() >= chance:
 		return false
-	_tactical_timer = randf_range(10.0, 20.0)
-	if randf() > GRENADE_CHANCE[difficulty]:
+	var aim := _throw_aim(point + Vector3.UP * 0.3)
+	# A wall or low ceiling right in front would bounce a frag back onto the bot.
+	var dir := -Basis.from_euler(Vector3(aim.y, aim.x, 0.0)).z
+	var q := PhysicsRayQueryParameters3D.create(p.head.global_position, p.head.global_position + dir * THROW_CLEARANCE, Player.MASK_WORLD)
+	if not p.get_world_3d().direct_space_state.intersect_ray(q).is_empty():
 		return false
-	_aim_throw()
-	p.in_tactical = true
+	p.yaw = aim.x
+	# aim_transform adds the weapon's recoil kick on top of pitch.
+	p.pitch = clampf(aim.y - deg_to_rad(p.recoil), -Player.MAX_PITCH, Player.MAX_PITCH)
+	if frag:
+		_grenade_timer = randf_range(THROW_REST.x, THROW_REST.y)
+		p.in_grenade = true
+	else:
+		_tactical_timer = randf_range(THROW_REST.x, THROW_REST.y)
+		p.in_tactical = true
 	return true
 
 
-## Points the bot along the lob that lands a grenade on the target. The throw must happen this
-## frame: the aim is set for one frame only.
-func _aim_throw() -> void:
-	var to := target.global_position - p.head.global_position
-	var flat_d := Vector2(to.x, to.z).length()
+## (yaw, pitch) of the low lob that lands a throw on `point`, matching Player._throw_grenade:
+## launched at throw_speed along the aim plus 3 m/s up, from half a metre ahead of the eye.
+func _throw_aim(point: Vector3) -> Vector2:
+	var to := point - p.head.global_position
+	var flat_d := maxf(0.5, Vector2(to.x, to.z).length() - 0.5)
 	var v := float(Data.GRENADE.throw_speed)
-	var s := clampf(Projectile.GRENADE_GRAVITY * flat_d / (v * v), 0.0, 1.0)
-	p.yaw = atan2(-to.x, -to.z)
-	p.pitch = clampf(0.5 * asin(s) - 0.12 + atan2(to.y, flat_d) * 0.5, -0.3, 0.8)
+	var g := Projectile.GRENADE_GRAVITY
+	# Lowest pitch whose arc reaches the point's height at its distance; out of reach, the
+	# longest throw (best range sits near 45 degrees).
+	var pitch := 0.75
+	var a := -0.6
+	while a < 0.75:
+		var t := flat_d / (v * cos(a))
+		if (v * sin(a) + 3.0) * t - 0.5 * g * t * t >= to.y:
+			pitch = a
+			break
+		a += 0.01
+	return Vector2(atan2(-to.x, -to.z), pitch)
 
 
 func _turn_toward(point: Vector3, delta: float) -> void:
