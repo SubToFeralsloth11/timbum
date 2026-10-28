@@ -183,6 +183,9 @@ const MAPS := {
 	"factory": {"name": "Factory", "desc": "Catwalks, conveyor halls and tight corridors."},
 	"sky": {"name": "Sky Islands", "desc": "Floating islands joined by bridges. Mind the drop."},
 	"snow": {"name": "Snow Fort", "desc": "Two frozen forts and a pine forest in between."},
+	"harbor": {"name": "Harbor Docks", "desc": "Stacked containers, cranes and warehouses by the water."},
+	"temple": {"name": "Jungle Temple", "desc": "A stepped pyramid, vine-choked ruins and a river gorge."},
+	"rooftops": {"name": "City Rooftops", "desc": "High-rise roofs linked by bridges. Mind the drop."},
 }
 ## Match modifiers. When mutators are on, each match rolls one (or none) so matches feel different.
 const MUTATORS := {
@@ -197,7 +200,7 @@ const MUTATORS := {
 }
 const TIMES_OF_DAY: Array[String] = ["day", "day", "sunset", "night"]
 
-const MAP_ROTATION: Array[String] = ["village", "desert", "factory", "sky", "snow"]
+const MAP_ROTATION: Array[String] = ["village", "desert", "factory", "sky", "snow", "harbor", "temple", "rooftops"]
 
 const BOT_NAMES: Array[String] = [
 	"Blocky", "Cubert", "Pixel Pete", "Voxelina", "Sir Squares", "Brickle",
