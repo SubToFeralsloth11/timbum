@@ -15,6 +15,9 @@ const GENERATORS := {
 	"factory": preload("res://scripts/world/maps/factory_map.gd"),
 	"sky": preload("res://scripts/world/maps/sky_map.gd"),
 	"snow": preload("res://scripts/world/maps/snow_map.gd"),
+	"harbor": preload("res://scripts/world/maps/harbor_map.gd"),
+	"temple": preload("res://scripts/world/maps/temple_map.gd"),
+	"rooftops": preload("res://scripts/world/maps/rooftops_map.gd"),
 }
 
 const NAV_CELL := 0.25
