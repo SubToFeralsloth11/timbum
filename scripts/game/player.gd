@@ -598,7 +598,10 @@ func _fire_grapple() -> void:
 	var aim := aim_transform()
 	var q := PhysicsRayQueryParameters3D.create(aim.origin, aim.origin - aim.basis.z * GRAPPLE_RANGE, MASK_WORLD, _exclude)
 	var r := get_world_3d().direct_space_state.intersect_ray(q)
-	if r.is_empty() or (r.position as Vector3).distance_to(aim.origin) < GRAPPLE_RELEASE_DIST + 0.3:
+	# The invisible boundary walls (MapBuilder "Bounds") are not something to hook onto.
+	var bad := r.is_empty() or (r.position as Vector3).distance_to(aim.origin) < GRAPPLE_RELEASE_DIST + 0.3 \
+		or (r.collider as Node).name == &"Bounds"
+	if bad:
 		grapple_cooldown = GRAPPLE_MISS_COOLDOWN
 		if mode == Mode.LOCAL:
 			Sfx.play(&"dry_fire", null, -4.0, 0.7)

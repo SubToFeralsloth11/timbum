@@ -395,7 +395,7 @@ func _build_center() -> void:
 	_announce_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
 	_announce_label.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	_announce_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_announce_label.position.y = 150
+	_announce_label.position.y = 200
 	_announce_label.pivot_offset = Vector2(0, 30)
 	_root.add_child(_announce_label)
 	_pickup_label = _label("", 20, Color(0.6, 1.0, 0.6))
@@ -864,7 +864,7 @@ func _show_match_intro() -> void:
 	var box := VBoxContainer.new()
 	box.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
 	box.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	box.position.y = 120
+	box.position.y = 200
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_root.add_child(box)
 	var map_label := _label(Data.MAPS[Net.current_map].name.to_upper(), 46, Color(1, 0.85, 0.35))

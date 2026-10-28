@@ -93,8 +93,8 @@ const THROW_TIME := 0.5
 ## Knife slash keyframes (pivot offset, pivot rotation) for a forehand from the upper right to
 ## the lower left; backhands mirror them.
 const SLASH_START := [Vector3(0.07, 0.07, 0.05), Vector3(0.35, -0.55, -0.55)]
-const SLASH_END := [Vector3(-0.24, -0.11, -0.1), Vector3(-0.55, 0.95, 0.95)]
-const TRAIL_POINTS := 10
+const SLASH_END := [Vector3(-0.2, -0.1, -0.1), Vector3(-0.5, 0.8, 0.75)]
+const TRAIL_POINTS := 7
 
 const TRAIL_SHADER := """
 shader_type spatial;
@@ -104,7 +104,7 @@ void vertex() {
 	POSITION.z = mix(POSITION.w, POSITION.z, 0.03);
 }
 void fragment() {
-	ALBEDO = vec3(0.85, 0.92, 1.0) * COLOR.a * 0.9;
+	ALBEDO = vec3(0.7, 0.85, 1.0) * COLOR.a * 0.45;
 }
 """
 
@@ -502,7 +502,7 @@ func _update_trail() -> void:
 	if cutting:
 		var inv := global_transform.affine_inverse()
 		var tip := inv * _muzzle.global_position
-		var base := inv * _gun.global_transform * Vector3(0, 0.006, -0.08)
+		var base := inv * _gun.global_transform * Vector3(0, 0.008, -0.17)
 		_trail_tips.append(tip)
 		_trail_bases.append(base)
 		if _trail_tips.size() > TRAIL_POINTS:
