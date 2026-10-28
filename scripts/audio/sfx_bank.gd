@@ -13,6 +13,7 @@ const NAMES: Array[StringName] = [
 	&"knife_swing", &"knife_hit", &"pickup_health", &"pickup_ammo", &"grenade_throw", &"grenade_bounce",
 	&"bullet_impact", &"whizz", &"shot_pistol", &"shot_revolver", &"shot_smg", &"shot_rifle",
 	&"shot_shotgun", &"shot_sniper", &"shot_lmg", &"shot_rocket", &"explosion",
+	&"shot_suppressed", &"shot_dmr", &"slide", &"grapple_fire", &"smoke_pop", &"flashbang",
 ]
 
 ## Sounds rendered in several takes; one is picked at random per play.
@@ -29,6 +30,8 @@ const GAIN_DB := {
 	&"grenade_bounce": -7.0, &"bullet_impact": -9.0, &"whizz": -8.0,
 	&"shot_pistol": -3.0, &"shot_revolver": -1.5, &"shot_smg": -4.0, &"shot_rifle": -2.5,
 	&"shot_shotgun": -1.0, &"shot_sniper": 0.0, &"shot_lmg": -2.0, &"shot_rocket": -2.0, &"explosion": 0.0,
+	&"shot_suppressed": -6.0, &"shot_dmr": -1.0, &"slide": -9.0, &"grapple_fire": -6.0,
+	&"smoke_pop": -5.0, &"flashbang": 0.0,
 }
 
 ## Reference distance (m) for positional playback: loud sounds carry across a ~60 m map,
@@ -38,6 +41,8 @@ const UNIT_SIZE := {
 	&"shot_shotgun": 16.0, &"shot_sniper": 24.0, &"shot_lmg": 16.0, &"shot_rocket": 16.0,
 	&"explosion": 26.0, &"footstep": 4.0, &"jump": 4.0, &"land": 5.0, &"bullet_impact": 5.0,
 	&"whizz": 3.0, &"grenade_bounce": 6.0, &"reload": 4.0, &"dry_fire": 3.0, &"weapon_switch": 3.0,
+	&"shot_suppressed": 5.0, &"shot_dmr": 20.0, &"slide": 5.0, &"grapple_fire": 6.0,
+	&"smoke_pop": 10.0, &"flashbang": 24.0,
 }
 const DEFAULT_UNIT_SIZE := 7.0
 
@@ -49,6 +54,7 @@ const JITTER := {
 	&"pickup_ammo": true, &"grenade_throw": true, &"grenade_bounce": true, &"bullet_impact": true,
 	&"whizz": true, &"shot_pistol": true, &"shot_revolver": true, &"shot_smg": true, &"shot_rifle": true,
 	&"shot_shotgun": true, &"shot_sniper": true, &"shot_lmg": true, &"shot_rocket": true, &"explosion": true,
+	&"shot_suppressed": true, &"shot_dmr": true, &"slide": true, &"grapple_fire": true,
 }
 
 
@@ -66,6 +72,47 @@ static func render(sound: StringName) -> Array[AudioStreamWAV]:
 
 static func _render_one(sound: StringName, v: int, rng: RandomNumberGenerator) -> PackedFloat32Array:
 	match sound:
+		&"shot_suppressed":
+			# A suppressed .22: no crack, a dull puff and the action clacking.
+			var b := Synth.make(0.28)
+			Synth.noise(b, rng, 0.0, 0.12, 0.9, 1400.0, 500.0, 120.0, 0.001, 0.035)
+			Synth.tone(b, 0.0, 0.08, 160.0, 90.0, 0.35, W.SINE, 0.001, 0.03)
+			Synth.click(b, rng, 0.03, 0.45, 2900.0)
+			return b
+		&"shot_dmr":
+			var b := _gun(rng, 1.0, 1.0, 0.012, 2600.0, 0.07, 120.0, 1.15, 0.1, 0.14, 0.38, 2.4)
+			Synth.click(b, rng, 0.06, 0.15, 2200.0)
+			return b
+		&"slide":
+			# Fabric and grit scraping along the floor.
+			var b := Synth.make(0.6)
+			Synth.noise(b, rng, 0.0, 0.55, 0.8, 2600.0, 900.0, 300.0, 0.03, 0.25)
+			Synth.noise(b, rng, 0.0, 0.4, 0.35, 6000.0, 3000.0, 1800.0, 0.02, 0.15)
+			return b
+		&"grapple_fire":
+			# Spring launch, then the line whirring out.
+			var b := Synth.make(0.45)
+			Synth.click(b, rng, 0.0, 0.9, 1800.0)
+			Synth.tone(b, 0.0, 0.06, 240.0, 110.0, 0.6, W.SINE, 0.001, 0.025)
+			Synth.noise(b, rng, 0.02, 0.4, 0.45, 5200.0, 2600.0, 1600.0, 0.01, 0.16)
+			Synth.tone(b, 0.02, 0.38, 900.0, 520.0, 0.12, W.TRIANGLE, 0.01, 0.15)
+			return b
+		&"smoke_pop":
+			# A muffled pop and a long hiss of smoke pouring out.
+			var b := Synth.make(2.0)
+			Synth.tone(b, 0.0, 0.12, 180.0, 70.0, 0.7, W.SINE, 0.001, 0.04)
+			Synth.noise(b, rng, 0.0, 0.08, 0.6, 2000.0, 600.0, 0.0, 0.001, 0.03)
+			Synth.noise(b, rng, 0.05, 1.9, 0.5, 7000.0, 3500.0, 1200.0, 0.15, 0.9)
+			return b
+		&"flashbang":
+			# Very sharp bang with a bright ringing tail.
+			var b := Synth.make(1.6)
+			Synth.noise(b, rng, 0.0, 0.04, 1.6, 12000.0, 6000.0, 1500.0, 0.0002, 0.01)
+			Synth.noise(b, rng, 0.0, 0.6, 1.0, 3000.0, 400.0, 0.0, 0.002, 0.12)
+			Synth.tone(b, 0.0, 0.3, 110.0, 45.0, 0.9, W.SINE, 0.001, 0.08)
+			Synth.tone(b, 0.05, 1.5, 3900.0, 3850.0, 0.08, W.SINE, 0.01, 0.6)
+			Synth.drive(b, 2.2)
+			return b
 		&"shot_pistol":
 			return _gun(rng, 0.55, 1.0, 0.012, 2600.0, 0.05, 180.0, 0.9, 0.06, 0.09, 0.3, 2.0)
 		&"shot_revolver":
