@@ -19,8 +19,12 @@ uniform vec3 uv_scale = vec3(1.0);
 uniform vec3 uv_offset = vec3(0.0);
 uniform vec4 emission : source_color = vec4(0.0, 0.0, 0.0, 1.0);
 uniform float emission_energy = 0.0;
+uniform sampler2D emission_tex : source_color, filter_nearest_mipmap, repeat_enable;
+// StandardMaterial3D's emission texture: 0 none, 1 added to the emission colour, 2 multiplies it.
+uniform int emission_tex_mode = 0;
 uniform float metallic = 0.0;
 uniform float roughness = 0.8;
+uniform float specular = 0.5;
 void vertex() {
 	UV = UV * uv_scale.xy + uv_offset.xy;
 	POSITION = PROJECTION_MATRIX * MODELVIEW_MATRIX * vec4(VERTEX, 1.0);
@@ -34,7 +38,11 @@ void fragment() {
 	ALBEDO = c.rgb;
 	METALLIC = metallic;
 	ROUGHNESS = roughness;
-	EMISSION = emission.rgb * emission_energy;
+	SPECULAR = specular;
+	vec3 e = emission.rgb;
+	if (emission_tex_mode == 1) { e += texture(emission_tex, UV).rgb; }
+	if (emission_tex_mode == 2) { e *= texture(emission_tex, UV).rgb; }
+	EMISSION = e * emission_energy;
 }
 """
 
@@ -351,8 +359,12 @@ static func _converted_material(m: Material) -> Material:
 	sm.set_shader_parameter("uv_offset", src.uv1_offset)
 	sm.set_shader_parameter("metallic", src.metallic)
 	sm.set_shader_parameter("roughness", src.roughness)
+	sm.set_shader_parameter("specular", src.metallic_specular)
 	if src.emission_enabled:
 		sm.set_shader_parameter("emission", src.emission)
 		sm.set_shader_parameter("emission_energy", src.emission_energy_multiplier)
+		if src.emission_texture != null:
+			sm.set_shader_parameter("emission_tex", src.emission_texture)
+			sm.set_shader_parameter("emission_tex_mode", 2 if src.emission_operator == BaseMaterial3D.EMISSION_OP_MULTIPLY else 1)
 	_converted[m] = sm
 	return sm
