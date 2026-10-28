@@ -10,6 +10,40 @@ const CHAT_MAX := 8
 ## Results-table rows shown before it scrolls (a full lobby plus the highlights, rewards and the
 ## next-match strip would push the panel off a 720p screen).
 const RESULTS_VISIBLE_ROWS := 6
+const HEALTH_SEGMENTS := 10
+
+
+## Heading strip across the top of the screen: N/E/S/W letters and ticks every 15 degrees,
+## centred on where the player is looking.
+class Compass extends Control:
+	const SPAN := 120.0
+	var heading := 0.0
+
+	func _ready() -> void:
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	func _draw() -> void:
+		var w := size.x
+		var mid := w * 0.5
+		var font := get_theme_default_font()
+		draw_rect(Rect2(Vector2.ZERO, size), Color(0.06, 0.07, 0.1, 0.45))
+		var deg := rad_to_deg(heading)
+		var first := int(floor((deg - SPAN * 0.5) / 15.0)) * 15
+		for d in range(first, int(deg + SPAN * 0.5) + 15, 15):
+			var x := mid + (d - deg) / SPAN * w
+			if x < 4.0 or x > w - 4.0:
+				continue
+			var a := clampf(1.0 - absf(x - mid) / mid, 0.0, 1.0)
+			var wrapped := posmod(d, 360)
+			var label: String = {0: "N", 90: "E", 180: "S", 270: "W"}.get(wrapped, "")
+			if label != "":
+				var col := Color(1, 0.85, 0.4, a) if label == "N" else Color(1, 1, 1, a)
+				draw_string(font, Vector2(x - 6, 21), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, col)
+			elif wrapped % 45 == 0:
+				draw_string(font, Vector2(x - 9, 19), str(wrapped), HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.8, 0.85, 0.9, a * 0.8))
+			else:
+				draw_line(Vector2(x, 20), Vector2(x, 27), Color(1, 1, 1, a * 0.6), 2.0)
+		draw_line(Vector2(mid, 0), Vector2(mid, 8), Color(1, 0.85, 0.4), 3.0)
 
 var world: World
 
@@ -19,11 +53,26 @@ var _damage_ring: DamageRing
 var _scope: ScopeOverlay
 var _vignette: TextureRect
 var _health_label: Label
-var _health_bar: ProgressBar
+var _hp_segments: Array[ColorRect] = []
+var _status_label: Label
 var _ammo_label: Label
 var _reserve_label: Label
 var _weapon_label: Label
+var _mode_label: Label
+var _mag_bar: ProgressBar
+var _slot_labels: Array[Label] = []
 var _grenade_label: Label
+var _tactical_label: Label
+var _grapple_label: Label
+var _grapple_bar: ProgressBar
+var _you_bar: ProgressBar
+var _lead_bar: ProgressBar
+var _compass: Compass
+## White-out from a flash grenade: peak strength and seconds left / total.
+var _flash_rect: ColorRect
+var _flash_peak := 0.0
+var _flash_left := 0.0
+var _flash_total := 1.0
 var _hint_label: Label
 var _clock_label: Label
 var _goal_label: Label
@@ -116,6 +165,11 @@ func _ready() -> void:
 	_build_death()
 	_build_scoreboard()
 	_build_results()
+	_flash_rect = ColorRect.new()
+	_flash_rect.color = Color(1, 1, 1, 0)
+	_flash_rect.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_flash_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_root.add_child(_flash_rect)
 
 	_fps_label = _label("", 16)
 	_fps_label.position = Vector2(10, 8)
@@ -166,18 +220,40 @@ func _panel(alpha := 0.55) -> PanelContainer:
 
 
 func _build_top() -> void:
+	var col := VBoxContainer.new()
+	col.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+	col.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	col.position.y = 6
+	col.alignment = BoxContainer.ALIGNMENT_BEGIN
+	col.add_theme_constant_override("separation", 4)
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_root.add_child(col)
+	_compass = Compass.new()
+	_compass.custom_minimum_size = Vector2(440, 30)
+	_compass.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	col.add_child(_compass)
 	var top := _panel()
-	top.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
-	top.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	top.position.y = 10
-	_root.add_child(top)
+	top.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	col.add_child(top)
 	var v := VBoxContainer.new()
 	v.alignment = BoxContainer.ALIGNMENT_CENTER
-	v.add_theme_constant_override("separation", 0)
+	v.add_theme_constant_override("separation", 2)
 	top.add_child(v)
 	_clock_label = _label("8:00", 34)
 	_clock_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(_clock_label)
+	# Race to the kill limit: this player's bar against the leader's.
+	var race := GridContainer.new()
+	race.columns = 2
+	race.add_theme_constant_override("h_separation", 8)
+	race.add_theme_constant_override("v_separation", 3)
+	v.add_child(race)
+	race.add_child(_label("YOU", 13, Color(1, 0.88, 0.45)))
+	_you_bar = _bar(Color(1, 0.8, 0.25), Vector2(200, 7))
+	race.add_child(_you_bar)
+	race.add_child(_label("LEAD", 13, Color(1, 0.55, 0.5)))
+	_lead_bar = _bar(Color(1, 0.4, 0.35), Vector2(200, 7))
+	race.add_child(_lead_bar)
 	_goal_label = _label("", 15, Color(1, 0.85, 0.4))
 	_goal_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(_goal_label)
@@ -194,47 +270,77 @@ func _build_top() -> void:
 	_root.add_child(_killfeed)
 
 
+## Thin flat progress bar (0..1) used across the HUD.
+func _bar(color: Color, min_size: Vector2) -> ProgressBar:
+	var b := ProgressBar.new()
+	b.custom_minimum_size = min_size
+	b.max_value = 1.0
+	b.step = 0.0
+	b.show_percentage = false
+	b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var bg := StyleBoxFlat.new()
+	bg.bg_color = Color(0, 0, 0, 0.5)
+	bg.set_corner_radius_all(2)
+	var fill := StyleBoxFlat.new()
+	fill.bg_color = color
+	fill.set_corner_radius_all(2)
+	b.add_theme_stylebox_override("background", bg)
+	b.add_theme_stylebox_override("fill", fill)
+	b.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return b
+
+
 func _build_bottom() -> void:
+	# Health card, bottom left: big number, segmented bar and a movement status line.
 	var hp := _panel()
 	hp.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
 	hp.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	hp.position = Vector2(18, -18)
 	_root.add_child(hp)
 	var hv := VBoxContainer.new()
+	hv.add_theme_constant_override("separation", 4)
 	hp.add_child(hv)
 	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
 	hv.add_child(row)
 	var cross := _label("+", 40, Color(1, 0.35, 0.35))
 	row.add_child(cross)
 	_health_label = _label("100", 44)
 	row.add_child(_health_label)
-	_health_bar = ProgressBar.new()
-	_health_bar.custom_minimum_size = Vector2(240, 12)
-	_health_bar.max_value = Data.MAX_HEALTH
-	_health_bar.show_percentage = false
-	var bg := StyleBoxFlat.new()
-	bg.bg_color = Color(0, 0, 0, 0.5)
-	bg.set_corner_radius_all(2)
-	var fill := StyleBoxFlat.new()
-	fill.bg_color = Color(0.35, 0.95, 0.45)
-	fill.set_corner_radius_all(2)
-	_health_bar.add_theme_stylebox_override("background", bg)
-	_health_bar.add_theme_stylebox_override("fill", fill)
-	_health_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hv.add_child(_health_bar)
+	_status_label = _label("", 15, Color(0.6, 0.9, 1.0))
+	_status_label.size_flags_vertical = Control.SIZE_SHRINK_END
+	row.add_child(_status_label)
+	var segs := HBoxContainer.new()
+	segs.add_theme_constant_override("separation", 3)
+	hv.add_child(segs)
+	for i in HEALTH_SEGMENTS:
+		var s := ColorRect.new()
+		s.custom_minimum_size = Vector2(24, 12)
+		s.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		segs.add_child(s)
+		_hp_segments.append(s)
 
+	# Weapon card, bottom right: weapon and fire mode, ammo, magazine bar, the three slots and
+	# the equipment row (frags, tactical, grapple) with their keys.
 	var ammo := _panel()
 	ammo.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
 	ammo.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	ammo.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	ammo.position = Vector2(-18, -18)
+	ammo.custom_minimum_size.x = 330
 	_root.add_child(ammo)
 	var av := VBoxContainer.new()
 	av.alignment = BoxContainer.ALIGNMENT_END
+	av.add_theme_constant_override("separation", 3)
 	ammo.add_child(av)
+	var head := HBoxContainer.new()
+	av.add_child(head)
 	_weapon_label = _label("", 18, Color(0.85, 0.9, 1.0))
-	_weapon_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	av.add_child(_weapon_label)
+	_weapon_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(_weapon_label)
+	_mode_label = _label("", 13, Color(0.6, 0.65, 0.75))
+	_mode_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	head.add_child(_mode_label)
 	var arow := HBoxContainer.new()
 	arow.alignment = BoxContainer.ALIGNMENT_END
 	av.add_child(arow)
@@ -244,9 +350,31 @@ func _build_bottom() -> void:
 	_reserve_label.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
 	_reserve_label.size_flags_vertical = Control.SIZE_SHRINK_END
 	arow.add_child(_reserve_label)
-	_grenade_label = _label("", 18, Color(0.55, 0.95, 0.5))
-	_grenade_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	av.add_child(_grenade_label)
+	_mag_bar = _bar(Color(0.95, 0.95, 0.95), Vector2(0, 5))
+	av.add_child(_mag_bar)
+	var slots := HBoxContainer.new()
+	slots.add_theme_constant_override("separation", 6)
+	slots.alignment = BoxContainer.ALIGNMENT_END
+	av.add_child(slots)
+	for i in 3:
+		var l := _label("", 13)
+		slots.add_child(l)
+		_slot_labels.append(l)
+	var gear := HBoxContainer.new()
+	gear.add_theme_constant_override("separation", 12)
+	gear.alignment = BoxContainer.ALIGNMENT_END
+	av.add_child(gear)
+	_grenade_label = _label("", 15, Color(0.55, 0.95, 0.5))
+	gear.add_child(_grenade_label)
+	_tactical_label = _label("", 15, Color(0.7, 0.85, 1.0))
+	gear.add_child(_tactical_label)
+	var hook := HBoxContainer.new()
+	hook.add_theme_constant_override("separation", 4)
+	gear.add_child(hook)
+	_grapple_label = _label("", 15, Color(1.0, 0.8, 0.5))
+	hook.add_child(_grapple_label)
+	_grapple_bar = _bar(Color(1.0, 0.75, 0.35), Vector2(44, 6))
+	hook.add_child(_grapple_bar)
 
 	_hint_label = _label("", 20, Color(1, 0.85, 0.3))
 	_hint_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
@@ -524,6 +652,10 @@ func _process(delta: float) -> void:
 		_results_left = maxf(0.0, _results_left - delta)
 		_results_timer.text = "Next match in %d" % int(ceil(_results_left))
 
+	_flash_left = maxf(0.0, _flash_left - delta)
+	# Full white for the first part of the blindness, then it fades.
+	_flash_rect.color.a = _flash_peak * clampf(_flash_left / (_flash_total * 0.6), 0.0, 1.0)
+
 	if p == null:
 		_crosshair.visible = false
 		_scope.visible = false
@@ -531,35 +663,46 @@ func _process(delta: float) -> void:
 		return
 	var hp_frac := p.health / Data.MAX_HEALTH
 	_health_label.text = str(int(ceil(p.health)))
-	_health_bar.value = p.health
-	(_health_bar.get_theme_stylebox("fill") as StyleBoxFlat).bg_color = Color(0.95, 0.3, 0.25).lerp(Color(0.35, 0.95, 0.45), hp_frac)
+	var hp_color := Color(0.95, 0.3, 0.25).lerp(Color(0.35, 0.95, 0.45), hp_frac)
+	for i in _hp_segments.size():
+		# Each segment fills in proportion to its share of health.
+		var fill := clampf(hp_frac * HEALTH_SEGMENTS - i, 0.0, 1.0)
+		_hp_segments[i].color = Color(0, 0, 0, 0.45).lerp(hp_color, fill)
 	var low := 0.0
 	if p.alive and hp_frac < 0.35:
 		low = (0.35 - hp_frac) * 1.6 * (0.75 + 0.25 * sin(Time.get_ticks_msec() * 0.008))
 	_vignette_alpha = move_toward(_vignette_alpha, 0.0, delta * 1.8)
 	_vignette.modulate.a = clampf(maxf(_vignette_alpha, low), 0.0, 1.0)
+	_status_label.text = _movement_status(p)
+	_compass.heading = -p.yaw
+	_compass.queue_redraw()
 
 	var wid := p.weapon_id()
 	var w := p.weapon_data()
 	_weapon_label.text = str(w.name).to_upper()
+	_mode_label.text = _fire_mode(w)
 	if int(w.mag) > 0:
 		var a: Vector2i = p.ammo[wid]
 		_ammo_label.text = str(a.x)
 		_reserve_label.text = "/ %d" % a.y
-		_ammo_label.self_modulate = Color(1, 0.35, 0.3) if a.x <= int(w.mag) / 4 else Color.WHITE
+		var low_ammo := a.x <= int(w.mag) / 4
+		_ammo_label.self_modulate = Color(1, 0.35, 0.3) if low_ammo else Color.WHITE
+		_mag_bar.value = float(a.x) / float(w.mag)
+		_mag_bar.self_modulate = Color(1, 0.4, 0.35) if low_ammo else Color.WHITE
 		if p.reloading:
 			# A shell-by-shell reload can be cut short; say so, so a loaded tube never feels locked.
 			var can_cut: bool = w.get("reload_per_shell", false) and a.x > 0
 			_hint_label.text = "RELOADING - FIRE TO STOP" if can_cut else "RELOADING"
 		elif a.x == 0 and a.y == 0:
 			_hint_label.text = "NO AMMO - FIND AN AMMO CRATE"
-		elif a.x <= int(w.mag) / 4 and a.y > 0:
-			_hint_label.text = "[R] RELOAD"
+		elif low_ammo and a.y > 0:
+			_hint_label.text = "[%s] RELOAD" % Profile.key_text("reload")
 		else:
 			_hint_label.text = ""
 	else:
 		_ammo_label.text = "-"
 		_reserve_label.text = ""
+		_mag_bar.value = 0.0
 		_hint_label.text = ""
 	_hint_label.visible = p.alive
 	var shield := p.protection_left() if p.alive else 0.0
@@ -567,7 +710,19 @@ func _process(delta: float) -> void:
 	if shield > 0.0:
 		_protect_label.text = "SPAWN PROTECTED  %.1f s" % shield
 		_protect_label.modulate.a = 0.65 + 0.35 * sin(Time.get_ticks_msec() * 0.012)
-	_grenade_label.text = "GRENADES  " + "■ ".repeat(p.grenades) + "□ ".repeat(maxi(0, int(Data.GRENADE.per_life) - p.grenades))
+	for i in _slot_labels.size():
+		var key := Profile.key_text("weapon_%d" % (i + 1))
+		var label := _slot_labels[i]
+		label.text = "%s %s" % [key, str(Data.WEAPONS[p.slots[i]].name).to_upper()]
+		label.self_modulate = Color(1, 0.85, 0.4) if i == p.current_slot else Color(0.65, 0.68, 0.75)
+	_grenade_label.text = "%s FRAG %s" % [Profile.key_text("grenade"),
+		"■".repeat(p.grenades) + "□".repeat(maxi(0, int(Data.GRENADE.per_life) - p.grenades))]
+	_tactical_label.text = "%s %s %s" % [Profile.key_text("tactical"), str(Data.TACTICALS[p.tactical_id()].name).to_upper(),
+		"■".repeat(p.tacticals) + "□".repeat(maxi(0, Data.TACTICAL_PER_LIFE - p.tacticals))]
+	var hook_ready := p.grapple_cooldown <= 0.0 and not p.grappling
+	_grapple_label.text = "%s HOOK" % Profile.key_text("grapple")
+	_grapple_label.self_modulate = Color.WHITE if hook_ready or p.grappling else Color(0.6, 0.6, 0.65)
+	_grapple_bar.value = 1.0 if p.grappling else 1.0 - clampf(p.grapple_cooldown / Player.GRAPPLE_COOLDOWN, 0.0, 1.0)
 
 	var scoped: bool = w.get("scope", false) and p.aim_blend > 0.85 and p.alive
 	_scope.visible = scoped
@@ -608,6 +763,9 @@ func refresh_scores() -> void:
 		_goal_label.text = "First to %d kills" % limit
 		return
 	_goal_label.text = "Leader: %s  %d / %d" % [rows[0].name, rows[0].kills, limit]
+	_lead_bar.value = float(rows[0].kills) / maxf(1.0, limit)
+	if my_rank > 0:
+		_you_bar.value = float(rows[my_rank - 1].kills) / maxf(1.0, limit)
 	var top := int(rows[0].kills)
 	var runner_up := int(rows[1].kills) if rows.size() > 1 else 0
 	if my_rank > 0:
@@ -725,6 +883,44 @@ func _show_match_intro() -> void:
 	tw.tween_callback(box.queue_free)
 
 
+## Short state line under the health number: what the player's movement is doing.
+func _movement_status(p: Player) -> String:
+	if not p.alive:
+		return ""
+	if p.grappling:
+		return "GRAPPLING"
+	if p.sliding:
+		return "SLIDING"
+	if absf(p.lean) > 0.5:
+		return "PEEK LEFT" if p.lean < 0.0 else "PEEK RIGHT"
+	if World.now() < p.flashed_until:
+		return "BLINDED"
+	if p.crouching:
+		return "CROUCHED"
+	return ""
+
+
+static func _fire_mode(w: Dictionary) -> String:
+	if int(w.mag) == 0:
+		return "MELEE"
+	if int(w.get("burst", 1)) > 1:
+		return "BURST"
+	if w.get("projectile", false):
+		return "LAUNCHER"
+	if w.auto:
+		return "AUTO"
+	return "SEMI"
+
+
+## A flash grenade went off in view: white-out at `amount` (0..1) for `seconds`.
+func flash(amount: float, seconds: float) -> void:
+	if seconds <= 0.0:
+		return
+	_flash_peak = clampf(maxf(amount * 1.2, _flash_peak * _flash_left / _flash_total), 0.0, 1.0)
+	_flash_total = seconds
+	_flash_left = seconds
+
+
 func _show_controls_hint() -> void:
 	var panel := _panel(0.6)
 	panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER_LEFT)
@@ -734,8 +930,15 @@ func _show_controls_hint() -> void:
 	var v := VBoxContainer.new()
 	panel.add_child(v)
 	v.add_child(_label("CONTROLS", 18, Color(1, 0.85, 0.4)))
-	for line in ["WASD  move", "Shift  sprint   Ctrl  crouch", "Right mouse  aim", "R  reload   G  grenade",
-			"V  quick melee   1/2/3  weapons", "Tab  scores   T  chat   Esc  menu"]:
+	var k := func(action: String) -> String: return Profile.key_text(action)
+	for line: String in [
+			"%s%s%s%s  move" % [k.call("move_forward"), k.call("move_left"), k.call("move_back"), k.call("move_right")],
+			"%s  sprint   %s  crouch (slide while sprinting)" % [k.call("sprint"), k.call("crouch")],
+			"%s / %s  peek left / right" % [k.call("lean_left"), k.call("lean_right")],
+			"%s  aim   %s  reload" % [k.call("aim"), k.call("reload")],
+			"%s  frag   %s  tactical   %s  grapple hook" % [k.call("grenade"), k.call("tactical"), k.call("grapple")],
+			"%s  quick melee   %s/%s/%s  weapons" % [k.call("melee"), k.call("weapon_1"), k.call("weapon_2"), k.call("weapon_3")],
+			"%s  scores   %s  chat   Esc  menu (rebind keys in Settings)" % [k.call("scoreboard"), k.call("chat")]]:
 		v.add_child(_label(line, 15))
 	var tw := create_tween()
 	tw.tween_interval(10.0)
@@ -791,6 +994,9 @@ func pickup_message(kind: String) -> void:
 		"grenade": _pickup_label.text = "+1 GRENADE"
 		"no_grenades":
 			_pickup_label.text = "NO GRENADES"
+			color = Color(1.0, 0.45, 0.4)
+		"no_tactical":
+			_pickup_label.text = "NO TACTICAL LEFT"
 			color = Color(1.0, 0.45, 0.4)
 	_pickup_label.add_theme_color_override("font_color", color)
 	_pickup_t = 1.6
