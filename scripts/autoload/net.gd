@@ -277,6 +277,7 @@ static func sanitize_info(info: Dictionary) -> Dictionary:
 		"skin": str(info.get("skin", "default")),
 		"primary": str(info.get("primary", "smg")),
 		"secondary": str(info.get("secondary", "pistol")),
+		"tactical": str(info.get("tactical", "flash")),
 		"level": clampi(int(info.get("level", 1)), 1, 9999),
 	}
 	if clean.name.is_empty():
@@ -286,6 +287,7 @@ static func sanitize_info(info: Dictionary) -> Dictionary:
 	if not Data.SKINS.has(clean.skin): clean.skin = "default"
 	if not Data.WEAPONS.has(clean.primary) or Data.WEAPONS[clean.primary].slot != "primary": clean.primary = "smg"
 	if not Data.WEAPONS.has(clean.secondary) or Data.WEAPONS[clean.secondary].slot != "secondary": clean.secondary = "pistol"
+	if not Data.TACTICALS.has(clean.tactical): clean.tactical = "flash"
 	return clean
 
 

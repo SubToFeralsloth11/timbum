@@ -1,7 +1,8 @@
 class_name Projectile
 extends Node3D
-## A rocket or grenade. Every peer simulates the same deterministic flight for visuals;
-## only the server decides when and where it explodes (World.server_explode).
+## A rocket, frag grenade or tactical grenade (smoke/flash). Every peer simulates the same
+## deterministic flight for visuals; only the server decides when and where it goes off
+## (World.server_explode). Rockets and frags explode on contact; tacticals bounce until their fuse.
 
 const GRENADE_GRAVITY := 18.0
 const GRENADE_BOUNCE := 0.42
@@ -38,7 +39,10 @@ func setup(p_world: World, p_pid: int, p_kind: String, p_owner: int, origin: Vec
 
 
 func _ready() -> void:
-	_model = Models.build_rocket() if kind == "rocket" else Models.build_grenade()
+	match kind:
+		"rocket": _model = Models.build_rocket()
+		"grenade": _model = Models.build_grenade()
+		_: _model = Models.build_tactical(kind)
 	add_child(_model)
 	_orient()
 	if kind == "rocket":
@@ -88,18 +92,16 @@ func _physics_process(delta: float) -> void:
 	var space := get_world_3d().direct_space_state
 	if kind == "rocket":
 		_step_rocket(delta, space)
-	else:
+	elif kind == "grenade":
 		_step_grenade(delta, space)
+	else:
+		_step_tactical(delta, space)
 
 
 func _step_rocket(delta: float, space: PhysicsDirectSpaceState3D) -> void:
 	var from := _sweep_start()
 	var to := global_position + vel * delta
-	var exclude: Array[RID] = []
-	var owner_player: Player = world.entities.get(owner_id)
-	if owner_player != null:
-		exclude = owner_player.exclude_rids()
-	var q := PhysicsRayQueryParameters3D.create(from, to, Player.MASK_WORLD | Player.MASK_HITBOX, exclude)
+	var q := PhysicsRayQueryParameters3D.create(from, to, Player.MASK_WORLD | Player.MASK_HITBOX, _owner_exclude())
 	q.collide_with_areas = true
 	var r := space.intersect_ray(q)
 	if not r.is_empty():
@@ -111,6 +113,25 @@ func _step_rocket(delta: float, space: PhysicsDirectSpaceState3D) -> void:
 
 
 func _step_grenade(delta: float, space: PhysicsDirectSpaceState3D) -> void:
+	vel.y -= GRENADE_GRAVITY * delta
+	var from := _sweep_start()
+	var to := global_position + vel * delta
+	# Frags go off on the first thing they touch: a wall, the floor or another player.
+	var q := PhysicsRayQueryParameters3D.create(from, to, Player.MASK_WORLD | Player.MASK_HITBOX, _owner_exclude())
+	q.collide_with_areas = true
+	var r := space.intersect_ray(q)
+	if not r.is_empty():
+		var n: Vector3 = r.normal if not (r.collider is Area3D) else -vel.normalized()
+		_detonate(r.position + n * 0.15)
+		return
+	global_position = to
+	_model.rotate_x(delta * vel.length() * 2.0)
+	if age >= float(Data.GRENADE.fuse):
+		_detonate(global_position)
+
+
+## Smoke and flash grenades bounce off the world and go off when their fuse runs out.
+func _step_tactical(delta: float, space: PhysicsDirectSpaceState3D) -> void:
 	vel.y -= GRENADE_GRAVITY * delta
 	var from := _sweep_start()
 	var to := global_position + vel * delta
@@ -129,8 +150,15 @@ func _step_grenade(delta: float, space: PhysicsDirectSpaceState3D) -> void:
 			_bounce_sound_cd = 0.15
 			Sfx.play(&"grenade_bounce", global_position, -4.0)
 	_model.rotate_x(delta * vel.length() * 2.0)
-	if age >= float(Data.GRENADE.fuse):
+	if age >= float(Data.TACTICALS[kind].fuse):
 		_detonate(global_position + Vector3.UP * 0.1)
+
+
+func _owner_exclude() -> Array[RID]:
+	var owner_player: Player = world.entities.get(owner_id)
+	if owner_player != null:
+		return owner_player.exclude_rids()
+	return []
 
 
 ## Where this step's collision sweep starts: the current position, except on the first step.

@@ -148,6 +148,27 @@ static func build_grenade() -> Node3D:
 	return root
 
 
+## Tactical grenade for kind "smoke" (grey can, green band) or "flash" (white, blue band),
+## same size as the frag.
+static func build_tactical(kind: String) -> Node3D:
+	var root := Node3D.new()
+	root.name = "Tactical"
+	_add_mesh(root, _cached_mesh("tactical_" + kind, _tactical_mesh.bind(kind)))
+	return root
+
+
+static func _tactical_mesh(kind: String) -> ArrayMesh:
+	var k := MeshKit.new()
+	_grenade_into(k, Vector3.ZERO, 0, 1, 2, 3)
+	var flash := kind == "flash"
+	return k.build([
+		flat_material(Color("dcdfe4") if flash else Color("5d6168"), 0.5, 0.3 if flash else 0.0),
+		flat_material(Color("2f7fe0") if flash else Color("5a9b3a")),
+		flat_material(Color(0.42, 0.43, 0.46), 0.35, 0.7),
+		flat_material(Color("c9a646"), 0.3, 0.8),
+	])
+
+
 ## Rocket projectile, about 0.5 m long, origin at its centre, nose towards -Z.
 static func build_rocket() -> Node3D:
 	var root := Node3D.new()
@@ -425,6 +446,12 @@ static func _gun_info(weapon_id: String) -> Dictionary:
 		"lmg": info = _gun_lmg(k)
 		"sniper": info = _gun_sniper(k)
 		"rocket": info = _gun_rocket(k)
+		"machine_pistol": info = _gun_machine_pistol(k)
+		"burst_pistol": info = _gun_burst_pistol(k)
+		"sawed_off": info = _gun_sawed_off(k)
+		"suppressed": info = _gun_suppressed(k)
+		"dmr": info = _gun_dmr(k)
+		"burst_rifle": info = _gun_burst_rifle(k)
 		_: info = _gun_knife(k)
 	info.mesh = k.build(_gun_accent_materials())
 	_guns[weapon_id] = info
@@ -639,6 +666,134 @@ static func _gun_rocket(k: MeshKit) -> Dictionary:
 	return {"muzzle": Vector3(0, 0.1, -0.76), "sight": Vector3(-0.1, 0.16, -0.07),
 		"support": Vector3(0, -0.02, -0.3)}
 
+
+## Compact auto pistol: extended magazine, folding front grip, compensator.
+static func _gun_machine_pistol(k: MeshKit) -> Dictionary:
+	k.box(DARK, Vector3(0, -0.045, 0.012), Vector3(0.03, 0.105, 0.042), Vector3(-0.18, 0, 0))
+	k.box(DARK, Vector3(0, -0.125, 0.028), Vector3(0.026, 0.07, 0.034), Vector3(-0.18, 0, 0))
+	k.box(METAL, Vector3(0, -0.162, 0.035), Vector3(0.03, 0.01, 0.038), Vector3(-0.18, 0, 0))
+	k.box(BODY, Vector3(0, 0.034, -0.07), Vector3(0.036, 0.04, 0.23))
+	k.box(BODY, Vector3(0, 0.004, -0.06), Vector3(0.032, 0.024, 0.16))
+	for i in 5:
+		k.box(DARK, Vector3(0, 0.036, 0.0 + i * 0.008), Vector3(0.038, 0.03, 0.003))
+	k.box(METAL, Vector3(0, 0.034, -0.2), Vector3(0.03, 0.03, 0.04))
+	for i in 3:
+		k.box(DARK, Vector3(0, 0.05, -0.19 - i * 0.012), Vector3(0.012, 0.004, 0.006))
+	k.box(DARK, Vector3(0, 0.034, -0.2205), Vector3(0.01, 0.01, 0.002))
+	k.box(DARK, Vector3(0, -0.035, -0.13), Vector3(0.02, 0.06, 0.022), Vector3(0.25, 0, 0))
+	k.box(METAL, Vector3(0, 0.058, -0.17), Vector3(0.006, 0.008, 0.01))
+	k.box(METAL, Vector3(0, 0.058, 0.03), Vector3(0.028, 0.009, 0.008))
+	k.box(METAL, Vector3(0.0185, 0.038, -0.03), Vector3(0.002, 0.012, 0.012))
+	_trigger(k, -0.022)
+	return {"muzzle": Vector3(0, 0.034, -0.222), "sight": Vector3(0, 0.064, 0.03),
+		"support": Vector3(0, -0.06, -0.13)}
+
+
+## Burst pistol: long slide with a red burst selector and a short rail.
+static func _gun_burst_pistol(k: MeshKit) -> Dictionary:
+	k.box(DARK, Vector3(0, -0.047, 0.014), Vector3(0.032, 0.11, 0.044), Vector3(-0.2, 0, 0))
+	k.box(DARK, Vector3(0, -0.102, 0.026), Vector3(0.036, 0.012, 0.05), Vector3(-0.2, 0, 0))
+	k.box(BODY, Vector3(0, 0.034, -0.075), Vector3(0.034, 0.038, 0.24))
+	k.box(BODY, Vector3(0, 0.004, -0.07), Vector3(0.03, 0.024, 0.17))
+	k.box(DARK, Vector3(0, -0.006, -0.13), Vector3(0.032, 0.008, 0.06))
+	for i in 3:
+		k.box(DARK, Vector3(0, 0.054, -0.06 - i * 0.03), Vector3(0.02, 0.003, 0.012))
+	k.box(RED, Vector3(0.018, 0.02, 0.0), Vector3(0.004, 0.012, 0.012))
+	k.box(METAL, Vector3(0, 0.034, -0.198), Vector3(0.018, 0.018, 0.01))
+	k.box(DARK, Vector3(0, 0.034, -0.2035), Vector3(0.008, 0.008, 0.002))
+	k.box(METAL, Vector3(0, 0.058, -0.185), Vector3(0.006, 0.008, 0.01))
+	k.box(METAL, Vector3(0, 0.058, 0.035), Vector3(0.028, 0.009, 0.008))
+	_trigger(k, -0.024)
+	return {"muzzle": Vector3(0, 0.034, -0.205), "sight": Vector3(0, 0.064, 0.035),
+		"support": Vector3(-0.02, -0.05, 0.0)}
+
+
+## Sawn-off double barrel: two short barrels side by side, wooden pistol stock.
+static func _gun_sawed_off(k: MeshKit) -> Dictionary:
+	k.box(BRASS, Vector3(0, -0.045, 0.04), Vector3(0.034, 0.1, 0.05), Vector3(-0.45, 0, 0))
+	k.box(BRASS, Vector3(0, -0.09, 0.065), Vector3(0.036, 0.03, 0.06), Vector3(-0.45, 0, 0))
+	k.box(DARK, Vector3(0, 0.025, 0.0), Vector3(0.05, 0.05, 0.08))
+	k.box(BODY, Vector3(-0.0135, 0.05, -0.17), Vector3(0.026, 0.026, 0.27))
+	k.box(BODY, Vector3(0.0135, 0.05, -0.17), Vector3(0.026, 0.026, 0.27))
+	k.box(DARK, Vector3(-0.0135, 0.05, -0.3055), Vector3(0.016, 0.016, 0.002))
+	k.box(DARK, Vector3(0.0135, 0.05, -0.3055), Vector3(0.016, 0.016, 0.002))
+	k.box(BRASS, Vector3(0, 0.022, -0.13), Vector3(0.046, 0.03, 0.15))
+	k.box(METAL, Vector3(0, 0.066, -0.29), Vector3(0.006, 0.008, 0.008))
+	k.box(METAL, Vector3(0, 0.062, 0.03), Vector3(0.008, 0.02, 0.02), Vector3(0.4, 0, 0))
+	k.box(METAL, Vector3(0, 0.068, -0.02), Vector3(0.012, 0.006, 0.04))
+	_trigger(k, 0.01)
+	return {"muzzle": Vector3(0, 0.05, -0.307), "sight": Vector3(0, 0.07, 0.02),
+		"support": Vector3(0, 0.0, -0.13)}
+
+
+## Suppressed pistol: slim slide with a long fat can on the muzzle.
+static func _gun_suppressed(k: MeshKit) -> Dictionary:
+	k.box(DARK, Vector3(0, -0.045, 0.012), Vector3(0.028, 0.1, 0.04), Vector3(-0.22, 0, 0))
+	k.box(BODY, Vector3(0, 0.03, -0.055), Vector3(0.028, 0.032, 0.19))
+	k.box(BODY, Vector3(0, 0.004, -0.05), Vector3(0.026, 0.02, 0.13))
+	for i in 4:
+		k.box(DARK, Vector3(0, 0.032, 0.012 + i * 0.008), Vector3(0.03, 0.024, 0.003))
+	k.box(DARK, Vector3(0, 0.03, -0.25), Vector3(0.038, 0.038, 0.2))
+	for i in 4:
+		k.box(METAL, Vector3(0, 0.03, -0.18 - i * 0.045), Vector3(0.04, 0.04, 0.006))
+	k.box(METAL, Vector3(0, 0.03, -0.3505), Vector3(0.012, 0.012, 0.002))
+	k.box(METAL, Vector3(0, 0.05, 0.03), Vector3(0.024, 0.008, 0.008))
+	k.box(METAL, Vector3(0, 0.05, -0.135), Vector3(0.005, 0.008, 0.008))
+	_trigger(k, -0.02)
+	return {"muzzle": Vector3(0, 0.03, -0.352), "sight": Vector3(0, 0.056, 0.03),
+		"support": Vector3(-0.02, -0.05, 0.0)}
+
+
+## Marksman rifle: long handguard, 20-round box mag, compact scope, bipod nubs.
+static func _gun_dmr(k: MeshKit) -> Dictionary:
+	k.box(DARK, Vector3(0, -0.045, 0.018), Vector3(0.03, 0.095, 0.04), Vector3(-0.3, 0, 0))
+	k.box(BODY, Vector3(0, 0.05, -0.04), Vector3(0.05, 0.055, 0.28))
+	k.box(BODY, Vector3(0, 0.012, -0.05), Vector3(0.045, 0.03, 0.2))
+	k.box(DARK, Vector3(0, -0.04, -0.11), Vector3(0.03, 0.08, 0.06))
+	k.box(METAL, Vector3(0, -0.082, -0.11), Vector3(0.034, 0.008, 0.064))
+	k.box(BODY, Vector3(0, 0.048, -0.33), Vector3(0.05, 0.05, 0.3))
+	for i in 5:
+		k.box(DARK, Vector3(0.0255, 0.048, -0.22 - i * 0.05), Vector3(0.002, 0.016, 0.03))
+		k.box(DARK, Vector3(-0.0255, 0.048, -0.22 - i * 0.05), Vector3(0.002, 0.016, 0.03))
+	k.box(METAL, Vector3(0, 0.05, -0.56), Vector3(0.02, 0.02, 0.16))
+	k.box(METAL, Vector3(0, 0.05, -0.65), Vector3(0.032, 0.026, 0.04))
+	k.box(DARK, Vector3(0, 0.05, -0.6705), Vector3(0.012, 0.012, 0.002))
+	k.box(DARK, Vector3(0, 0.018, -0.45), Vector3(0.05, 0.01, 0.03))
+	k.box(DARK, Vector3(0, 0.122, -0.04), Vector3(0.036, 0.036, 0.18))
+	k.box(DARK, Vector3(0, 0.122, -0.15), Vector3(0.048, 0.048, 0.05))
+	k.box(METAL, Vector3(0, 0.095, -0.08), Vector3(0.04, 0.022, 0.014))
+	k.box(METAL, Vector3(0, 0.095, 0.0), Vector3(0.04, 0.022, 0.014))
+	k.box(LENS, Vector3(0, 0.122, -0.1765), Vector3(0.038, 0.038, 0.004))
+	k.box(LENS, Vector3(0, 0.122, 0.0515), Vector3(0.028, 0.028, 0.004))
+	k.box(DARK, Vector3(0, 0.05, 0.12), Vector3(0.026, 0.026, 0.06))
+	k.box(BODY, Vector3(0, 0.035, 0.21), Vector3(0.044, 0.08, 0.16))
+	k.box(DARK, Vector3(0, 0.07, 0.2), Vector3(0.03, 0.02, 0.1))
+	k.box(DARK, Vector3(0, 0.03, 0.3), Vector3(0.048, 0.1, 0.02))
+	_trigger(k, -0.022)
+	return {"muzzle": Vector3(0, 0.05, -0.672), "sight": Vector3(0, 0.122, 0.055),
+		"support": Vector3(0, 0.01, -0.33)}
+
+
+## Burst rifle: bullpup-ish body, carry handle sight, angular handguard.
+static func _gun_burst_rifle(k: MeshKit) -> Dictionary:
+	k.box(DARK, Vector3(0, -0.045, -0.06), Vector3(0.03, 0.095, 0.04), Vector3(-0.25, 0, 0))
+	k.box(BODY, Vector3(0, 0.045, 0.02), Vector3(0.056, 0.075, 0.36))
+	k.box(DARK, Vector3(0, -0.035, 0.09), Vector3(0.032, 0.09, 0.05), Vector3(0.15, 0, 0))
+	k.box(METAL, Vector3(0, -0.083, 0.098), Vector3(0.034, 0.008, 0.052), Vector3(0.15, 0, 0))
+	k.box(BODY, Vector3(0, 0.04, -0.25), Vector3(0.05, 0.06, 0.2))
+	k.box(DARK, Vector3(0, 0.005, -0.25), Vector3(0.052, 0.012, 0.18))
+	k.box(METAL, Vector3(0, 0.05, -0.41), Vector3(0.02, 0.02, 0.14))
+	k.box(METAL, Vector3(0, 0.05, -0.475), Vector3(0.03, 0.03, 0.03))
+	k.box(DARK, Vector3(0, 0.05, -0.4905), Vector3(0.012, 0.012, 0.002))
+	k.box(DARK, Vector3(0, 0.1, -0.02), Vector3(0.012, 0.03, 0.012))
+	k.box(DARK, Vector3(0, 0.1, -0.16), Vector3(0.012, 0.03, 0.012))
+	k.box(BODY, Vector3(0, 0.122, -0.09), Vector3(0.024, 0.014, 0.18))
+	k.box(METAL, Vector3(0, 0.138, -0.17), Vector3(0.006, 0.014, 0.008))
+	k.box(RED, Vector3(0.029, 0.03, -0.02), Vector3(0.003, 0.012, 0.012))
+	k.box(DARK, Vector3(0, 0.035, 0.205), Vector3(0.058, 0.09, 0.02))
+	_trigger(k, -0.085)
+	return {"muzzle": Vector3(0, 0.05, -0.492), "sight": Vector3(0, 0.15, -0.02),
+		"support": Vector3(0, 0.0, -0.26)}
 
 static func _gun_knife(k: MeshKit) -> Dictionary:
 	k.box(DARK, Vector3(0, 0, 0.02), Vector3(0.025, 0.035, 0.11))

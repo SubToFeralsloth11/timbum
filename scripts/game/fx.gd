@@ -11,6 +11,40 @@ const FLASH_POOL := 8
 const EXPLOSION_POOL := 4
 const BURST_POOL := 6
 const TRACER_LIFE := 0.07
+const SMOKE_POOL := 4
+const SMOKE_PUFFS := 22
+## Seconds a smoke cloud takes to billow out to full size, and to thin away at the end.
+const SMOKE_GROW := 1.2
+const SMOKE_FADE := 1.6
+const FLASH_BURST_LIFE := 0.45
+
+## Soft billboarded smoke puff: value-noise blob with a round falloff; `fade` per instance.
+const SMOKE_SHADER := """
+shader_type spatial;
+render_mode blend_mix, depth_draw_never, cull_disabled, shadows_disabled, unshaded;
+instance uniform float fade = 1.0;
+instance uniform float seed = 0.0;
+uniform vec3 tint : source_color = vec3(0.72, 0.73, 0.75);
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float vnoise(vec2 p) {
+	vec2 i = floor(p); vec2 f = fract(p);
+	vec2 u = f * f * (3.0 - 2.0 * f);
+	return mix(mix(hash(i), hash(i + vec2(1, 0)), u.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), u.x), u.y);
+}
+void vertex() {
+	// Face the camera, keeping the node's scale.
+	MODELVIEW_MATRIX = VIEW_MATRIX * mat4(INV_VIEW_MATRIX[0], INV_VIEW_MATRIX[1], INV_VIEW_MATRIX[2], MODEL_MATRIX[3]);
+	MODELVIEW_MATRIX = MODELVIEW_MATRIX * mat4(vec4(length(MODEL_MATRIX[0].xyz), 0, 0, 0), vec4(0, length(MODEL_MATRIX[1].xyz), 0, 0), vec4(0, 0, length(MODEL_MATRIX[2].xyz), 0), vec4(0, 0, 0, 1));
+}
+void fragment() {
+	vec2 p = UV * 2.0 - 1.0;
+	float r = length(p);
+	float n = vnoise(UV * 4.0 + seed + TIME * 0.15) * 0.6 + vnoise(UV * 9.0 - seed - TIME * 0.1) * 0.4;
+	float a = smoothstep(1.0, 0.35, r + (n - 0.5) * 0.5);
+	ALBEDO = tint * (0.8 + 0.25 * n) * (0.85 + 0.15 * (1.0 - UV.y));
+	ALPHA = clamp(a * 0.95 * fade, 0.0, 1.0);
+}
+"""
 
 var _tracers: Array[MeshInstance3D] = []
 var _tracer_life: Array[float] = []
@@ -30,6 +64,12 @@ var _i_flash := 0
 var _i_explosion := 0
 var _i_burst := 0
 var _tracer_mat: StandardMaterial3D
+var _smokes: Array[Node3D] = []
+## Per smoke cloud: [seconds since it popped, total duration]; duration 0 = idle.
+var _smoke_time: Array[Vector2] = []
+var _i_smoke := 0
+var _flash_burst: OmniLight3D
+var _flash_burst_life := 0.0
 
 
 func _ready() -> void:
@@ -110,6 +150,32 @@ func _ready() -> void:
 		_explosions.append(root)
 		_explosion_life.append(0.0)
 
+	var smoke_shader := Shader.new()
+	smoke_shader.code = SMOKE_SHADER
+	var smoke_puff_mat := ShaderMaterial.new()
+	smoke_puff_mat.shader = smoke_shader
+	var quad := QuadMesh.new()
+	quad.size = Vector2.ONE
+	quad.material = smoke_puff_mat
+	for i in SMOKE_POOL:
+		var cloud := Node3D.new()
+		cloud.visible = false
+		add_child(cloud)
+		for j in SMOKE_PUFFS:
+			var puff := MeshInstance3D.new()
+			puff.mesh = quad
+			puff.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			puff.set_instance_shader_parameter(&"seed", float(j) * 3.7 + i * 11.0)
+			cloud.add_child(puff)
+		_smokes.append(cloud)
+		_smoke_time.append(Vector2.ZERO)
+	_flash_burst = OmniLight3D.new()
+	_flash_burst.light_color = Color(0.95, 0.97, 1.0)
+	_flash_burst.omni_range = 18.0
+	_flash_burst.light_energy = 0.0
+	_flash_burst.visible = false
+	add_child(_flash_burst)
+
 
 func _cube_material(vertex_color: bool) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
@@ -181,6 +247,14 @@ func _process(delta: float) -> void:
 			light.light_energy = maxf(0.0, (_explosion_life[i] - 1.2) / 0.4) * 9.0
 			if _explosion_life[i] <= 0.0:
 				_explosions[i].visible = false
+	for i in SMOKE_POOL:
+		if _smoke_time[i].y > 0.0:
+			_update_smoke(i, delta)
+	if _flash_burst_life > 0.0:
+		_flash_burst_life -= delta
+		_flash_burst.light_energy = maxf(0.0, _flash_burst_life / FLASH_BURST_LIFE) * 16.0
+		if _flash_burst_life <= 0.0:
+			_flash_burst.visible = false
 
 
 func tracer(from: Vector3, to: Vector3) -> void:
@@ -247,3 +321,49 @@ func death_burst(pos: Vector3, color: Color) -> void:
 	p.global_position = pos
 	p.color = color
 	p.restart()
+
+
+## A smoke grenade's cloud: puffs billow out from `pos` to `radius` over SMOKE_GROW seconds,
+## hold, then thin away over the last SMOKE_FADE of `duration`.
+func smoke_cloud(pos: Vector3, radius: float, duration: float) -> void:
+	var cloud := _smokes[_i_smoke]
+	_smoke_time[_i_smoke] = Vector2(0.0, duration)
+	_i_smoke = (_i_smoke + 1) % SMOKE_POOL
+	cloud.global_position = pos
+	cloud.visible = true
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash(pos)
+	for puff: MeshInstance3D in cloud.get_children():
+		# Spread through a squashed sphere sitting on the ground; remember the target offset.
+		var dir := Vector3(rng.randf_range(-1, 1), rng.randf_range(-0.2, 1.0), rng.randf_range(-1, 1)).normalized()
+		var offset := dir * radius * sqrt(rng.randf()) * Vector3(1.0, 0.55, 1.0) + Vector3.UP * radius * 0.35
+		puff.set_meta(&"offset", offset)
+		puff.set_meta(&"size", radius * rng.randf_range(0.75, 1.15))
+		puff.position = Vector3.ZERO
+		puff.scale = Vector3.ONE * 0.1
+
+
+func _update_smoke(i: int, delta: float) -> void:
+	var t := _smoke_time[i]
+	t.x += delta
+	_smoke_time[i] = t
+	var cloud := _smokes[i]
+	if t.x >= t.y:
+		_smoke_time[i] = Vector2.ZERO
+		cloud.visible = false
+		return
+	var grow := 1.0 - pow(1.0 - clampf(t.x / SMOKE_GROW, 0.0, 1.0), 3.0)
+	var fade := clampf((t.y - t.x) / SMOKE_FADE, 0.0, 1.0)
+	for puff: MeshInstance3D in cloud.get_children():
+		var offset: Vector3 = puff.get_meta(&"offset")
+		# Drifts upward a little as it thins.
+		puff.position = offset * grow + Vector3.UP * (1.0 - fade) * 0.6
+		puff.scale = Vector3.ONE * float(puff.get_meta(&"size")) * (0.25 + 0.75 * grow) * (1.0 + (1.0 - fade) * 0.3)
+		puff.set_instance_shader_parameter(&"fade", fade)
+
+
+func flash_burst(pos: Vector3) -> void:
+	_flash_burst.global_position = pos + Vector3.UP * 0.3
+	_flash_burst.visible = true
+	_flash_burst.light_energy = 16.0
+	_flash_burst_life = FLASH_BURST_LIFE

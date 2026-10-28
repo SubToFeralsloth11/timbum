@@ -8,10 +8,13 @@ signal shop_requested
 const ROWS: Array = [
 	["weapons", "PRIMARY", "primary"],
 	["weapons", "SECONDARY", "secondary"],
+	["tacticals", "TACTICAL", "tactical"],
 	["skins", "WEAPON SKIN", "skin"],
 	["hats", "HAT", "hat"],
 	["outfits", "OUTFIT", "outfit"],
 ]
+## ROWS before this index are loadout, the rest style.
+const STYLE_START := 3
 
 var _pickers := {}
 var _preview: ModelPreview
@@ -34,7 +37,7 @@ func _ready() -> void:
 	left.add_child(v)
 	v.add_child(UIKit.label("LOADOUT", &"SubheaderLabel"))
 	for i in ROWS.size():
-		if i == 2:
+		if i == STYLE_START:
 			v.add_child(HSeparator.new())
 			v.add_child(UIKit.label("STYLE", &"SubheaderLabel"))
 		var row: Array = ROWS[i]
@@ -107,7 +110,7 @@ static func owned_ids(category: String, slot: String) -> Array[String]:
 
 
 func _current(key: String) -> String:
-	if key in ["primary", "secondary"]:
+	if key in ["primary", "secondary", "tactical"]:
 		return Profile.loadout[key]
 	return Profile.equipped[key]
 
@@ -141,4 +144,5 @@ func _rebuild_models() -> void:
 	_preview.show_model(avatar, true, PI - 1.1, 0.95)
 	_gun_preview.show_model(Models.build_gun(Profile.loadout.secondary, Profile.equipped.skin), false, ShopScreen.GUN_YAW, 1.0)
 	_name_tag.text = Profile.player_name.to_upper()
-	_summary.text = "Secondary: %s  ·  Knife always carried" % Data.WEAPONS[Profile.loadout.secondary].name
+	_summary.text = "Secondary: %s  ·  %s  ·  Knife always carried" % [Data.WEAPONS[Profile.loadout.secondary].name,
+		Data.TACTICALS[Profile.loadout.tactical].name]

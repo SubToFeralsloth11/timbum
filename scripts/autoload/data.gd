@@ -17,7 +17,10 @@ const CATEGORIES: Array[String] = ["weapons", "skins", "hats", "outfits"]
 ##   ads_fov: field of view while aiming; scope: draws scope overlay
 ##   move_mult: movement speed multiplier while held
 ##   projectile: fires a rocket instead of hitscan; splash_radius / speed
-##   sound: Sfx name
+##   burst / burst_rpm: shots per trigger pull and their rate inside the burst (rpm stays the
+##     average rate, which the server's fire-rate check enforces)
+##   suppressed: no tracer or muzzle flash for other players, and a quiet report
+##   sound: Sfx name; pitch: optional playback pitch for it
 const WEAPONS := {
 	"pistol": {
 		"name": "Block 9", "slot": "secondary", "price": 0,
@@ -92,6 +95,60 @@ const WEAPONS := {
 		"ads_fov": 60.0, "move_mult": 0.9, "sound": "shot_rocket",
 		"projectile": true, "splash_radius": 4.5, "speed": 38.0,
 	},
+	"machine_pistol": {
+		"name": "Bitstorm MP", "slot": "secondary", "price": 500,
+		"desc": "Full-auto sidearm. Shreds up close, sprays at range.",
+		"damage": 15.0, "head_mult": 1.6, "rpm": 1050.0, "auto": true,
+		"mag": 20, "reserve": 120, "reload": 1.5, "pellets": 1,
+		"spread_hip": 3.0, "spread_ads": 1.4, "recoil": 0.5,
+		"falloff_start": 8.0, "falloff_end": 22.0, "min_mult": 0.5,
+		"ads_fov": 64.0, "move_mult": 1.05, "sound": "shot_smg", "pitch": 1.18,
+	},
+	"burst_pistol": {
+		"name": "Tri-Tap", "slot": "secondary", "price": 550,
+		"desc": "Three-round burst pistol. Land the whole burst for a fast kill.",
+		"damage": 24.0, "head_mult": 1.9, "rpm": 300.0, "auto": false, "burst": 3, "burst_rpm": 1100.0,
+		"mag": 18, "reserve": 108, "reload": 1.5, "pellets": 1,
+		"spread_hip": 1.8, "spread_ads": 0.45, "recoil": 1.0,
+		"falloff_start": 18.0, "falloff_end": 40.0, "min_mult": 0.65,
+		"ads_fov": 60.0, "move_mult": 1.0, "sound": "shot_pistol", "pitch": 1.1,
+	},
+	"sawed_off": {
+		"name": "Pocket Boomer", "slot": "secondary", "price": 600,
+		"desc": "Double-barrel coach gun. Two shells for when a corner goes wrong.",
+		"damage": 12.0, "head_mult": 1.3, "rpm": 240.0, "auto": false,
+		"mag": 2, "reserve": 24, "reload": 1.7, "pellets": 9,
+		"spread_hip": 7.0, "spread_ads": 5.5, "recoil": 6.5,
+		"falloff_start": 5.0, "falloff_end": 13.0, "min_mult": 0.2,
+		"ads_fov": 66.0, "move_mult": 1.0, "sound": "shot_shotgun", "pitch": 0.9,
+	},
+	"suppressed": {
+		"name": "Whisper .22", "slot": "secondary", "price": 400,
+		"desc": "Suppressed pistol. No tracer, no flash, barely a sound. Flank in peace.",
+		"damage": 30.0, "head_mult": 2.2, "rpm": 330.0, "auto": false, "suppressed": true,
+		"mag": 10, "reserve": 70, "reload": 1.4, "pellets": 1,
+		"spread_hip": 1.3, "spread_ads": 0.25, "recoil": 1.0,
+		"falloff_start": 15.0, "falloff_end": 35.0, "min_mult": 0.6,
+		"ads_fov": 60.0, "move_mult": 1.02, "sound": "shot_suppressed",
+	},
+	"dmr": {
+		"name": "Block Marksman", "slot": "primary", "price": 850,
+		"desc": "Semi-auto marksman rifle. Two to the chest or one to the head.",
+		"damage": 48.0, "head_mult": 2.1, "rpm": 280.0, "auto": false,
+		"mag": 12, "reserve": 60, "reload": 2.3, "pellets": 1,
+		"spread_hip": 3.5, "spread_ads": 0.1, "recoil": 2.6,
+		"falloff_start": 50.0, "falloff_end": 100.0, "min_mult": 0.8,
+		"ads_fov": 38.0, "move_mult": 0.93, "sound": "shot_dmr",
+	},
+	"burst_rifle": {
+		"name": "Tri-Cube", "slot": "primary", "price": 700,
+		"desc": "Three-round burst rifle. Precise and punchy; rewards steady aim.",
+		"damage": 30.0, "head_mult": 1.8, "rpm": 450.0, "auto": false, "burst": 3, "burst_rpm": 950.0,
+		"mag": 30, "reserve": 150, "reload": 2.1, "pellets": 1,
+		"spread_hip": 2.0, "spread_ads": 0.3, "recoil": 1.0,
+		"falloff_start": 35.0, "falloff_end": 70.0, "min_mult": 0.7,
+		"ads_fov": 48.0, "move_mult": 0.97, "sound": "shot_rifle", "pitch": 1.08,
+	},
 	"knife": {
 		"name": "Pixel Blade", "slot": "melee", "price": 0,
 		"desc": "Always with you. Two slashes to finish the job.",
@@ -103,9 +160,22 @@ const WEAPONS := {
 	},
 }
 
+## Frag grenades explode on impact (with the world or a player); `fuse` only caps a throw that
+## never hits anything.
 const GRENADE := {
-	"damage": 110.0, "radius": 5.0, "fuse": 2.4, "per_life": 2, "throw_speed": 17.0,
+	"damage": 150.0, "radius": 5.5, "fuse": 4.0, "per_life": 2, "throw_speed": 19.0,
 }
+
+## Tactical grenades: everyone carries TACTICAL_PER_LIFE of the one picked in the locker. They
+## bounce and go off after `fuse` seconds. Smoke blocks sight (bots can't see through it);
+## a flash blinds anyone who can see it, more the closer they are and the more they face it.
+const TACTICALS := {
+	"smoke": {"name": "Smoke Block", "price": 0, "desc": "A thick cloud for 10 seconds. Cross open ground or blind a sniper's lane.",
+		"fuse": 1.3, "radius": 4.6, "duration": 10.0},
+	"flash": {"name": "Flash Cube", "price": 0, "desc": "Blinds anyone looking at it for up to 3.5 seconds. Bounce it round a corner, then push.",
+		"fuse": 1.0, "radius": 16.0, "duration": 3.5},
+}
+const TACTICAL_PER_LIFE := 1
 
 ## Weapon skins apply to every gun. pattern: solid | camo | stripes | sparkle | glow | gradient
 const SKINS := {
@@ -231,6 +301,7 @@ func catalog(category: String) -> Dictionary:
 		"skins": return SKINS
 		"hats": return HATS
 		"outfits": return OUTFITS
+		"tacticals": return TACTICALS
 	push_error("Unknown catalog category: %s" % category)
 	return {}
 
