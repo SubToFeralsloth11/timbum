@@ -47,7 +47,11 @@ const STONE_BRICK := 35
 const CONTAINER_RED := 36
 const CONTAINER_BLUE := 37
 const PINE_SNOW := 38
-const BLOCK_COUNT := 39
+const CONTAINER_GREEN := 39
+const CONTAINER_YELLOW := 40
+const WATER := 41
+const MOSSY_BRICK := 42
+const BLOCK_COUNT := 43
 
 ## Per block id: [top tile, side tile, bottom tile].
 const _FACES: Array = [
@@ -90,6 +94,10 @@ const _FACES: Array = [
 	["container_top", "container_red", "container_top"],
 	["container_top", "container_blue", "container_top"],
 	["pine_snow", "pine", "pine"],
+	["container_top", "container_green", "container_top"],
+	["container_top", "container_yellow", "container_top"],
+	["water", "water", "water"],
+	["mossy_brick", "mossy_brick", "mossy_brick"],
 ]
 
 const _WOOL := {
@@ -411,8 +419,11 @@ static func _paint(n: String, img: Image, rng: RandomNumberGenerator) -> void:
 					if x % 4 == 0 or y % 4 == 0:
 						_dot(img, x, y, Color("7c848c") if y % 4 == 0 else Color("646c74"))
 			_border(img, Color("9aa2aa"), Color("4b5259"))
-		"container_red", "container_blue":
-			var base := Color("a8382e") if n == "container_red" else Color("2f5c9a")
+		"container_red", "container_blue", "container_green", "container_yellow":
+			var base: Color = {
+				"container_red": Color("a8382e"), "container_blue": Color("2f5c9a"),
+				"container_green": Color("3f7a45"), "container_yellow": Color("c99a2e"),
+			}[n]
 			_noise(img, rng, base, 0.02)
 			for x in TILE:
 				if x % 4 == 1:
@@ -427,6 +438,20 @@ static func _paint(n: String, img: Image, rng: RandomNumberGenerator) -> void:
 		"container_top":
 			_noise(img, rng, Color("7f868d"), 0.02)
 			_border(img, Color("a3aab1"), Color("575e65"))
+		"water":
+			_noise(img, rng, Color("2a6f8f"), 0.025)
+			for y in TILE:
+				for x in TILE:
+					if (x * 2 + y * 3) % 11 == 0 and rng.randf() < 0.7:
+						_dot(img, x, y, Color("5aa2c0"))
+		"mossy_brick":
+			_bricks(img, rng, 8, 8, [Color("7f8478"), Color("767b6e"), Color("878c80")], Color("4c5046"))
+			for i in 40:
+				var x := rng.randi_range(0, 15)
+				var y := rng.randi_range(0, 15)
+				_dot(img, x, y, _vary(Color("4f7a33"), rng, 0.06))
+				if rng.randf() < 0.5:
+					_dot(img, x + 1, y, Color("5f8c3c"))
 		_:
 			push_error("BlockAtlas: unknown tile %s" % n)
 
