@@ -36,7 +36,7 @@ var coins := 500
 var xp := 0
 var level := 1
 var owned := {}
-var loadout := {"primary": "smg", "secondary": "pistol"}
+var loadout := {"primary": "smg", "secondary": "pistol", "tactical": "flash"}
 var equipped := {"skin": "default", "hat": "none", "outfit": "classic"}
 var settings := DEFAULT_SETTINGS.duplicate()
 var stats := DEFAULT_STATS.duplicate()
@@ -47,7 +47,7 @@ var persist := true
 
 
 func _ready() -> void:
-	_register_input()
+	_apply_bindings()
 	load_profile()
 	apply_settings()
 
@@ -84,7 +84,9 @@ func buy(category: String, id: String) -> bool:
 func is_equipped(category: String, id: String) -> bool:
 	match category:
 		"weapons":
-			return loadout.values().has(id)
+			return loadout.primary == id or loadout.secondary == id
+		"tacticals":
+			return loadout.tactical == id
 		"skins":
 			return equipped.skin == id
 		"hats":
@@ -103,6 +105,8 @@ func equip(category: String, id: String) -> bool:
 			if slot == "melee":
 				return false
 			loadout[slot] = id
+		"tacticals":
+			loadout.tactical = id
 		"skins":
 			equipped.skin = id
 		"hats":
@@ -124,6 +128,7 @@ func peer_info() -> Dictionary:
 		"skin": equipped.skin,
 		"primary": loadout.primary,
 		"secondary": loadout.secondary,
+		"tactical": loadout.tactical,
 		"level": level,
 	}
 
@@ -273,7 +278,7 @@ func save() -> void:
 		"version": SAVE_VERSION,
 		"player_name": player_name, "coins": coins, "xp": xp, "level": level,
 		"owned": owned, "loadout": loadout, "equipped": equipped,
-		"settings": settings, "stats": stats, "last_daily": last_daily,
+		"settings": settings, "stats": stats, "last_daily": last_daily, "bindings": bindings,
 	}
 	var tmp := SAVE_PATH + ".tmp"
 	var f := FileAccess.open(tmp, FileAccess.WRITE)
@@ -352,12 +357,14 @@ func load_from_dict(d: Dictionary) -> void:
 			if stats.has(key):
 				stats[key] = maxi(0, _num(saved_stats[key], 0))
 	var saved_loadout: Variant = d.get("loadout", {})
-	loadout = {"primary": "smg", "secondary": "pistol"}
+	loadout = {"primary": "smg", "secondary": "pistol", "tactical": "flash"}
 	if typeof(saved_loadout) == TYPE_DICTIONARY:
 		for slot in ["primary", "secondary"]:
 			var id := str(saved_loadout.get(slot, ""))
 			if is_owned("weapons", id) and Data.WEAPONS[id].slot == slot:
 				loadout[slot] = id
+		if Data.TACTICALS.has(str(saved_loadout.get("tactical", ""))):
+			loadout.tactical = str(saved_loadout.tactical)
 	var saved_eq: Variant = d.get("equipped", {})
 	equipped = {"skin": "default", "hat": "none", "outfit": "classic"}
 	if typeof(saved_eq) == TYPE_DICTIONARY:
@@ -365,38 +372,176 @@ func load_from_dict(d: Dictionary) -> void:
 			var id := str(saved_eq.get(pair[0], ""))
 			if is_owned(pair[1], id):
 				equipped[pair[0]] = id
+	_load_bindings(d.get("bindings", {}))
 
 
 # ---------------------------------------------------------------- input
 
-func _register_input() -> void:
-	var keys := {
-		"move_forward": [KEY_W, KEY_UP], "move_back": [KEY_S, KEY_DOWN],
-		"move_left": [KEY_A, KEY_LEFT], "move_right": [KEY_D, KEY_RIGHT],
-		"jump": [KEY_SPACE], "sprint": [KEY_SHIFT], "crouch": [KEY_CTRL, KEY_C],
-		"reload": [KEY_R], "weapon_1": [KEY_1], "weapon_2": [KEY_2], "weapon_3": [KEY_3],
-		"quick_swap": [KEY_Q], "grenade": [KEY_G], "melee": [KEY_V, KEY_F],
-		"scoreboard": [KEY_TAB], "chat": [KEY_T, KEY_ENTER], "pause": [KEY_ESCAPE],
-	}
-	for action: String in keys:
-		_ensure_action(action)
-		for k: Key in keys[action]:
+## Default bindings, action -> codes. A code is "k<physical keycode>" or "m<mouse button index>".
+## Players can rebind every action except "pause" (Esc must always reach the menus).
+const DEFAULT_BINDINGS := {
+	"move_forward": ["k%d" % KEY_W, "k%d" % KEY_UP], "move_back": ["k%d" % KEY_S, "k%d" % KEY_DOWN],
+	"move_left": ["k%d" % KEY_A, "k%d" % KEY_LEFT], "move_right": ["k%d" % KEY_D, "k%d" % KEY_RIGHT],
+	"jump": ["k%d" % KEY_SPACE], "sprint": ["k%d" % KEY_SHIFT], "crouch": ["k%d" % KEY_CTRL, "k%d" % KEY_C],
+	"lean_left": ["k%d" % KEY_Q], "lean_right": ["k%d" % KEY_E],
+	"fire": ["m%d" % MOUSE_BUTTON_LEFT], "aim": ["m%d" % MOUSE_BUTTON_RIGHT],
+	"reload": ["k%d" % KEY_R], "weapon_1": ["k%d" % KEY_1], "weapon_2": ["k%d" % KEY_2],
+	"weapon_3": ["k%d" % KEY_3], "quick_swap": ["k%d" % KEY_X],
+	"next_weapon": ["m%d" % MOUSE_BUTTON_WHEEL_DOWN], "prev_weapon": ["m%d" % MOUSE_BUTTON_WHEEL_UP],
+	"grenade": ["k%d" % KEY_G], "tactical": ["k%d" % KEY_H], "melee": ["k%d" % KEY_V],
+	"grapple": ["k%d" % KEY_F],
+	"scoreboard": ["k%d" % KEY_TAB], "chat": ["k%d" % KEY_T, "k%d" % KEY_ENTER],
+	"pause": ["k%d" % KEY_ESCAPE],
+}
+## Bindings per action; at most this many codes each.
+const MAX_BINDINGS := 2
+
+## action -> Array of codes, for actions the player has rebound (others use DEFAULT_BINDINGS).
+var bindings := {}
+
+
+## Codes currently bound to `action`.
+func get_binding(action: String) -> Array:
+	return bindings.get(action, DEFAULT_BINDINGS.get(action, []))
+
+
+## True for codes a player may bind: well-formed, and never Esc (reserved for the menus).
+static func is_bindable(code: String) -> bool:
+	return code != "k%d" % KEY_ESCAPE and event_from_code(code) != null
+
+
+## Binds `code` to `action` in slot `index` (0 primary, 1 alternate). The code is taken away from
+## any other action, so one key never does two things. An empty `code` clears the slot.
+func set_binding(action: String, index: int, code: String) -> void:
+	if not DEFAULT_BINDINGS.has(action) or action == "pause" or index < 0 or index >= MAX_BINDINGS:
+		return
+	if not code.is_empty():
+		if not is_bindable(code):
+			return
+		for other: String in DEFAULT_BINDINGS:
+			if other != action and get_binding(other).has(code):
+				var stripped := get_binding(other).duplicate()
+				stripped.erase(code)
+				bindings[other] = stripped
+	var list := get_binding(action).duplicate()
+	list.erase(code)
+	while list.size() <= index:
+		list.append("")
+	list[index] = code
+	bindings[action] = list.filter(func(c: String) -> bool: return not c.is_empty())
+	_apply_bindings()
+	save()
+	changed.emit()
+
+
+func reset_bindings() -> void:
+	bindings = {}
+	_apply_bindings()
+	save()
+	changed.emit()
+
+
+## "k87" -> InputEventKey (physical W), "m1" -> InputEventMouseButton; null if malformed.
+static func event_from_code(code: String) -> InputEvent:
+	if code.length() < 2 or not code.substr(1).is_valid_int():
+		return null
+	var n := code.substr(1).to_int()
+	match code[0]:
+		"k":
+			if n <= 0:
+				return null
 			var ev := InputEventKey.new()
-			ev.physical_keycode = k
-			InputMap.action_add_event(action, ev)
-	var buttons := {
-		"fire": MOUSE_BUTTON_LEFT, "aim": MOUSE_BUTTON_RIGHT,
-		"next_weapon": MOUSE_BUTTON_WHEEL_DOWN, "prev_weapon": MOUSE_BUTTON_WHEEL_UP,
-	}
-	for action: String in buttons:
-		_ensure_action(action)
-		var mb := InputEventMouseButton.new()
-		mb.button_index = buttons[action]
-		InputMap.action_add_event(action, mb)
+			ev.physical_keycode = n as Key
+			return ev
+		"m":
+			if n <= 0 or n > MOUSE_BUTTON_XBUTTON2:
+				return null
+			var mb := InputEventMouseButton.new()
+			mb.button_index = n as MouseButton
+			return mb
+	return null
 
 
-func _ensure_action(action: String) -> void:
-	if InputMap.has_action(action):
-		InputMap.action_erase_events(action)
-	else:
-		InputMap.add_action(action)
+## Code for a key or mouse press the player made while rebinding ("" if it can't be bound).
+static func code_from_event(ev: InputEvent) -> String:
+	if ev is InputEventKey:
+		var k := ev as InputEventKey
+		var phys := k.physical_keycode if k.physical_keycode != KEY_NONE else k.keycode
+		return "" if phys == KEY_NONE else "k%d" % phys
+	if ev is InputEventMouseButton:
+		return "m%d" % (ev as InputEventMouseButton).button_index
+	return ""
+
+
+## Human-readable name of a binding code, e.g. "SHIFT", "MOUSE 4".
+static func code_text(code: String) -> String:
+	var ev := event_from_code(code)
+	return binding_text(ev) if ev != null else "-"
+
+
+## Name of the first key bound to `action` for on-screen hints ("" when unbound).
+func key_text(action: String) -> String:
+	var codes := get_binding(action)
+	return code_text(codes[0]) if not codes.is_empty() else ""
+
+
+## Human-readable name of an input binding.
+static func binding_text(ev: InputEvent) -> String:
+	if ev is InputEventKey:
+		var k := ev as InputEventKey
+		# Bindings are physical (layout-independent); show the key cap of the user's layout. The
+		# headless display server can't map layouts, so it falls back to the QWERTY name.
+		var code := k.keycode if k.physical_keycode == KEY_NONE else k.physical_keycode
+		if k.physical_keycode != KEY_NONE and DisplayServer.get_name() != "headless":
+			code = DisplayServer.keyboard_get_keycode_from_physical(k.physical_keycode)
+		return OS.get_keycode_string(code).to_upper()
+	if ev is InputEventMouseButton:
+		match (ev as InputEventMouseButton).button_index:
+			MOUSE_BUTTON_LEFT: return "LEFT MOUSE"
+			MOUSE_BUTTON_RIGHT: return "RIGHT MOUSE"
+			MOUSE_BUTTON_MIDDLE: return "MIDDLE MOUSE"
+			MOUSE_BUTTON_WHEEL_UP: return "WHEEL UP"
+			MOUSE_BUTTON_WHEEL_DOWN: return "WHEEL DOWN"
+			MOUSE_BUTTON_WHEEL_LEFT: return "WHEEL LEFT"
+			MOUSE_BUTTON_WHEEL_RIGHT: return "WHEEL RIGHT"
+			MOUSE_BUTTON_XBUTTON1: return "MOUSE 4"
+			MOUSE_BUTTON_XBUTTON2: return "MOUSE 5"
+	return ev.as_text().to_upper()
+
+
+func _apply_bindings() -> void:
+	for action: String in DEFAULT_BINDINGS:
+		if InputMap.has_action(action):
+			InputMap.action_erase_events(action)
+		else:
+			InputMap.add_action(action)
+		for code: String in get_binding(action):
+			var ev := event_from_code(code)
+			if ev != null:
+				InputMap.action_add_event(action, ev)
+
+
+## Keeps saved bindings for known actions with valid, unique codes; anything else falls back to
+## the defaults.
+func _load_bindings(saved: Variant) -> void:
+	bindings = {}
+	if typeof(saved) == TYPE_DICTIONARY:
+		var used := {}
+		for action: Variant in saved:
+			if not DEFAULT_BINDINGS.has(str(action)) or str(action) == "pause" or typeof(saved[action]) != TYPE_ARRAY:
+				continue
+			var list: Array = []
+			for code: Variant in saved[action]:
+				var c := str(code)
+				if is_bindable(c) and not used.has(c) and list.size() < MAX_BINDINGS:
+					used[c] = true
+					list.append(c)
+			bindings[str(action)] = list
+		# A default key the player never rebound may now also be bound elsewhere; drop it there.
+		for action: String in DEFAULT_BINDINGS:
+			if bindings.has(action):
+				continue
+			var defaults: Array = DEFAULT_BINDINGS[action]
+			if defaults.any(func(c: String) -> bool: return used.has(c)):
+				bindings[action] = defaults.filter(func(c: String) -> bool: return not used.has(c))
+	_apply_bindings()

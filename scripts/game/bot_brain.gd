@@ -103,6 +103,7 @@ var _burst_timer := 0.0
 var _burst_pause := 0.0
 var _semi_wait := 0.0
 var _grenade_timer := 6.0
+var _tactical_timer := 8.0
 var _stuck_timer := 0.0
 var _stuck_check_pos := Vector3.ZERO
 var _crouch_timer := 0.0
@@ -124,6 +125,7 @@ func on_respawn() -> void:
 	_path = PackedVector3Array()
 	_last_seen_time = -100.0
 	_grenade_timer = randf_range(4.0, 10.0)
+	_tactical_timer = randf_range(6.0, 14.0)
 	_goal_pickup = null
 	_chase_pos = NO_POS
 	_path_index = 0
@@ -170,8 +172,9 @@ func _reset_intent() -> void:
 	p.in_jump = false
 	p.in_sprint = false
 	p.in_crouch = false
-	# A melee press blocked by a weapon switch must not swing later, after the target has moved off.
+	# A melee or tactical press blocked by a weapon switch must not go off later, aimed elsewhere.
 	p.in_melee = false
+	p.in_tactical = false
 
 
 # ---------------------------------------------------------------- perception
@@ -181,6 +184,9 @@ func _eye() -> Vector3:
 
 
 func _can_see(other: Player, require_fov: bool) -> bool:
+	# A flashed bot is blind until it wears off.
+	if World.now() < p.flashed_until:
+		return false
 	var eye := _eye()
 	var to := other.global_position + Vector3.UP * 1.2
 	var d := eye.distance_to(to)
@@ -191,6 +197,8 @@ func _can_see(other: Player, require_fov: bool) -> bool:
 		var flat := Vector3(to.x - eye.x, 0.0, to.z - eye.z).normalized()
 		if rad_to_deg(fwd.angle_to(flat)) > VIEW_FOV_DEG[difficulty] * 0.5:
 			return false
+	if p.world.smoke_blocks(eye, to):
+		return false
 	var q := PhysicsRayQueryParameters3D.create(eye, to, Player.MASK_WORLD)
 	return p.get_world_3d().direct_space_state.intersect_ray(q).is_empty()
 
@@ -303,10 +311,11 @@ func _choose_weapon() -> void:
 func _preferred_range() -> Vector2:
 	match p.weapon_id():
 		"knife": return Vector2(0.0, 1.6)
-		"shotgun": return Vector2(2.0, 7.0)
-		"smg": return Vector2(4.0, 14.0)
-		"pistol", "revolver": return Vector2(6.0, 20.0)
+		"shotgun", "sawed_off": return Vector2(2.0, 7.0)
+		"smg", "machine_pistol": return Vector2(4.0, 14.0)
+		"pistol", "revolver", "burst_pistol", "suppressed": return Vector2(6.0, 20.0)
 		"sniper": return Vector2(18.0, 60.0)
+		"dmr": return Vector2(14.0, 45.0)
 		"rocket": return Vector2(9.0, 30.0)
 	return Vector2(8.0, 30.0)
 
@@ -337,7 +346,7 @@ func _fight(delta: float) -> void:
 	aim_point += _aim_offset * dist * error_scale
 	aim_point -= _unread_motion(delta) * TRACK_LAG[difficulty]
 
-	var thrown := _reaction_left <= 0.0 and _maybe_grenade(delta, dist)
+	var thrown := _reaction_left <= 0.0 and (_maybe_grenade(delta, dist) or _maybe_tactical(delta, dist))
 	if not thrown:
 		_turn_toward(aim_point, delta)
 
@@ -457,14 +466,38 @@ func _maybe_grenade(delta: float, dist: float) -> bool:
 	_grenade_timer = randf_range(8.0, 16.0)
 	if randf() > GRENADE_CHANCE[difficulty]:
 		return false
+	_aim_throw()
+	p.in_grenade = true
+	return true
+
+
+## Now and then a bot throws its tactical: a flash at a target in mid range, or a smoke on it
+## when the bot is hurt and wants cover.
+func _maybe_tactical(delta: float, dist: float) -> bool:
+	_tactical_timer -= delta
+	if _tactical_timer > 0.0 or p.tacticals <= 0 or dist < 6.0 or dist > 20.0:
+		return false
+	if p.in_slot >= 0 or p.switch_timer > 0.0 or p.melee_timer > 0.0 or p.grenade_cooldown > 0.0:
+		return false
+	if p.tactical_id() == "smoke" and p.health > 55.0:
+		return false
+	_tactical_timer = randf_range(10.0, 20.0)
+	if randf() > GRENADE_CHANCE[difficulty]:
+		return false
+	_aim_throw()
+	p.in_tactical = true
+	return true
+
+
+## Points the bot along the lob that lands a grenade on the target. The throw must happen this
+## frame: the aim is set for one frame only.
+func _aim_throw() -> void:
 	var to := target.global_position - p.head.global_position
 	var flat_d := Vector2(to.x, to.z).length()
 	var v := float(Data.GRENADE.throw_speed)
 	var s := clampf(Projectile.GRENADE_GRAVITY * flat_d / (v * v), 0.0, 1.0)
 	p.yaw = atan2(-to.x, -to.z)
 	p.pitch = clampf(0.5 * asin(s) - 0.12 + atan2(to.y, flat_d) * 0.5, -0.3, 0.8)
-	p.in_grenade = true
-	return true
 
 
 func _turn_toward(point: Vector3, delta: float) -> void:

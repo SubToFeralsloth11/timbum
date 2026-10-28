@@ -42,6 +42,40 @@ const FLAG_AIM := 4
 const FLAG_SPRINT := 8
 const FLAG_RELOAD := 16
 const FLAG_NEEDS_AMMO := 32
+const FLAG_SLIDE := 64
+## Bits 8-15: weapon index. Bits 16-19: lean, quantised to -7..7 and stored + 8.
+const FLAG_WEAPON_SHIFT := 8
+const FLAG_LEAN_SHIFT := 16
+
+## Sliding: crouch while sprinting. Entry needs this much ground speed; the slide starts at
+## SLIDE_SPEED (or the current speed plus SLIDE_BOOST), bleeds SLIDE_FRICTION m/s per second
+## (downhill slopes feed it) and ends below SLIDE_END_SPEED, after SLIDE_MAX_TIME, or when
+## crouch is released.
+const SLIDE_MIN_ENTRY := 5.8
+const SLIDE_SPEED := 10.0
+const SLIDE_BOOST := 2.0
+const SLIDE_MAX_SPEED := 12.5
+const SLIDE_FRICTION := 6.5
+const SLIDE_END_SPEED := 3.8
+const SLIDE_MAX_TIME := 1.15
+const SLIDE_COOLDOWN := 0.45
+## Radians per second the slide can be steered.
+const SLIDE_STEER := 1.4
+## Leaning (peeking): the eye moves LEAN_DIST sideways and LEAN_DROP down and the view rolls
+## LEAN_ROLL, unless a wall is closer.
+const LEAN_DIST := 0.48
+const LEAN_DROP := 0.07
+const LEAN_ROLL := deg_to_rad(12.0)
+const LEAN_RATE := 6.5
+## Grapple hook: fires at the world up to GRAPPLE_RANGE, then reels the player in.
+const GRAPPLE_RANGE := 42.0
+const GRAPPLE_PULL := 34.0
+const GRAPPLE_MAX_SPEED := 18.0
+const GRAPPLE_MAX_TIME := 2.6
+const GRAPPLE_COOLDOWN := 3.5
+## A shot that hits nothing only locks the hook this long.
+const GRAPPLE_MISS_COOLDOWN := 0.4
+const GRAPPLE_RELEASE_DIST := 1.7
 
 static var _weapon_ids: Array = []
 
@@ -73,6 +107,10 @@ var in_reload := false
 var in_slot := -1
 var in_grenade := false
 var in_melee := false
+var in_tactical := false
+var in_grapple := false
+## -1 peek left, 0 none, 1 peek right.
+var in_lean := 0
 
 var slots: Array[String] = []
 var current_slot := 0
@@ -94,6 +132,15 @@ var crouching := false
 var sprinting := false
 var anim_speed := 0.0
 var on_floor_visual := true
+var sliding := false
+## -1..1 current peek; left negative.
+var lean := 0.0
+var tacticals := Data.TACTICAL_PER_LIFE
+## World.now() until which a flash grenade has this player blinded (bots lose sight of targets).
+var flashed_until := -100.0
+var grappling := false
+var grapple_point := Vector3.ZERO
+var grapple_cooldown := 0.0
 
 var avatar: Avatar
 var head: Node3D
@@ -138,6 +185,22 @@ var _reload_hold := 0.0
 ## LOCAL, while dead: where the death cam settles and who it watches (null: look at the corpse).
 var _death_cam_eye := Vector3.ZERO
 var _death_cam_target: Player
+var _slide_time := 0.0
+var _slide_cooldown := 0.0
+var _slide_speed := 0.0
+var _slide_dir := Vector3.ZERO
+var _crouch_was_held := false
+var _jump_was_held := false
+var _was_sprinting := false
+## Fraction of LEAN_DIST the eye can move before touching a wall (local/bot); 1 for remotes.
+var _lean_reach := 1.0
+var _lean_query: PhysicsShapeQueryParameters3D
+var _grapple_time := 0.0
+var _rope: MeshInstance3D
+## 0..1 how far the rope has shot out toward the hook (it flies out over a few frames).
+var _rope_out := 0.0
+## Shots still to come in the current burst (burst weapons).
+var _burst_left := 0
 
 
 func setup(p_world: World, p_id: int, p_info: Dictionary, p_mode: Mode, p_is_bot: bool) -> void:
@@ -214,6 +277,21 @@ func _ready() -> void:
 	_stand_query = PhysicsShapeQueryParameters3D.new()
 	_stand_query.shape = sphere
 	_stand_query.collision_mask = MASK_WORLD
+	var lean_sphere := SphereShape3D.new()
+	lean_sphere.radius = 0.2
+	_lean_query = PhysicsShapeQueryParameters3D.new()
+	_lean_query.shape = lean_sphere
+	_lean_query.collision_mask = MASK_WORLD
+	_rope = MeshInstance3D.new()
+	_rope.name = "Rope"
+	var rope_mesh := BoxMesh.new()
+	rope_mesh.size = Vector3(0.025, 0.025, 1.0)
+	rope_mesh.material = Models.flat_material(Color(0.25, 0.22, 0.18), 0.9)
+	_rope.mesh = rope_mesh
+	_rope.top_level = true
+	_rope.visible = false
+	_rope.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(_rope)
 
 	if mode == Mode.LOCAL:
 		camera = Camera3D.new()
@@ -320,6 +398,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		in_grenade = true
 	elif event.is_action_pressed("melee"):
 		in_melee = true
+	elif event.is_action_pressed("tactical"):
+		in_tactical = true
+	elif event.is_action_pressed("grapple"):
+		in_grapple = true
 
 
 func _read_input() -> void:
@@ -337,11 +419,13 @@ func _read_input() -> void:
 		in_aim = false
 		in_sprint = false
 		in_crouch = false
+		in_lean = 0
 		return
 	in_move = Input.get_vector("move_left", "move_right", "move_back", "move_forward")
 	in_jump = Input.is_action_pressed("jump")
 	in_crouch = Input.is_action_pressed("crouch")
 	in_sprint = Input.is_action_pressed("sprint")
+	in_lean = int(Input.is_action_pressed("lean_right")) - int(Input.is_action_pressed("lean_left"))
 	in_fire = fire_held and not _fire_gated
 	in_aim = aim_held and not _aim_gated
 
@@ -361,18 +445,36 @@ func _simulate(delta: float) -> void:
 		_fall_corpse(delta)
 		return
 	var w := weapon_data()
-	var want_crouch := in_crouch
+	var on_floor := is_on_floor()
+	var horiz := Vector3(velocity.x, 0.0, velocity.z)
+	var crouch_pressed := in_crouch and not _crouch_was_held
+	_crouch_was_held = in_crouch
+	var jump_pressed := in_jump and not _jump_was_held
+	_jump_was_held = in_jump
+	_slide_cooldown -= delta
+	grapple_cooldown -= delta
+	if in_grapple:
+		in_grapple = false
+		if grappling:
+			release_grapple()
+		elif grapple_cooldown <= 0.0 and not world.match_over:
+			_fire_grapple()
+	if not sliding and not grappling and crouch_pressed and on_floor and _was_sprinting \
+			and horiz.length() > SLIDE_MIN_ENTRY * speed_scale and _slide_cooldown <= 0.0:
+		_start_slide(horiz)
+
+	var want_crouch := in_crouch or sliding
 	if not want_crouch and crouching and not _can_stand():
 		want_crouch = true
 	crouching = want_crouch
-	crouch_blend = move_toward(crouch_blend, 1.0 if crouching else 0.0, delta * 8.0)
+	crouch_blend = move_toward(crouch_blend, 1.0 if crouching else 0.0, delta * (12.0 if sliding else 8.0))
 	_apply_crouch_shape()
 
 	var can_aim := in_aim and switch_timer <= 0.0 and not reloading and weapon_id() != "knife" and melee_timer <= 0.0
 	aim_blend = move_toward(aim_blend, 1.0 if can_aim else 0.0, delta / 0.16)
 
-	var on_floor := is_on_floor()
-	sprinting = in_sprint and in_move.y > 0.3 and not crouching and aim_blend < 0.2 and not in_fire and not reloading
+	sprinting = in_sprint and in_move.y > 0.3 and not crouching and aim_blend < 0.2 and not in_fire \
+		and not reloading and not grappling
 	var speed := WALK_SPEED
 	if crouching:
 		speed = CROUCH_SPEED
@@ -383,19 +485,93 @@ func _simulate(delta: float) -> void:
 	var wish := Basis(Vector3.UP, yaw) * Vector3(in_move.x, 0.0, -in_move.y)
 	if wish.length_squared() > 1.0:
 		wish = wish.normalized()
-	var horiz := Vector3(velocity.x, 0.0, velocity.z)
-	horiz = horiz.move_toward(wish * speed, (GROUND_ACCEL if on_floor else AIR_ACCEL) * delta)
-	velocity.x = horiz.x
-	velocity.z = horiz.z
-	if on_floor:
-		if in_jump and not crouching:
+	if grappling:
+		_pull_grapple(delta, wish, jump_pressed)
+	elif sliding:
+		horiz = _slide_step(delta, on_floor, wish)
+		velocity.x = horiz.x
+		velocity.z = horiz.z
+	else:
+		horiz = horiz.move_toward(wish * speed, (GROUND_ACCEL if on_floor else AIR_ACCEL) * delta)
+		velocity.x = horiz.x
+		velocity.z = horiz.z
+	if on_floor and not grappling:
+		if in_jump and (not crouching or sliding):
+			if sliding:
+				# Slide-jump: keep the slide's speed and stand up in the air.
+				_end_slide()
+				crouching = in_crouch or not _can_stand()
 			velocity.y = JUMP_VELOCITY
 			Sfx.play(&"jump", global_position, -6.0)
-	else:
+	elif not grappling:
 		velocity.y -= GRAVITY * gravity_scale * delta
 	_fall_speed = -velocity.y
 	move_and_slide()
+	_was_sprinting = sprinting
+	var lean_target := float(in_lean) if not sprinting and not sliding and not grappling else 0.0
+	lean = move_toward(lean, lean_target, delta * LEAN_RATE)
+	_lean_reach = _measure_lean_reach() if not is_zero_approx(lean) else 1.0
+	_apply_head_pose()
 	_tick_weapon(delta)
+
+
+func _start_slide(horiz: Vector3) -> void:
+	sliding = true
+	_slide_time = 0.0
+	_slide_dir = horiz.normalized()
+	_slide_speed = minf(maxf(SLIDE_SPEED * speed_scale, horiz.length() + SLIDE_BOOST), SLIDE_MAX_SPEED * speed_scale)
+	_cancel_reload()
+	Sfx.play(&"slide", null if mode == Mode.LOCAL else global_position, -4.0 if mode == Mode.LOCAL else 0.0)
+
+
+func _end_slide() -> void:
+	if not sliding:
+		return
+	sliding = false
+	_slide_cooldown = SLIDE_COOLDOWN
+
+
+## One tick of a slide: friction, slopes (downhill speeds it up), a little steering. Returns the
+## horizontal velocity; ends the slide when it runs out.
+func _slide_step(delta: float, on_floor: bool, wish: Vector3) -> Vector3:
+	_slide_time += delta
+	var downhill := 0.0
+	if on_floor:
+		var n := get_floor_normal()
+		downhill = Vector3(n.x, 0.0, n.z).dot(_slide_dir)
+		_slide_speed += downhill * GRAVITY * 0.9 * delta - SLIDE_FRICTION * delta
+	_slide_speed = minf(_slide_speed, SLIDE_MAX_SPEED * speed_scale)
+	if wish.length_squared() > 0.01:
+		var turn := _slide_dir.signed_angle_to(wish, Vector3.UP)
+		_slide_dir = _slide_dir.rotated(Vector3.UP, clampf(turn, -SLIDE_STEER * delta, SLIDE_STEER * delta))
+	var out := _slide_dir * _slide_speed
+	var timed_out := _slide_time > SLIDE_MAX_TIME and downhill < 0.12
+	if not in_crouch or _slide_speed < SLIDE_END_SPEED * speed_scale or timed_out or is_on_wall():
+		_end_slide()
+	return out
+
+
+## How much of the full lean the eye can make before a wall: a sphere swept sideways from the
+## upright eye.
+func _measure_lean_reach() -> float:
+	var eye_y := STAND_EYE - CROUCH_DROP * crouch_blend
+	var base := global_position + Vector3.UP * eye_y
+	var side := Basis(Vector3.UP, yaw) * Vector3(signf(lean) * LEAN_DIST, -LEAN_DROP, 0.0)
+	_lean_query.transform = Transform3D(Basis.IDENTITY, base)
+	_lean_query.motion = side
+	_lean_query.exclude = _exclude
+	var r := get_world_3d().direct_space_state.cast_motion(_lean_query)
+	return r[0] if r.size() == 2 else 1.0
+
+
+## Eye, head hitbox and body hitbox follow crouching and leaning.
+func _apply_head_pose() -> void:
+	var drop := CROUCH_DROP * crouch_blend
+	var side := lean * LEAN_DIST * _lean_reach
+	var lean_drop := absf(lean) * LEAN_DROP * _lean_reach
+	head.position = Vector3(side, STAND_EYE - drop - lean_drop, 0.0)
+	_hit_head_col.position = Vector3(side, _head_hit_y - drop - lean_drop, 0.0)
+	_hit_body_col.position.x = side * 0.35
 
 
 func _can_stand() -> bool:
@@ -410,12 +586,101 @@ func _apply_crouch_shape() -> void:
 	var h := lerpf(STAND_HEIGHT, CROUCH_HEIGHT, crouch_blend)
 	_shape.height = h
 	_collider.position.y = h * 0.5
-	var drop := CROUCH_DROP * crouch_blend
-	head.position.y = STAND_EYE - drop
-	_hit_head_col.position.y = _head_hit_y - drop
-	var body_h := 1.35 - drop
+	var body_h := 1.35 - CROUCH_DROP * crouch_blend
 	_hit_body_shape.size.y = body_h
 	_hit_body_col.position.y = body_h * 0.5
+	_apply_head_pose()
+
+
+# ---------------------------------------------------------------- grapple hook
+
+func _fire_grapple() -> void:
+	var aim := aim_transform()
+	var q := PhysicsRayQueryParameters3D.create(aim.origin, aim.origin - aim.basis.z * GRAPPLE_RANGE, MASK_WORLD, _exclude)
+	var r := get_world_3d().direct_space_state.intersect_ray(q)
+	if r.is_empty() or (r.position as Vector3).distance_to(aim.origin) < GRAPPLE_RELEASE_DIST + 0.3:
+		grapple_cooldown = GRAPPLE_MISS_COOLDOWN
+		if mode == Mode.LOCAL:
+			Sfx.play(&"dry_fire", null, -4.0, 0.7)
+		return
+	_end_slide()
+	grappling = true
+	grapple_point = r.position
+	_grapple_time = 0.0
+	_rope_out = 0.0
+	if is_on_floor():
+		velocity.y = maxf(velocity.y, 4.5)
+	Sfx.play(&"grapple_fire", null if mode == Mode.LOCAL else global_position, -2.0)
+	world.report_grapple(self, true, grapple_point)
+
+
+## Lets go of the hook (and tells the other peers) and starts the cooldown.
+func release_grapple() -> void:
+	if not grappling:
+		return
+	grappling = false
+	grapple_cooldown = GRAPPLE_COOLDOWN
+	if mode != Mode.REMOTE:
+		world.report_grapple(self, false, Vector3.ZERO)
+
+
+## REMOTE proxies: another player's hook, relayed by the server.
+func set_remote_grapple(active: bool, point: Vector3) -> void:
+	if active and not grappling:
+		_rope_out = 0.0
+		Sfx.play(&"grapple_fire", global_position, -4.0)
+	grappling = active
+	grapple_point = point
+
+
+## Reels toward the hook: strong pull along the rope, most sideways swing damped so the player
+## flies to the point instead of orbiting it, a little steering, and reduced gravity.
+func _pull_grapple(delta: float, wish: Vector3, jump_pressed: bool) -> void:
+	_grapple_time += delta
+	var from := global_position + Vector3.UP * 1.0
+	var to := grapple_point - from
+	var dist := to.length()
+	var blocked := false
+	if dist > GRAPPLE_RELEASE_DIST:
+		var q := PhysicsRayQueryParameters3D.create(head.global_position, grapple_point, MASK_WORLD, _exclude)
+		var r := get_world_3d().direct_space_state.intersect_ray(q)
+		blocked = not r.is_empty() and (r.position as Vector3).distance_to(grapple_point) > 0.4
+	if dist <= GRAPPLE_RELEASE_DIST or _grapple_time > GRAPPLE_MAX_TIME or blocked or jump_pressed:
+		release_grapple()
+		if jump_pressed or dist <= GRAPPLE_RELEASE_DIST:
+			velocity.y = maxf(velocity.y, JUMP_VELOCITY * 0.75)
+		return
+	var dir := to / dist
+	velocity += dir * GRAPPLE_PULL * delta
+	var along := velocity.dot(dir)
+	var perp := velocity - dir * along
+	velocity = dir * along + perp * (1.0 - minf(1.0, 2.5 * delta))
+	velocity += wish * AIR_ACCEL * 0.5 * delta
+	velocity.y -= GRAVITY * gravity_scale * 0.3 * delta
+	velocity = velocity.limit_length(GRAPPLE_MAX_SPEED)
+
+
+## Where the rope leaves the player: the off hand (lower left of the view in first person).
+func _rope_origin() -> Vector3:
+	if mode == Mode.LOCAL and camera != null and alive and not camera.top_level:
+		return camera.global_transform * Vector3(-0.22, -0.2, -0.35)
+	return global_position + Basis(Vector3.UP, yaw) * Vector3(-0.32, 1.3 - CROUCH_DROP * crouch_blend, -0.25)
+
+
+func _update_rope(delta: float) -> void:
+	_rope.visible = grappling and alive
+	if not _rope.visible:
+		return
+	_rope_out = minf(1.0, _rope_out + delta * 9.0)
+	var from := _rope_origin()
+	var to := from.lerp(grapple_point, _rope_out)
+	var d := to - from
+	var length := d.length()
+	if length < 0.01:
+		_rope.visible = false
+		return
+	var up := Vector3.UP if absf(d.y / length) < 0.98 else Vector3.RIGHT
+	_rope.global_transform = Transform3D(Basis.looking_at(d / length, up) * Basis.from_scale(Vector3(1.0, 1.0, length)), (from + to) * 0.5)
 
 
 # ---------------------------------------------------------------- weapons
@@ -458,6 +723,7 @@ func _tick_weapon(delta: float) -> void:
 	fire_cooldown -= delta
 	switch_timer -= delta
 	grenade_cooldown -= delta
+	melee_timer = maxf(0.0, melee_timer - delta)
 	knife_cooldown = maxf(0.0, knife_cooldown - delta)
 	bloom = move_toward(bloom, 0.0, delta * 7.0)
 	recoil = move_toward(recoil, 0.0, delta * (6.0 + recoil * 5.0))
@@ -466,8 +732,10 @@ func _tick_weapon(delta: float) -> void:
 	if world.match_over:
 		in_reload = false
 		in_grenade = false
+		in_tactical = false
 		in_melee = false
 		in_slot = -1
+		_burst_left = 0
 		return
 
 	if in_slot >= 0:
@@ -477,9 +745,11 @@ func _tick_weapon(delta: float) -> void:
 			switch_to(wanted)
 	if in_grenade and grenades > 0 and grenade_cooldown > GRENADE_BUFFER:
 		in_grenade = false
+	if in_tactical and tacticals > 0 and grenade_cooldown > GRENADE_BUFFER:
+		in_tactical = false
 	if switch_timer > 0.0 or melee_timer > 0.0:
 		return
-	# Pressing with no grenades left says so instead of doing nothing.
+	# Pressing with none left says so instead of doing nothing.
 	if in_grenade:
 		if grenades <= 0:
 			in_grenade = false
@@ -488,10 +758,21 @@ func _tick_weapon(delta: float) -> void:
 				world.hud.pickup_message("no_grenades")
 		elif grenade_cooldown <= 0.0:
 			in_grenade = false
-			_throw_grenade()
+			_throw_grenade("grenade")
+			return
+	if in_tactical:
+		if tacticals <= 0:
+			in_tactical = false
+			if mode == Mode.LOCAL:
+				Sfx.play(&"dry_fire", null, -6.0)
+				world.hud.pickup_message("no_tactical")
+		elif grenade_cooldown <= 0.0:
+			in_tactical = false
+			_throw_grenade(tactical_id())
 			return
 	if in_melee:
 		in_melee = false
+		_burst_left = 0
 		_melee_attack(true)
 		return
 
@@ -502,7 +783,9 @@ func _tick_weapon(delta: float) -> void:
 	if in_reload:
 		in_reload = false
 		start_reload()
-	if in_fire:
+	if _burst_left > 0:
+		_continue_burst(wid, w)
+	elif in_fire:
 		_try_fire(wid, w)
 
 
@@ -510,6 +793,7 @@ func switch_to(slot: int) -> void:
 	previous_slot = current_slot
 	current_slot = slot
 	switch_timer = SWITCH_TIME
+	_burst_left = 0
 	_cancel_reload()
 	_trigger_down = true
 	if mode == Mode.LOCAL:
@@ -607,7 +891,36 @@ func _try_fire(wid: String, w: Dictionary) -> void:
 	# Carry the part of a tick the cooldown overshot when the trigger is held, so automatic fire
 	# keeps its rated rpm instead of rounding every shot up to whole physics ticks.
 	var overshoot := fire_cooldown if fire_cooldown > -get_physics_process_delta_time() else 0.0
-	fire_cooldown = 60.0 / float(w.rpm) + minf(overshoot, 0.0)
+	var burst := int(w.get("burst", 1))
+	if burst > 1:
+		_burst_left = burst - 1
+		fire_cooldown = 60.0 / float(w.burst_rpm)
+	else:
+		fire_cooldown = 60.0 / float(w.rpm) + minf(overshoot, 0.0)
+	_shoot(wid, w)
+
+
+## Burst weapons: the rest of the burst fires on its own at `burst_rpm`; the last shot's cooldown
+## pads the cycle so the average rate stays at `rpm` (what the server's fire-rate check expects).
+func _continue_burst(wid: String, w: Dictionary) -> void:
+	if fire_cooldown > 0.0:
+		return
+	if reloading or (ammo[wid] as Vector2i).x <= 0:
+		_burst_left = 0
+		return
+	_burst_left -= 1
+	var burst := int(w.burst)
+	if _burst_left > 0:
+		fire_cooldown = 60.0 / float(w.burst_rpm)
+	else:
+		fire_cooldown = burst * 60.0 / float(w.rpm) - (burst - 1) * 60.0 / float(w.burst_rpm)
+	_shoot(wid, w)
+
+
+## Spends a round and fires it (hitscan or rocket), with recoil and an automatic reload when the
+## magazine runs dry.
+func _shoot(wid: String, w: Dictionary) -> void:
+	var a: Vector2i = ammo[wid]
 	a.x -= 1
 	ammo[wid] = a
 	var aim := aim_transform()
@@ -619,6 +932,7 @@ func _try_fire(wid: String, w: Dictionary) -> void:
 		_fire_hitscan(wid, w, aim)
 	_apply_kick(w)
 	if a.x == 0 and a.y > 0:
+		_burst_left = 0
 		start_reload()
 
 
@@ -745,19 +1059,31 @@ func _melee_attack(quick: bool) -> void:
 		normal = Vector3.ZERO
 	if mode == Mode.LOCAL:
 		viewmodel.play_melee(quick)
-	avatar.play_shoot()
+	avatar.play_slash()
 	world.report_shot(self, "knife", PackedVector3Array([end]), PackedVector3Array([normal]), hits)
 
 
-func _throw_grenade() -> void:
-	grenades -= 1
+## The loadout's tactical grenade ("smoke" or "flash").
+func tactical_id() -> String:
+	var t := str(info.get("tactical", "smoke"))
+	return t if Data.TACTICALS.has(t) else "smoke"
+
+
+## Throws a frag ("grenade") or this player's tactical grenade.
+func _throw_grenade(kind: String) -> void:
+	if kind == "grenade":
+		grenades -= 1
+	else:
+		tacticals -= 1
 	grenade_cooldown = GRENADE_COOLDOWN
+	_burst_left = 0
 	var aim := aim_transform()
 	var dir := -aim.basis.z
 	var vel := dir * float(Data.GRENADE.throw_speed) + Vector3.UP * 3.0 + Vector3(velocity.x, 0.0, velocity.z) * 0.4
 	if mode == Mode.LOCAL:
-		viewmodel.play_melee(true)
-	world.request_projectile(self, "grenade", _launch_origin(aim.origin, dir, 0.5), vel)
+		viewmodel.play_throw()
+	avatar.play_throw()
+	world.request_projectile(self, kind, _launch_origin(aim.origin, dir, 0.5), vel)
 
 
 ## Where a rocket or grenade starts: `ahead` metres along `dir` from the eye, pulled back in front
@@ -797,8 +1123,21 @@ func state_flags() -> int:
 		f |= FLAG_RELOAD
 	if needs_ammo():
 		f |= FLAG_NEEDS_AMMO
-	f |= weapon_index(weapon_id()) << 8
+	if sliding:
+		f |= FLAG_SLIDE
+	f |= weapon_index(weapon_id()) << FLAG_WEAPON_SHIFT
+	f |= (roundi(lean * _lean_reach * 7.0) + 8) << FLAG_LEAN_SHIFT
 	return f
+
+
+static func flags_weapon(f: int) -> String:
+	return weapon_from_index((f >> FLAG_WEAPON_SHIFT) & 0xFF)
+
+
+## Lean encoded in state flags, -1..1 (0 when the field is absent).
+static func flags_lean(f: int) -> float:
+	var q := (f >> FLAG_LEAN_SHIFT) & 0xF
+	return 0.0 if q == 0 else clampf((q - 8) / 7.0, -1.0, 1.0)
 
 
 ## Flags the server relays to everyone: our own simulated state, or the last state a client reported.
@@ -847,10 +1186,11 @@ func _interpolate() -> void:
 	yaw = lerp_angle(a[2], b[2], t)
 	pitch = lerpf(a[3], b[3], t)
 	var was_reloading := (_remote_flags & FLAG_RELOAD) != 0
-	var prev_weapon := _remote_flags >> 8
+	var prev_weapon := flags_weapon(_remote_flags)
 	_remote_flags = b[4]
+	var now_weapon := flags_weapon(_remote_flags)
 	var now_reloading := (_remote_flags & FLAG_RELOAD) != 0
-	var reload_w: Dictionary = Data.WEAPONS[weapon_from_index(_remote_flags >> 8)]
+	var reload_w: Dictionary = Data.WEAPONS[now_weapon]
 	var per_shell: bool = reload_w.get("reload_per_shell", false)
 	# Shotguns replay the pose per shell, with a short gap so shells read as separate motions.
 	if now_reloading and not avatar.is_reloading():
@@ -861,15 +1201,22 @@ func _interpolate() -> void:
 	if now_reloading and (not was_reloading or (per_shell and _reload_gap > 0.15 and _reload_hold <= 0.0)):
 		_reload_gap = 0.0
 		avatar.play_reload(float(reload_w.reload))
-	elif was_reloading and not now_reloading and (prev_weapon != _remote_flags >> 8 or not per_shell):
+	elif was_reloading and not now_reloading and (prev_weapon != now_weapon or not per_shell):
 		# A finished shotgun reload lets its last shell's pose ease out instead of snapping.
 		avatar.stop_reload()
+	var dt := get_physics_process_delta_time()
 	crouching = (_remote_flags & FLAG_CROUCH) != 0
 	sprinting = (_remote_flags & FLAG_SPRINT) != 0
+	var was_sliding := sliding
+	sliding = (_remote_flags & FLAG_SLIDE) != 0
+	if sliding and not was_sliding:
+		Sfx.play(&"slide", global_position, -2.0)
 	aim_blend = 1.0 if (_remote_flags & FLAG_AIM) != 0 else 0.0
-	crouch_blend = move_toward(crouch_blend, 1.0 if crouching else 0.0, get_physics_process_delta_time() * 8.0)
+	crouch_blend = move_toward(crouch_blend, 1.0 if crouching else 0.0, dt * 8.0)
+	lean = move_toward(lean, flags_lean(_remote_flags), dt * LEAN_RATE * 1.5)
 	_apply_crouch_shape()
-	var slot := slots.find(weapon_from_index(_remote_flags >> 8))
+	_apply_head_pose()
+	var slot := slots.find(now_weapon)
 	if slot >= 0 and slot != current_slot:
 		current_slot = slot
 		_refresh_weapon_visual()
@@ -880,29 +1227,41 @@ func _interpolate() -> void:
 func _update_visuals(delta: float) -> void:
 	rotation.y = yaw
 	var pos := global_position
-	var moved := Vector2(pos.x - _last_visual_pos.x, pos.z - _last_visual_pos.z).length()
+	var step := Vector3(pos.x - _last_visual_pos.x, 0.0, pos.z - _last_visual_pos.z)
 	_last_visual_pos = pos
+	var world_vel := Vector3(velocity.x, 0.0, velocity.z)
 	if mode == Mode.REMOTE:
-		anim_speed = lerpf(anim_speed, moved / maxf(delta, 0.0001), 0.3)
+		anim_speed = lerpf(anim_speed, step.length() / maxf(delta, 0.0001), 0.3)
 		on_floor_visual = (_remote_flags & FLAG_FLOOR) != 0
+		world_vel = step / maxf(delta, 0.0001)
 	else:
-		anim_speed = Vector2(velocity.x, velocity.z).length()
+		anim_speed = world_vel.length()
 		on_floor_visual = is_on_floor()
 	if protected_until > 0.0 and World.now() >= protected_until:
 		set_protection(0.0)
 	if alive:
+		var local_vel := Basis(Vector3.UP, yaw).inverse() * world_vel
+		avatar.set_motion(sliding, lean * _lean_reach, Vector2(local_vel.x, -local_vel.z), grappling)
 		avatar.set_look_pitch(pitch)
 		avatar.animate(delta, anim_speed, on_floor_visual, crouching)
 		_footsteps(delta)
+	_update_rope(delta)
 	if camera != null and not alive and camera.top_level:
 		_update_death_cam(delta)
 	elif camera != null and alive:
 		camera.rotation.x = pitch + deg_to_rad(recoil)
+		# Peeking rolls the view toward the lean; sliding tilts it a little.
+		var roll := -lean * _lean_reach * LEAN_ROLL + (deg_to_rad(-4.0) if sliding else 0.0)
+		camera.rotation.z = lerpf(camera.rotation.z, roll, minf(1.0, delta * 12.0))
 		var base_fov := float(Profile.get_setting("fov"))
 		var target_fov := lerpf(base_fov, minf(float(weapon_data().ads_fov), base_fov), aim_blend)
 		if sprinting:
 			target_fov += 4.0
-		camera.fov = lerpf(camera.fov, target_fov, minf(1.0, delta * 18.0))
+		elif sliding:
+			target_fov += 7.0
+		elif grappling:
+			target_fov += 9.0
+		camera.fov = lerpf(camera.fov, target_fov, minf(1.0, delta * 12.0))
 		viewmodel.update_pose(delta, self)
 
 
@@ -968,6 +1327,7 @@ func die(killer: Player = null) -> void:
 	grenade_cooldown = 0.0
 	knife_cooldown = 0.0
 	_applied_crouch = -1.0
+	_reset_movement_state()
 	velocity = Vector3.ZERO
 	collision_layer = 0
 	_hit_head.collision_layer = 0
@@ -981,6 +1341,25 @@ func die(killer: Player = null) -> void:
 		_start_death_cam(killer)
 
 
+## Clears sliding, leaning and the grapple (death and respawn; no network message: every peer
+## runs these itself).
+func _reset_movement_state() -> void:
+	sliding = false
+	_slide_cooldown = 0.0
+	_burst_left = 0
+	lean = 0.0
+	_lean_reach = 1.0
+	grappling = false
+	grapple_cooldown = 0.0
+	_crouch_was_held = false
+	_jump_was_held = false
+	_was_sprinting = false
+	_rope.visible = false
+	flashed_until = -100.0
+	if camera != null:
+		camera.rotation.z = 0.0
+
+
 func respawn(pos: Vector3, p_yaw: float) -> void:
 	global_position = pos
 	_last_visual_pos = pos
@@ -992,6 +1371,8 @@ func respawn(pos: Vector3, p_yaw: float) -> void:
 	health = Data.MAX_HEALTH
 	alive = true
 	grenades = Data.GRENADE.per_life
+	tacticals = int(Data.TACTICAL_PER_LIFE)
+	_reset_movement_state()
 	_clear_intent()
 	_cancel_reload()
 	_remote_flags = FLAG_FLOOR
@@ -1039,6 +1420,9 @@ func _clear_intent() -> void:
 	in_reload = false
 	in_grenade = false
 	in_melee = false
+	in_tactical = false
+	in_grapple = false
+	in_lean = 0
 	in_slot = -1
 
 

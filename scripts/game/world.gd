@@ -36,6 +36,8 @@ var scores := {}
 var results: Array = []
 ## The next match the results screen announces: {map, mutator, time_of_day}.
 var next_up: Dictionary = {}
+## Active smoke clouds on every peer: [centre, radius, World.now() when it clears].
+var smokes: Array = []
 
 var _entities_root: Node3D
 var _shake := 0.0
@@ -61,6 +63,7 @@ var _respawned_at := {}
 var _spawned_at := {}
 var _last_damage := {}
 var _grenades := {}
+var _tacticals := {}
 var _pickup_ready_at: Array[float] = []
 var _next_bot_id := -1
 var _next_projectile_id := 1
@@ -146,6 +149,9 @@ func _process(delta: float) -> void:
 		_shake = move_toward(_shake, 0.0, delta * 2.5)
 		local_player.camera.h_offset = randf_range(-1.0, 1.0) * _shake * 0.08
 		local_player.camera.v_offset = randf_range(-1.0, 1.0) * _shake * 0.08
+	if not smokes.is_empty():
+		var t := now()
+		smokes = smokes.filter(func(s: Array) -> bool: return float(s[2]) > t)
 
 
 func shake(amount: float) -> void:
@@ -218,6 +224,7 @@ func _server_add_entity(eid: int, info: Dictionary, is_bot: bool) -> void:
 	scores[eid] = {"name": str(info.name), "level": int(info.get("level", 1)), "kills": 0, "deaths": 0,
 		"headshots": 0, "streak": 0, "best_streak": 0, "bot": is_bot}
 	_grenades[eid] = int(Data.GRENADE.per_life)
+	_tacticals[eid] = Data.TACTICAL_PER_LIFE
 	_broadcast(&"_s_spawn_entity", [eid, _apply_loadout_mutator(info), is_bot, spawn[0], spawn[1], Data.MAX_HEALTH, true])
 	_server_protect(eid)
 	_broadcast(&"_s_scores", [scores])
@@ -228,6 +235,7 @@ func _server_remove_entity(eid: int) -> void:
 	_respawn_at.erase(eid)
 	_spawned_at.erase(eid)
 	_grenades.erase(eid)
+	_tacticals.erase(eid)
 	_last_damage.erase(eid)
 	_respawned_at.erase(eid)
 	_broadcast(&"_s_despawn", [eid])
@@ -282,6 +290,7 @@ func _make_bot_info() -> Dictionary:
 		"skin": Data.SKINS.keys().pick_random(),
 		"primary": primaries.pick_random(),
 		"secondary": secondaries.pick_random(),
+		"tactical": Data.TACTICALS.keys().pick_random(),
 		"level": randi_range(1, 30),
 	}
 
@@ -319,6 +328,7 @@ func _server_respawn(eid: int) -> void:
 	var spawn := _pick_spawn(eid)
 	_respawned_at[eid] = now()
 	_grenades[eid] = int(Data.GRENADE.per_life)
+	_tacticals[eid] = Data.TACTICAL_PER_LIFE
 	_broadcast(&"_s_respawn", [eid, spawn[0], spawn[1]])
 	_server_protect(eid)
 
@@ -486,6 +496,11 @@ func _server_projectile(owner_id: int, kind: String, origin: Vector3, vel: Vecto
 			return
 		_grenades[owner_id] -= 1
 		vel = vel.limit_length(float(Data.GRENADE.throw_speed) + 12.0)
+	elif Data.TACTICALS.has(kind):
+		if kind != shooter.tactical_id() or int(_tacticals.get(owner_id, 0)) <= 0:
+			return
+		_tacticals[owner_id] -= 1
+		vel = vel.limit_length(float(Data.GRENADE.throw_speed) + 12.0)
 	else:
 		return
 	_server_unprotect(owner_id)
@@ -498,8 +513,9 @@ func _server_projectile(owner_id: int, kind: String, origin: Vector3, vel: Vecto
 func server_explode(proj: Projectile, pos: Vector3) -> void:
 	if not projectiles.has(proj.pid):
 		return
-	_broadcast(&"_s_explode", [proj.pid, pos])
-	if match_over:
+	_broadcast(&"_s_explode", [proj.pid, pos, proj.kind])
+	# Smoke and flash do no damage; every peer applies them in _s_explode.
+	if match_over or Data.TACTICALS.has(proj.kind):
 		return
 	var radius: float
 	var max_dmg: float
@@ -667,22 +683,28 @@ func _play_shot_fx(p: Player, wid: String, ends: PackedVector3Array, normals: Pa
 	var is_local := p == local_player
 	if p.mode == Player.Mode.REMOTE:
 		p.remote_fired()
+		if wid == "knife":
+			p.avatar.play_slash()
+		else:
+			p.avatar.play_shoot()
 	if wid == "knife":
 		Sfx.play(&"knife_swing", null if is_local else p.global_position, -4.0)
 		if normals.size() > 0 and normals[0] != Vector3.ZERO:
 			Sfx.play(&"bullet_impact", ends[0], -6.0)
 			fx.impact(ends[0], normals[0])
 		return
-	Sfx.play(StringName(w.sound), null if is_local else muzzle, -3.0 if is_local else 0.0)
-	if not is_local:
+	var suppressed: bool = w.get("suppressed", false)
+	Sfx.play(StringName(w.sound), null if is_local else muzzle, -3.0 if is_local else 0.0, float(w.get("pitch", 1.0)))
+	# A suppressed gun gives nothing away to anyone else: no flash, no tracer, no flyby.
+	if not is_local and not suppressed:
 		fx.muzzle_flash(muzzle)
 	var tracer_every := 3 if int(w.pellets) > 1 else 1
 	for i in ends.size():
-		if i % tracer_every == 0:
+		if i % tracer_every == 0 and (is_local or not suppressed):
 			fx.tracer(muzzle, ends[i])
 		if normals[i] != Vector3.ZERO:
 			fx.impact(ends[i], normals[i])
-	if not is_local and local_player != null and local_player.alive and ends.size() > 0:
+	if not is_local and not suppressed and local_player != null and local_player.alive and ends.size() > 0:
 		var ear := local_player.head.global_position
 		var closest := Geometry3D.get_closest_point_to_segment(ear, muzzle, ends[0])
 		if closest.distance_to(ear) < 1.6 and closest.distance_to(muzzle) > 3.0:
@@ -929,19 +951,110 @@ func _s_spawn_projectile(pid: int, kind: String, owner_id: int, origin: Vector3,
 	projectiles[pid] = proj
 	if owner_id != my_id():
 		Sfx.play(&"shot_rocket" if kind == "rocket" else &"grenade_throw", origin)
+	var thrower: Player = entities.get(owner_id)
+	if thrower != null and thrower.mode == Player.Mode.REMOTE:
+		if kind == "rocket":
+			thrower.avatar.play_shoot()
+		else:
+			thrower.avatar.play_throw()
 
 
 @rpc("authority", "call_remote", "reliable")
-func _s_explode(pid: int, pos: Vector3) -> void:
+func _s_explode(pid: int, pos: Vector3, kind: String) -> void:
 	var proj: Projectile = projectiles.get(pid)
 	if proj != null:
 		projectiles.erase(pid)
 		proj.queue_free()
-	fx.explosion(pos)
-	Sfx.play(&"explosion", pos, 2.0)
-	if local_player != null:
-		var d := local_player.global_position.distance_to(pos)
-		shake(clampf(1.4 - d / 10.0, 0.0, 1.2))
+	match kind:
+		"smoke":
+			var smoke: Dictionary = Data.TACTICALS.smoke
+			smokes.append([pos, float(smoke.radius), now() + float(smoke.duration)])
+			fx.smoke_cloud(pos, float(smoke.radius), float(smoke.duration))
+			Sfx.play(&"smoke_pop", pos)
+		"flash":
+			fx.flash_burst(pos)
+			Sfx.play(&"flashbang", pos, 2.0)
+			var flash: Dictionary = Data.TACTICALS.flash
+			for eid: int in entities:
+				var p: Player = entities[eid]
+				if p == local_player or p.mode == Player.Mode.BOT:
+					var amount := flash_amount(p, pos)
+					if amount <= 0.0:
+						continue
+					p.flashed_until = maxf(p.flashed_until, now() + amount * float(flash.duration))
+					if p == local_player:
+						hud.flash(amount, amount * float(flash.duration))
+		_:
+			fx.explosion(pos)
+			Sfx.play(&"explosion", pos, 2.0)
+			if local_player != null:
+				var d := local_player.global_position.distance_to(pos)
+				shake(clampf(1.4 - d / 10.0, 0.0, 1.2))
+
+
+## How hard a flash at `pos` blinds `p` (0..1): nothing through walls or past the flash radius;
+## strongest up close and when looking straight at it.
+func flash_amount(p: Player, pos: Vector3) -> float:
+	if not p.alive:
+		return 0.0
+	var eye := p.head.global_position
+	var to := pos - eye
+	var d := to.length()
+	var radius := float(Data.TACTICALS.flash.radius)
+	if d > radius:
+		return 0.0
+	var q := PhysicsRayQueryParameters3D.create(eye, pos, Player.MASK_WORLD)
+	var r := get_world_3d().direct_space_state.intersect_ray(q)
+	if not r.is_empty() and (r.position as Vector3).distance_to(pos) > 0.4:
+		return 0.0
+	var look := -Basis.from_euler(Vector3(p.pitch, p.yaw, 0.0)).z
+	var facing := look.dot(to / maxf(d, 0.001))
+	return pow(1.0 - d / radius, 0.6) * (0.25 + 0.75 * smoothstep(-0.2, 0.7, facing))
+
+
+## True while an active smoke cloud covers the line from `from` to `to` (bots can't see through).
+func smoke_blocks(from: Vector3, to: Vector3) -> bool:
+	var t := now()
+	for s: Array in smokes:
+		# The cloud is still building for its first second and thinning for its last.
+		if t > float(s[2]) - 1.0 or t < float(s[2]) - float(Data.TACTICALS.smoke.duration) + 0.8:
+			continue
+		var c: Vector3 = s[0]
+		if Geometry3D.get_closest_point_to_segment(c, from, to).distance_to(c) < float(s[1]) * 0.85:
+			return true
+	return false
+
+
+## A player's grapple hook took hold (`active`) or let go; shown to every other peer.
+func report_grapple(p: Player, active: bool, point: Vector3) -> void:
+	if multiplayer.is_server():
+		_server_grapple(p.id, active, point)
+	elif p == local_player:
+		_c_grapple.rpc_id(1, active, point)
+
+
+func _server_grapple(eid: int, active: bool, point: Vector3) -> void:
+	var p: Player = entities.get(eid)
+	if p == null or (active and (not p.alive or point.distance_to(p.global_position) > Player.GRAPPLE_RANGE + 6.0)):
+		return
+	if p.mode == Player.Mode.REMOTE:
+		p.set_remote_grapple(active, point)
+	for pid: int in _ready_peers:
+		if pid != eid:
+			_s_grapple.rpc_id(pid, eid, active, point)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _c_grapple(active: bool, point: Vector3) -> void:
+	if multiplayer.is_server():
+		_server_grapple(multiplayer.get_remote_sender_id(), active, point)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _s_grapple(eid: int, active: bool, point: Vector3) -> void:
+	var p: Player = entities.get(eid)
+	if p != null and p.mode == Player.Mode.REMOTE:
+		p.set_remote_grapple(active, point)
 
 
 ## `respawn_in` (seconds) drives the countdown an inactive pickup shows.
