@@ -80,6 +80,7 @@ func _ready() -> void:
 	var video := _page(pages)
 	_check_row(video, "fullscreen", "Fullscreen")
 	_check_row(video, "vsync", "V-Sync")
+	_check_row(video, "post_fx", "Colour grading and sharpening")
 	_option_row(video, "quality", "Graphics quality", QUALITY_NAMES)
 	video.add_child(UIKit.label("Quality changes the view distance, shadows and effects. It takes effect from the next map.", &"DimLabel"))
 	(video.get_child(-1) as Label).autowrap_mode = TextServer.AUTOWRAP_WORD_SMART

@@ -86,6 +86,10 @@ func _ready() -> void:
 	add_child(map_root)
 	map_info = MapBuilder.build(Net.current_map, map_root, int(Profile.get_setting("quality")))
 	_apply_time_of_day(map_root, str(Net.config.time_of_day))
+	var post := PostProcess.new()
+	post.name = "PostProcess"
+	add_child(post)
+	post.setup(str(Net.config.time_of_day))
 	_entities_root = Node3D.new()
 	_entities_root.name = "Entities"
 	add_child(_entities_root)

@@ -106,29 +106,93 @@ const _WOOL := {
 	"wool_teal": "2b9b97",
 }
 
+## World block shader. Beyond the tile texture and vertex AO it adds: a pixel-art bump (each
+## texel's brightness reads as height, bent in a tangent frame from screen derivatives) that fades
+## out with distance; per-tile surface properties from `layer_props` (smoothness, metallic, wind
+## sway for foliage, water); swaying leaves; and rippling, glossy water with a fresnel sheen.
 const _SHADER_CODE := """
 shader_type spatial;
 render_mode %s;
 
 uniform sampler2DArray tiles : source_color, filter_nearest_mipmap_anisotropic, repeat_disable;
+// Per tile layer: x smoothness, y metallic, z wind sway, w 1 for water.
+uniform vec4 layer_props[MAX_LAYERS];
+uniform float bump_strength = 3.0;
 
 varying flat float v_layer;
 varying flat float v_emit;
+varying vec3 v_world;
+
+float luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
 
 void vertex() {
 	v_layer = UV2.x;
 	v_emit = UV2.y;
+	vec4 props = layer_props[int(UV2.x + 0.5)];
+	vec3 w = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	// Offsets depend only on world position, so neighbouring blocks' shared corners move together.
+	if (props.z > 0.0) {
+		VERTEX.x += sin(TIME * 1.7 + w.x * 0.8 + w.z * 0.6 + w.y * 0.3) * 0.035 * props.z;
+		VERTEX.z += cos(TIME * 1.3 + w.z * 0.7 + w.x * 0.4) * 0.03 * props.z;
+	}
+	if (props.w > 0.0) {
+		VERTEX.y += (sin(TIME * 1.2 + w.x * 0.9) + sin(TIME * 0.9 + w.z * 1.1)) * 0.035;
+	}
+	v_world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 }
 
 void fragment() {
-	vec4 t = texture(tiles, vec3(UV, v_layer));
-	ALBEDO = t.rgb * COLOR.rgb;
-	ROUGHNESS = 0.9;
-	SPECULAR = 0.25;
+	vec4 props = layer_props[int(v_layer + 0.5)];
+	vec2 uv = UV;
+	if (props.w > 0.0) {
+		uv = fract(uv + vec2(TIME * 0.02, TIME * 0.013) + 0.04 * vec2(sin(TIME + v_world.z * 1.3), cos(TIME * 0.8 + v_world.x * 1.1)));
+	}
+	vec4 t = texture(tiles, vec3(uv, v_layer));
+	vec3 dp1 = dFdx(VERTEX);
+	vec3 dp2 = dFdy(VERTEX);
+	vec2 duv1 = dFdx(UV);
+	vec2 duv2 = dFdy(UV);
+	vec3 dp2perp = cross(dp2, NORMAL);
+	vec3 dp1perp = cross(NORMAL, dp1);
+	vec3 T = dp2perp * duv1.x + dp1perp * duv2.x;
+	vec3 B = dp2perp * duv1.y + dp1perp * duv2.y;
+	float inv_len = inversesqrt(max(dot(T, T), dot(B, B)) + 1e-12);
+	T *= inv_len;
+	B *= inv_len;
+	float texel = 1.0 / 16.0;
+	float hl = luma(texture(tiles, vec3(uv - vec2(texel, 0.0), v_layer)).rgb);
+	float hr = luma(texture(tiles, vec3(uv + vec2(texel, 0.0), v_layer)).rgb);
+	float hu = luma(texture(tiles, vec3(uv - vec2(0.0, texel), v_layer)).rgb);
+	float hd = luma(texture(tiles, vec3(uv + vec2(0.0, texel), v_layer)).rgb);
+	float bump = clamp(1.0 - length(VERTEX) / 35.0, 0.0, 1.0) * bump_strength * (1.0 - props.w);
+	NORMAL = normalize(NORMAL - (T * (hr - hl) + B * (hd - hu)) * bump);
+	ALBEDO = t.rgb * mix(vec3(1.0), COLOR.rgb, 0.75);
+	AO = COLOR.r;
+	AO_LIGHT_AFFECT = 0.25;
+	ROUGHNESS = mix(0.92, 0.12, props.x);
+	METALLIC = props.y;
+	SPECULAR = 0.25 + 0.45 * props.x;
+	if (props.w > 0.0) {
+		float fresnel = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 4.0);
+		ALBEDO = mix(ALBEDO, vec3(0.75, 0.88, 1.0), fresnel * 0.6);
+	}
 	EMISSION = t.rgb * v_emit;
 	%s
 }
 """
+## Size of the shader's per-layer property table (unique tile names must fit).
+const MAX_LAYERS := 64
+## Surface properties per tile name: [smoothness, metallic, wind sway, water]; others are matte.
+const _SURFACES := {
+	"ice": [0.8, 0.0, 0.0, 0.0], "glass": [0.9, 0.0, 0.0, 0.0], "snow_top": [0.15, 0.0, 0.0, 0.0],
+	"metal": [0.55, 0.6, 0.0, 0.0], "grate": [0.45, 0.6, 0.0, 0.0], "conveyor": [0.35, 0.3, 0.0, 0.0],
+	"gold": [0.75, 0.9, 0.0, 0.0], "hazard": [0.35, 0.2, 0.0, 0.0], "lamp": [0.5, 0.0, 0.0, 0.0],
+	"container_top": [0.3, 0.35, 0.0, 0.0], "container_red": [0.3, 0.35, 0.0, 0.0],
+	"container_blue": [0.3, 0.35, 0.0, 0.0], "container_green": [0.3, 0.35, 0.0, 0.0],
+	"container_yellow": [0.3, 0.35, 0.0, 0.0], "concrete": [0.12, 0.0, 0.0, 0.0],
+	"leaves": [0.1, 0.0, 1.0, 0.0], "pine": [0.05, 0.0, 0.6, 0.0], "pine_snow": [0.1, 0.0, 0.6, 0.0],
+	"water": [0.95, 0.0, 0.0, 1.0],
+}
 
 static var _texture: Texture2DArray
 static var _face_layers := PackedInt32Array()
@@ -196,19 +260,27 @@ static func _ensure() -> void:
 			var n: String = _FACES[b][f]
 			_face_layers[b * 3 + f] = index[n] if n != "" else 0
 		_top_colors[b] = averages[index[_FACES[b][0]]] if b != AIR else Color(0, 0, 0, 0)
-	_opaque_material = _make_material(false)
-	_glass_material = _make_material(true)
+	_opaque_material = _make_material(false, names)
+	_glass_material = _make_material(true, names)
 
 
-static func _make_material(transparent: bool) -> ShaderMaterial:
+static func _make_material(transparent: bool, names: Array[String]) -> ShaderMaterial:
+	assert(names.size() <= MAX_LAYERS, "BlockAtlas: more tile layers than MAX_LAYERS")
 	var shader := Shader.new()
+	var code := _SHADER_CODE.replace("MAX_LAYERS", str(MAX_LAYERS))
 	if transparent:
-		shader.code = _SHADER_CODE % ["blend_mix, cull_back, depth_draw_opaque", "ALPHA = t.a;"]
+		shader.code = code % ["blend_mix, cull_back, depth_draw_opaque", "ALPHA = t.a;"]
 	else:
-		shader.code = _SHADER_CODE % ["cull_back", ""]
+		shader.code = code % ["cull_back", ""]
+	var props: Array[Vector4] = []
+	props.resize(MAX_LAYERS)
+	for i in names.size():
+		var s: Array = _SURFACES.get(names[i], [0.0, 0.0, 0.0, 0.0])
+		props[i] = Vector4(s[0], s[1], s[2], s[3])
 	var mat := ShaderMaterial.new()
 	mat.shader = shader
 	mat.set_shader_parameter("tiles", _texture)
+	mat.set_shader_parameter("layer_props", props)
 	return mat
 
 

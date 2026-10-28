@@ -18,6 +18,7 @@ const DEFAULT_SETTINGS := {
 	"fullscreen": false,
 	"vsync": true,
 	"quality": 1,
+	"post_fx": true,
 	"show_fps": false,
 	"damage_numbers": true,
 	"killfeed": true,

@@ -170,6 +170,14 @@ static func _add_environment(parent: Node3D, atm: Dictionary, quality: int) -> v
 	env.ssao_radius = 1.2
 	env.ssao_intensity = 1.6
 	env.ssao_detail = 0.5
+	env.ssil_enabled = quality >= 2
+	env.ssil_radius = 3.0
+	env.ssil_intensity = 0.7
+	# Screen-space reflections for the glossy blocks (water, ice, metal) on High.
+	env.ssr_enabled = quality >= 2
+	env.ssr_max_steps = 48
+	env.ssr_fade_in = 0.2
+	env.ssr_fade_out = 2.0
 	env.glow_enabled = quality >= 1
 	env.glow_intensity = 0.5
 	env.glow_bloom = 0.03
