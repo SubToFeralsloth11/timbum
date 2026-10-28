@@ -5,27 +5,35 @@ A blocky free-for-all shooter made with Godot 4.7. Play against bots offline, or
 ## Features
 
 - **Free-for-all deathmatch.** The first player to reach the kill limit wins, or whoever has the most kills when time runs out. After each match a results screen shows the final table, match highlights (best streak, sharpshooter, survivor), an itemised list of the coins and XP you earned, and the next map, mutator and time of day. You can switch your primary and secondary for the next match right there, and start it early once most of the players in the lobby press Start Next Match.
-- **Bots.** Easy, Normal and Hard bots navigate with a navmesh. They strafe, aim-track, throw grenades and fall back to their knife. They also pick up health when hurt and ammo when low. They aim a little sharper at whoever is running away with the match and ease off on players who are behind. Bots fill the empty slots, and one drops out each time a human joins.
+- **Bots.** Easy, Normal and Hard bots navigate with a navmesh. They strafe, aim-track, throw frags and tacticals and fall back to their knife. They also pick up health when hurt and ammo when low. Smoke blocks their sight and a flash blinds them. They aim a little sharper at whoever is running away with the match and ease off on players who are behind. Bots fill the empty slots, and one drops out each time a human joins.
 - **Online play over IP.** Uses ENet on UDP port 7777 by default, with up to 12 players. The host's machine runs the match.
-- **9 weapons.** Block 9 pistol, Cuber .44 revolver, Bit-SMG, AR-Cube rifle, Brick Buster shotgun, Stacker LMG, Voxel Longshot sniper with a scope, Boom Block rocket launcher, and the Pixel Blade knife. Every player also carries frag grenades.
+- **15 weapons.** Secondaries: Block 9 pistol, Cuber .44 revolver, Bitstorm MP machine pistol, Tri-Tap burst pistol, Pocket Boomer sawn-off and the suppressed Whisper .22 (no tracer, flash or flyby for anyone else). Primaries: Bit-SMG, AR-Cube rifle, Tri-Cube burst rifle, Brick Buster shotgun, Stacker LMG, Block Marksman DMR, Voxel Longshot sniper with a scope and Boom Block rocket launcher. Plus the Pixel Blade knife.
+- **Grenades.** Every player carries two frag grenades, which explode the moment they touch a wall, the floor or a player, and one tactical grenade picked in the locker: a Smoke Block (a 10-second cloud) or a Flash Cube (blinds whoever is looking at it).
+- **Movement.** Crouch while sprinting to slide (slopes keep it going, jump out of it to keep the speed). Peek left and right around corners; the eye, the view and your head hitbox lean out, stopping at walls. A grapple hook reels you to whatever you aim at within 42 m.
 - **Every match plays differently.** The map rotation is shuffled, the time of day changes (day, sunset or night), and half the matches roll a mutator: Low Gravity, Turbo, Big Heads, Vampire, Rocket Party, Snipers Only or Glass Cannon. You can switch mutators off in match setup.
-- **Gunplay.** Aiming down sights, recoil, spread bloom, damage falloff, headshots, hitmarkers, damage numbers (rapid hits on one target add up into a single total), kill feed, kill streaks and multi-kills. Damage numbers and the kill feed can each be turned off in Settings. When you die, the camera turns to watch your killer (zooming in if they are far away, and dropping to where you fell or back to your body when a wall hides them) and the death screen tells you how far away they were, how many hits and how much damage they dealt you, and how much health they had left.
+- **Gunplay.** Aiming down sights, recoil, spread bloom, damage falloff, headshots, auto, semi and three-round burst fire, hitmarkers, damage numbers (rapid hits on one target add up into a single total), kill feed, kill streaks and multi-kills. Damage numbers and the kill feed can each be turned off in Settings. When you die, the camera turns to watch your killer (zooming in if they are far away, and dropping to where you fell or back to your body when a wall hides them) and the death screen tells you how far away they were, how many hits and how much damage they dealt you, and how much health they had left.
+- **HUD.** A compass, a kill race against the leader, segmented health with a movement status line (sliding, peeking, grappling, blinded), and a weapon card with fire mode, magazine bar, your three slots and the frag, tactical and grapple readouts, all labelled with the keys you have bound.
 - **8 maps.** Village, Desert Ruins, Factory, Sky Islands, Snow Fort, Harbor Docks, Jungle Temple and City Rooftops. Each has its own sky, fog and lighting. Health, ammo and grenade pickups are spread around every map. A taken pickup shows a faint ghost and a countdown until it comes back. On Sky Islands, Harbor Docks, Jungle Temple and City Rooftops, falling off (into the void, the water, the river gorge or the street) kills you.
-- **Shop and locker.** Coins buy guns, 11 weapon skins (including camo, lava, neon, gold, diamond and galaxy), 10 hats and 9 outfits. The locker is where you equip your loadout and look.
+- **Shop and locker.** Coins buy guns, 11 weapon skins (including camo, lava, neon, gold, diamond and galaxy), 10 hats and 9 outfits. The locker is where you equip your loadout (including your tactical grenade) and look.
 - **Progression.** XP, levels, a daily reward and lifetime stats.
-- **Everything is generated by code.** Textures, models, sound effects and the chiptune music are all procedural, so the project contains no asset files.
+- **Everything is generated by code.** Textures, models, sound effects and the chiptune music are all procedural, so the project contains no asset files. The block shader adds pixel-art relief, glossy metal, ice and water, swaying leaves, and a colour grade with sharpening (Settings > Video can turn the grade off).
 
 ## Controls
+
+Every action except Esc can be rebound in **Settings > Controls** (two keys or mouse buttons per action). The defaults:
 
 | Action | Key |
 |---|---|
 | Move | WASD / arrow keys |
 | Jump / Sprint / Crouch | Space / Shift / Ctrl or C |
+| Slide | Crouch while sprinting |
+| Peek left / right | Q / E |
 | Fire / Aim down sights | Left mouse / Right mouse |
 | Reload | R |
-| Primary / Secondary / Knife | 1 / 2 / 3 or mouse wheel, Q swaps to the last weapon |
-| Grenade | G |
-| Quick melee | V or F |
+| Primary / Secondary / Knife | 1 / 2 / 3 or mouse wheel, X swaps to the last weapon |
+| Frag grenade / Tactical grenade | G / H |
+| Grapple hook | F (again, or jump, to let go) |
+| Quick melee | V |
 | Scoreboard | Tab (hold) |
 | Chat | T or Enter |
 | Pause / settings | Esc |
