@@ -18,6 +18,10 @@ const STRIDE := 1.6
 const FLASH_TIME := 0.12
 const DEATH_TIME := 0.4
 const HEAD_PITCH_LIMIT := 1.2
+const SLASH_TIME := 0.4
+const THROW_TIME := 0.5
+## Hips height while sliding (the body lies back on one bent leg).
+const SLIDE_HIP := 0.3
 
 var outfit_id := ""
 var hat_id := ""
@@ -63,6 +67,20 @@ var _grip := Vector3(0.1, -0.2, -0.4)
 var _twist_target := -0.1
 var _twist := -0.1
 var _support: Variant = null
+## Locomotion extras fed by set_motion(): slide and grapple blends, smoothed lean, and the
+## direction of travel in body space (x right, y forward; zero when standing).
+var _slide := 0.0
+var _sliding := false
+var _lean := 0.0
+var _lean_target := 0.0
+var _move_dir := Vector2.ZERO
+var _grapple := 0.0
+var _grappling := false
+var _sprint := 0.0
+## One-shot actions: seconds left of a knife slash / grenade throw.
+var _slash_left := 0.0
+var _slash_side := 1.0
+var _throw_left := 0.0
 
 
 ## Builds the rig. Called by Models.build_avatar().
@@ -127,20 +145,56 @@ func set_look_pitch(rad: float) -> void:
 		_apply_pose()
 
 
+## Movement state beyond speed: sliding, lean (-1..1, left negative), velocity in body space
+## (x right, y forward, m/s) and whether a grapple line is out. Call before animate().
+func set_motion(sliding: bool, lean: float, local_velocity: Vector2, grappling: bool) -> void:
+	_sliding = sliding
+	_lean_target = lean
+	_grappling = grappling
+	var spd := local_velocity.length()
+	_move_dir = local_velocity / spd if spd > 0.3 else Vector2.ZERO
+
+
 ## Advances locomotion: `speed` = horizontal speed in m/s.
 func animate(delta: float, speed: float, on_floor: bool, crouching: bool) -> void:
 	if _dead:
 		return
 	var k := 1.0 - exp(-14.0 * delta)
 	_crouch = move_toward(_crouch, 1.0 if crouching else 0.0, delta * 7.0)
-	_swing = lerpf(_swing, clampf(speed / 4.5, 0.0, 1.2) if on_floor else 0.0, k)
-	_air = lerpf(_air, 0.0 if on_floor else 1.0, k)
+	_slide = move_toward(_slide, 1.0 if _sliding else 0.0, delta * 9.0)
+	_grapple = move_toward(_grapple, 1.0 if _grappling else 0.0, delta * 8.0)
+	_lean = lerpf(_lean, _lean_target, k)
+	_sprint = lerpf(_sprint, clampf((speed - 6.0) / 1.5, 0.0, 1.0) if on_floor and not _sliding else 0.0, k)
+	_swing = lerpf(_swing, clampf(speed / 4.5, 0.0, 1.2) if on_floor and not _sliding else 0.0, k)
+	_air = lerpf(_air, 0.0 if on_floor or _sliding else 1.0, k)
 	_twist = lerpf(_twist, _twist_target, k)
-	if on_floor and speed > 0.05:
-		_phase = fposmod(_phase + delta * speed * TAU / STRIDE, TAU)
+	if on_floor and speed > 0.05 and not _sliding:
+		# Walking backwards plays the stride in reverse.
+		var dir := -1.0 if _move_dir.y < -0.3 else 1.0
+		_phase = fposmod(_phase + dir * delta * speed * TAU / STRIDE, TAU)
 	elif _swing < 0.05:
 		_phase = lerpf(_phase, 0.0 if _phase < PI * 0.5 or _phase > PI * 1.5 else PI, k)
+	if _slash_left > 0.0:
+		_slash_left = maxf(0.0, _slash_left - delta)
+	if _throw_left > 0.0:
+		_throw_left = maxf(0.0, _throw_left - delta)
 	_apply_pose()
+
+
+## Third-person knife slash (or quick melee): the right arm sweeps across the body,
+## alternating sides.
+func play_slash() -> void:
+	if _dead:
+		return
+	_slash_left = SLASH_TIME
+	_slash_side = -_slash_side
+
+
+## Third-person grenade throw: the off hand winds up behind the head and flings forward.
+func play_throw() -> void:
+	if _dead:
+		return
+	_throw_left = THROW_TIME
 
 
 ## Equips the third-person gun in the right hand ("" = empty hands).
@@ -178,22 +232,36 @@ func play_shoot() -> void:
 	set_process(true)
 
 
-## Topples backwards over DEATH_TIME seconds. Further calls while dead are ignored.
+## Crumples and topples over DEATH_TIME seconds, backwards, forwards or to a side (random), with
+## the knees buckling first. Further calls while dead are ignored.
 func play_death() -> void:
 	if _dead:
 		return
 	_dead = true
 	_recoil = 0.0
+	_slash_left = 0.0
+	_throw_left = 0.0
 	if _death_tween:
 		_death_tween.kill()
+	var falls := [[^"rotation:x", PI * 0.5], [^"rotation:x", -PI * 0.5], [^"rotation:z", PI * 0.5], [^"rotation:z", -PI * 0.5]]
+	var fall: Array = falls[randi() % falls.size()] if is_inside_tree() else falls[0]
+	# Arms go limp and out to the sides.
+	_arm_r.basis = Basis(Vector3.BACK, 0.9) * Basis(Vector3.RIGHT, 0.4)
+	_arm_l.basis = Basis(Vector3.BACK, -0.9) * Basis(Vector3.RIGHT, 0.4)
 	if not is_inside_tree():
-		_visual.rotation.x = PI * 0.5
+		_visual.set_indexed(fall[0], fall[1])
 		_visual.position.y = 0.12
 		return
-	_death_tween = create_tween().set_parallel()
-	_death_tween.tween_property(_visual, ^"rotation:x", PI * 0.5, DEATH_TIME) \
+	_death_tween = create_tween()
+	# Knees give way, then the body falls.
+	_death_tween.tween_property(_knee_r, ^"rotation:x", -1.2, DEATH_TIME * 0.35)
+	_death_tween.parallel().tween_property(_knee_l, ^"rotation:x", -1.0, DEATH_TIME * 0.35)
+	_death_tween.parallel().tween_property(_hips, ^"position:y", HIP_HEIGHT * 0.7, DEATH_TIME * 0.35)
+	_death_tween.tween_property(_visual, fall[0], fall[1], DEATH_TIME) \
 		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-	_death_tween.tween_property(_visual, ^"position:y", 0.12, DEATH_TIME)
+	_death_tween.parallel().tween_property(_visual, ^"position:y", 0.12, DEATH_TIME)
+	_death_tween.tween_property(_visual, ^"position:y", 0.2, 0.08).set_ease(Tween.EASE_OUT)
+	_death_tween.tween_property(_visual, ^"position:y", 0.12, 0.1).set_ease(Tween.EASE_IN)
 
 
 ## Restores the standing pose (after death or teleport).
@@ -210,6 +278,15 @@ func reset_pose() -> void:
 	_recoil = 0.0
 	_reload_left = 0.0
 	_reload_len = 0.0
+	_slide = 0.0
+	_sliding = false
+	_lean = 0.0
+	_lean_target = 0.0
+	_grapple = 0.0
+	_grappling = false
+	_sprint = 0.0
+	_slash_left = 0.0
+	_throw_left = 0.0
 	_twist = _twist_target
 	_set_flash(false)
 	_apply_pose()
@@ -328,35 +405,56 @@ func _solve_hold(grip_y: float) -> void:
 func _apply_pose() -> void:
 	var swing := sin(_phase) * _swing
 	var stride := swing * 0.7 * (1.0 - 0.45 * _crouch)
-	var hip_y := HIP_HEIGHT - CROUCH_DROP * _crouch
-	var bend := acos(clampf(hip_y / (2.0 * LEG_SEGMENT), -1.0, 1.0))
-	_hips.position.y = hip_y - absf(sin(_phase)) * 0.03 * _swing
+	# Strafing swings the legs sideways instead of forward.
+	var fwd_share := 1.0 if _move_dir == Vector2.ZERO else absf(_move_dir.y)
+	var side_share := _move_dir.x
+	var hip_y := lerpf(HIP_HEIGHT - CROUCH_DROP * _crouch, SLIDE_HIP, _slide)
+	var bend := acos(clampf((HIP_HEIGHT - CROUCH_DROP * _crouch) / (2.0 * LEG_SEGMENT), -1.0, 1.0))
+	_hips.position = Vector3(_lean * 0.1, hip_y - absf(sin(_phase)) * 0.03 * _swing, 0.0)
 	var c := cos(_phase) * _swing
-	_leg_r.rotation.x = bend + stride + 0.6 * _air
-	_leg_l.rotation.x = bend - stride - 0.25 * _air
-	_knee_r.rotation.x = -2.0 * bend - maxf(0.0, c) * 0.8 - 1.0 * _air
-	_knee_l.rotation.x = -2.0 * bend - maxf(0.0, -c) * 0.8 - 0.3 * _air
+	var leg_r := bend + stride * fwd_share + 0.6 * _air
+	var leg_l := bend - stride * fwd_share - 0.25 * _air
+	var knee_r := -2.0 * bend - maxf(0.0, c) * 0.8 - 1.0 * _air
+	var knee_l := -2.0 * bend - maxf(0.0, -c) * 0.8 - 0.3 * _air
+	# Slide: leading leg out straight, the other folded under.
+	_leg_r.rotation = Vector3(lerpf(leg_r, 1.45, _slide), 0.0, stride * side_share * 0.6)
+	_leg_l.rotation = Vector3(lerpf(leg_l, 0.55, _slide), 0.0, -stride * side_share * 0.6)
+	_knee_r.rotation.x = lerpf(knee_r, -0.1, _slide)
+	_knee_l.rotation.x = lerpf(knee_l, -2.1, _slide)
 
-	var lean := -0.32 * _crouch - 0.06 * minf(_swing, 1.0)
-	var torso_basis := Basis.from_euler(Vector3(lean, _twist, 0.0))
+	# Lean forward when crouching/sprinting, back when sliding; peeking rolls the upper body.
+	var lean := -0.32 * _crouch - 0.06 * minf(_swing, 1.0) - 0.16 * _sprint
+	lean = lerpf(lean, 0.5, _slide)
+	var torso_basis := Basis.from_euler(Vector3(lean, _twist, -_lean * 0.55))
 	_torso.basis = torso_basis
 	var inv := torso_basis.inverse()
 	_head.basis = inv * Basis(Vector3.RIGHT, clampf(_pitch, -HEAD_PITCH_LIMIT, HEAD_PITCH_LIMIT))
 
-	var aim := Basis(Vector3.RIGHT, _pitch)
+	# Sprinting carries the gun low across the chest (muzzle down).
+	var aim_pitch := lerpf(_pitch, -0.55, _sprint * 0.8)
+	var aim := Basis(Vector3.RIGHT, aim_pitch)
 	var center := torso_basis * Vector3(0.0, SHOULDER_Y, 0.0)
 	var bob := Vector3(0.0, -absf(sin(_phase)) * 0.02 * _swing + 0.015 * _recoil, 0.07 * _recoil)
 	var r := _reload_envelope()
 	var reload_tilt := Basis(Vector3.RIGHT, -0.55 * r) * Basis(Vector3.BACK, 0.6 * r)
 	var mount := Transform3D(inv * aim * Basis(Vector3.RIGHT, 0.2 * _recoil) * reload_tilt,
 		inv * (center + aim * (_grip + bob + Vector3(-0.05, -0.08, 0.1) * r)))
+	var slash := _slash_amount()
+	if slash.x != 0.0 or slash.y != 0.0:
+		# Swing the whole hold around the right shoulder: across the body and downward.
+		var pivot := inv * center
+		var turn := Basis(Vector3.UP, slash.x) * Basis(Vector3.RIGHT, slash.y)
+		mount = Transform3D(turn, pivot - turn * pivot) * mount
 	_gun_mount.transform = mount
 	if _gun == null:
 		_arm_r.basis = inv * Basis(Vector3.RIGHT, swing * 0.8 + 0.1 * _air)
 	else:
 		_arm_r.basis = _point_down_to(mount.origin - _arm_r.position)
 	var fetching := _reload_fetch()
-	if _support != null and fetching <= 0.0:
+	var off_hand: Variant = _off_hand_pose(inv)
+	if off_hand != null:
+		_arm_l.basis = off_hand
+	elif _support != null and fetching <= 0.0:
 		_arm_l.basis = _point_down_to(mount * (_support as Vector3) - _arm_l.position)
 	elif _support != null:
 		# Off hand swings down to the belt for a fresh magazine, then back to the gun.
@@ -364,6 +462,39 @@ func _apply_pose() -> void:
 		_arm_l.basis = hold.slerp(inv * Basis(Vector3.RIGHT, 0.25), fetching)
 	else:
 		_arm_l.basis = inv * Basis(Vector3.RIGHT, -swing * 0.8 - 0.4 * _air) * Basis(Vector3.BACK, -0.08)
+
+
+## Slash swing as (yaw, pitch) offsets around the shoulder: wind up out to the side, cut
+## fast across the body, recover.
+func _slash_amount() -> Vector2:
+	if _slash_left <= 0.0:
+		return Vector2.ZERO
+	var u := 1.0 - _slash_left / SLASH_TIME
+	var start := Vector2(-0.9 * _slash_side, 0.35)
+	var finish := Vector2(0.8 * _slash_side, -0.45)
+	if u < 0.25:
+		return start * smoothstep(0.0, 0.25, u)
+	if u < 0.5:
+		var t := 1.0 - pow(1.0 - (u - 0.25) / 0.25, 3.0)
+		return start.lerp(finish, t)
+	return finish * (1.0 - smoothstep(0.5, 1.0, u))
+
+
+## Left arm override for a throw or a held grapple line (torso space), or null.
+func _off_hand_pose(inv: Basis) -> Variant:
+	if _throw_left > 0.0:
+		var u := 1.0 - _throw_left / THROW_TIME
+		var back := inv * Basis(Vector3.RIGHT, PI * 0.95) * Basis(Vector3.BACK, 0.3)
+		var forward := inv * Basis(Vector3.RIGHT, PI * 0.45)
+		if u < 0.35:
+			return Basis.IDENTITY.slerp(back, smoothstep(0.0, 0.3, u)) if _support == null else back
+		if u < 0.6:
+			return back.slerp(forward, smoothstep(0.35, 0.55, u))
+		return forward
+	if _grapple > 0.01:
+		# Arm up and forward along the line.
+		return inv * Basis(Vector3.RIGHT, lerpf(0.4, 2.3, _grapple)) * Basis(Vector3.BACK, -0.15)
+	return null
 
 
 ## 0..1 weight of the reload pose: eases in over the first 15%, out over the last 15%.

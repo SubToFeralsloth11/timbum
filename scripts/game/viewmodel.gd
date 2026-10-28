@@ -75,9 +75,38 @@ const MAGS := {
 	"sniper": [Vector3(0, -0.012, -0.1), Vector3(0.032, 0.048, 0.066), 0.0, Color(0.36, 0.38, 0.42), Vector3.DOWN],
 	"shotgun": [Vector3(0, 0.0, -0.12), Vector3(0.02, 0.02, 0.055), 0.0, Color(0.75, 0.12, 0.1), Vector3.DOWN],
 	"rocket": [Vector3(0, 0.1, 0.32), Vector3(0.08, 0.08, 0.22), 0.0, Color(0.7, 0.15, 0.12), Vector3.BACK],
+	"machine_pistol": [Vector3(0, -0.1, 0.022), Vector3(0.026, 0.14, 0.034), -0.18, Color(0.36, 0.38, 0.42), Vector3.DOWN],
+	"burst_pistol": [Vector3(0, -0.062, 0.016), Vector3(0.026, 0.09, 0.032), -0.2, Color(0.36, 0.38, 0.42), Vector3.DOWN],
+	"suppressed": [Vector3(0, -0.058, 0.015), Vector3(0.022, 0.08, 0.028), -0.22, Color(0.36, 0.38, 0.42), Vector3.DOWN],
+	"sawed_off": [Vector3(0, 0.05, -0.02), Vector3(0.045, 0.022, 0.05), 0.0, Color(0.75, 0.12, 0.1), Vector3.BACK],
+	"dmr": [Vector3(0, -0.04, -0.11), Vector3(0.03, 0.08, 0.06), 0.0, Color(0.36, 0.38, 0.42), Vector3.DOWN],
+	"burst_rifle": [Vector3(0, -0.035, 0.09), Vector3(0.03, 0.09, 0.05), 0.15, Color(0.36, 0.38, 0.42), Vector3.DOWN],
 }
 ## Where the left hand goes to fetch a new magazine (arms space; below the screen edge).
 const HAND_OFFSCREEN := Vector3(-0.08, -0.4, 0.05)
+## Knife slash timing (s): wind-up, then the fast strike, then recovery.
+const SLASH_TIME := 0.42
+const SLASH_WINDUP := 0.22
+const SLASH_STRIKE := 0.5
+const BASH_TIME := 0.4
+const THROW_TIME := 0.5
+## Knife slash keyframes (pivot offset, pivot rotation) for a forehand from the upper right to
+## the lower left; backhands mirror them.
+const SLASH_START := [Vector3(0.07, 0.07, 0.05), Vector3(0.35, -0.55, -0.55)]
+const SLASH_END := [Vector3(-0.24, -0.11, -0.1), Vector3(-0.55, 0.95, 0.95)]
+const TRAIL_POINTS := 10
+
+const TRAIL_SHADER := """
+shader_type spatial;
+render_mode unshaded, blend_add, cull_disabled, depth_draw_never, shadows_disabled;
+void vertex() {
+	POSITION = PROJECTION_MATRIX * MODELVIEW_MATRIX * vec4(VERTEX, 1.0);
+	POSITION.z = mix(POSITION.w, POSITION.z, 0.03);
+}
+void fragment() {
+	ALBEDO = vec3(0.85, 0.92, 1.0) * COLOR.a * 0.9;
+}
+"""
 
 var _pivot: Node3D
 var _arms: ViewmodelArms
@@ -98,6 +127,26 @@ var _reload_t := 0.0
 var _reload_len := 0.0
 var _draw_t := 0.0
 var _melee_t := 0.0
+var _melee_len := SLASH_TIME
+var _melee_knife := true
+## +1 forehand, -1 backhand; knife slashes alternate.
+var _slash_side := 1.0
+var _throw_t := 0.0
+var _land_kick := 0.0
+var _air_vy := 0.0
+var _was_floor := true
+var _breath_t := 0.0
+var _strafe := 0.0
+var _kick_roll := 0.0
+var _slide_blend := 0.0
+var _grapple_blend := 0.0
+var _trail: MeshInstance3D
+var _trail_mesh: ImmediateMesh
+## Recent blade tip and base positions (viewmodel space) while a slash is cutting.
+var _trail_tips: Array[Vector3] = []
+var _trail_bases: Array[Vector3] = []
+## True while a throw or the grapple has moved the left hand off the gun.
+var _off_hand_used := false
 var _flash_t := 0.0
 var _sprint_blend := 0.0
 var _mag_prop: MeshInstance3D
@@ -135,6 +184,18 @@ func setup(outfit_id: String, skin_id: String) -> void:
 	_flash_light.shadow_enabled = false
 	add_child(_flash_light)
 
+	_trail_mesh = ImmediateMesh.new()
+	_trail = MeshInstance3D.new()
+	_trail.name = "SlashTrail"
+	_trail.mesh = _trail_mesh
+	var tmat := ShaderMaterial.new()
+	var tsh := Shader.new()
+	tsh.code = TRAIL_SHADER
+	tmat.shader = tsh
+	_trail.material_override = tmat
+	_trail.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(_trail)
+
 
 func set_weapon(wid: String) -> void:
 	if wid == _weapon:
@@ -169,11 +230,14 @@ func add_sway(rel: Vector2) -> void:
 
 func play_fire(kick_deg: float) -> void:
 	_kick = minf(_kick + 0.35 + kick_deg * 0.12, 1.4)
+	_kick_roll = clampf(_kick_roll + randf_range(-0.06, 0.06) * (1.0 + kick_deg * 0.2), -0.18, 0.18)
 	_flash_t = 0.05
-	_flash.visible = true
+	# A suppressor swallows the flash.
+	var suppressed: bool = Data.WEAPONS[_weapon].get("suppressed", false)
+	_flash.visible = not suppressed
 	_flash.rotation.z = randf() * TAU
 	_flash.scale = Vector3.ONE * randf_range(0.8, 1.25)
-	_flash_light.light_energy = 2.2
+	_flash_light.light_energy = 0.3 if suppressed else 2.2
 
 
 func play_reload(length: float) -> void:
@@ -246,8 +310,19 @@ func _animate_magazine(u: float) -> void:
 	_hand_busy = true
 
 
+## Knife: an alternating fore/backhand slash with a blade trail. Anything else: a short
+## stock bash with the gun.
 func play_melee(_quick: bool) -> void:
-	_melee_t = 0.32
+	_melee_knife = _weapon == "knife"
+	_melee_len = SLASH_TIME if _melee_knife else BASH_TIME
+	_melee_t = _melee_len
+	_slash_side = -_slash_side
+	_trail_tips.clear()
+	_trail_bases.clear()
+
+
+func play_throw() -> void:
+	_throw_t = THROW_TIME
 
 
 func play_draw() -> void:
@@ -259,26 +334,58 @@ func update_pose(delta: float, p: Player) -> void:
 	_sway_smooth = _sway_smooth.lerp(_sway, minf(1.0, delta * 12.0))
 	_sway = _sway.lerp(Vector2.ZERO, minf(1.0, delta * 10.0))
 	_kick = move_toward(_kick, 0.0, delta * 6.0)
+	_kick_roll = move_toward(_kick_roll, 0.0, delta * 1.5)
 	_reload_t = maxf(0.0, _reload_t - delta)
 	_draw_t = maxf(0.0, _draw_t - delta)
 	_melee_t = maxf(0.0, _melee_t - delta)
+	_throw_t = maxf(0.0, _throw_t - delta)
+	_land_kick = move_toward(_land_kick, 0.0, delta * 4.0)
+	_breath_t += delta
 	_sprint_blend = move_toward(_sprint_blend, 1.0 if p.sprinting else 0.0, delta * 6.0)
-	if p.on_floor_visual:
+	_slide_blend = move_toward(_slide_blend, 1.0 if p.sliding else 0.0, delta * 7.0)
+	_grapple_blend = move_toward(_grapple_blend, 1.0 if p.grappling else 0.0, delta * 8.0)
+	var local_vel := Basis(Vector3.UP, p.yaw).inverse() * p.velocity
+	_strafe = lerpf(_strafe, clampf(local_vel.x / Player.SPRINT_SPEED, -1.0, 1.0), minf(1.0, delta * 8.0))
+	# Landing dips the gun in proportion to how hard the player came down.
+	if p.on_floor_visual and not _was_floor:
+		_land_kick = clampf(-_air_vy / 14.0, 0.0, 1.0)
+	if not p.on_floor_visual:
+		_air_vy = p.velocity.y
+	_was_floor = p.on_floor_visual
+	if p.on_floor_visual and not p.sliding:
 		_bob_t += delta * p.anim_speed * 1.55
-	var speed_k := clampf(p.anim_speed / Player.WALK_SPEED, 0.0, 1.5) * (1.0 if p.on_floor_visual else 0.3)
+	var speed_k := clampf(p.anim_speed / Player.WALK_SPEED, 0.0, 1.5) * (1.0 if p.on_floor_visual and not p.sliding else 0.3)
 
 	var pos := HIP_POS.lerp(_ads_pos, ads)
 	var rot := Vector3.ZERO
-	var bob_amt := (1.0 - ads * 0.9) * speed_k
+	# Walk bob traces a figure eight; sprinting swings it wider and rolls the gun with each step.
+	var bob_amt := (1.0 - ads * 0.9) * speed_k * (1.0 + 0.8 * _sprint_blend)
 	pos += Vector3(sin(_bob_t) * 0.012, -absf(cos(_bob_t)) * 0.014, 0.0) * bob_amt
+	rot.z += sin(_bob_t) * 0.025 * bob_amt * _sprint_blend
+	rot.x += absf(cos(_bob_t)) * 0.02 * bob_amt * _sprint_blend
+	# Idle breathing, mostly hidden when aiming.
+	var breath := (1.0 - ads * 0.85) * (1.0 - minf(speed_k, 1.0))
+	pos.y += sin(_breath_t * 1.7) * 0.003 * breath
+	rot.x += sin(_breath_t * 1.7 + 0.6) * 0.006 * breath
 	var sway_amt := 1.0 - ads * 0.75
 	pos += Vector3(-_sway_smooth.x, _sway_smooth.y, 0.0) * 0.00035 * sway_amt
 	rot += Vector3(-_sway_smooth.y, -_sway_smooth.x, 0.0) * 0.0009 * sway_amt
+	# Strafing leans the gun into the direction of travel.
+	rot.z -= _strafe * 0.07 * (1.0 - ads * 0.7)
+	pos.x -= _strafe * 0.008 * (1.0 - ads)
 	pos.z += _kick * 0.045
 	rot.x += _kick * (0.05 if ads > 0.5 else 0.11)
+	rot.z += _kick_roll * _kick
 	rot += SPRINT_ROT * _sprint_blend
 	pos += Vector3(-0.04, -0.03, 0.02) * _sprint_blend
-	if p.crouching:
+	# Sliding: gun tucked and canted; grappling: gun lowered while the off hand holds the line.
+	rot += Vector3(0.12, 0.25, 0.45) * _slide_blend * (1.0 - ads)
+	pos += Vector3(-0.03, -0.025, 0.02) * _slide_blend * (1.0 - ads)
+	rot += Vector3(-0.25, 0.1, -0.15) * _grapple_blend
+	pos += Vector3(0.02, -0.06, 0.04) * _grapple_blend
+	pos.y -= _land_kick * 0.045
+	rot.x -= _land_kick * 0.09
+	if p.crouching and not p.sliding:
 		rot.z += 0.06 * (1.0 - ads)
 	if _reload_t > 0.0:
 		var u := 1.0 - _reload_t / _reload_len
@@ -293,20 +400,34 @@ func update_pose(delta: float, p: Player) -> void:
 	elif _hand_busy:
 		stop_reload()
 	if _draw_t > 0.0:
+		# Weapon swings up from below with a twist.
 		var d := _draw_t / 0.3
 		pos.y -= d * d * 0.28
 		rot.x -= d * 0.6
+		rot.z += d * d * 0.5
 	if _melee_t > 0.0:
-		var m := sin((1.0 - _melee_t / 0.32) * PI)
-		if _weapon == "knife":
-			rot += Vector3(-0.5, 0.9, 0.7) * m
-			pos += Vector3(-0.1, 0.03, -0.12) * m
+		var u := 1.0 - _melee_t / _melee_len
+		if _melee_knife:
+			var pose := _slash_pose(u)
+			pos += pose[0]
+			rot += pose[1]
 		else:
-			pos += Vector3(-0.06, 0.02, -0.16) * m
-			rot.y += 0.5 * m
+			# Stock bash: pull back and cant, then a hard jab forward and back.
+			var back := smoothstep(0.0, 0.25, u) * (1.0 - smoothstep(0.25, 0.4, u))
+			var jab := smoothstep(0.25, 0.4, u) * (1.0 - smoothstep(0.55, 1.0, u))
+			pos += Vector3(0.03, 0.0, 0.06) * back + Vector3(-0.08, 0.04, -0.2) * jab
+			rot += Vector3(0.15, -0.3, 0.3) * back + Vector3(-0.1, 0.55, -0.4) * jab
+	if _throw_t > 0.0:
+		# Gun drops out of the way while the off hand throws.
+		var u := 1.0 - _throw_t / THROW_TIME
+		var e := smoothstep(0.0, 0.2, u) * (1.0 - smoothstep(0.7, 1.0, u))
+		pos += Vector3(0.06, -0.14, 0.06) * e
+		rot += Vector3(-0.5, -0.2, -0.3) * e
 	_pivot.position = pos
 	_pivot.rotation = rot
 	_pivot.visible = not (_scoped and ads > 0.85)
+	_animate_off_hand()
+	_update_trail()
 
 	if _flash_t > 0.0:
 		_flash_t -= delta
@@ -318,6 +439,90 @@ func update_pose(delta: float, p: Player) -> void:
 			_flash_light.light_energy = 0.0
 	if _scoped and ads > 0.85:
 		_flash.visible = false
+
+
+## Knife slash at progress `u` (0..1): [pivot offset, pivot rotation]. Eases up to the wind-up
+## pose, whips through to the follow-through pose fast, then settles back to rest.
+func _slash_pose(u: float) -> Array:
+	var mirror := Vector3(_slash_side, 1.0, 1.0)
+	var rot_mirror := Vector3(1.0, _slash_side, _slash_side)
+	var start_pos: Vector3 = SLASH_START[0] * mirror
+	var start_rot: Vector3 = SLASH_START[1] * rot_mirror
+	var end_pos: Vector3 = SLASH_END[0] * mirror
+	var end_rot: Vector3 = SLASH_END[1] * rot_mirror
+	if u < SLASH_WINDUP:
+		var t := smoothstep(0.0, SLASH_WINDUP, u)
+		return [start_pos * t, start_rot * t]
+	if u < SLASH_STRIKE:
+		var t := (u - SLASH_WINDUP) / (SLASH_STRIKE - SLASH_WINDUP)
+		t = 1.0 - pow(1.0 - t, 3.0)
+		return [start_pos.lerp(end_pos, t), start_rot.lerp(end_rot, t)]
+	var r := 1.0 - smoothstep(SLASH_STRIKE, 1.0, u)
+	return [end_pos * r, end_rot * r]
+
+
+## Off-hand moves that aren't reloads: the throw (hand cocks back, then flings forward) and
+## holding the grapple line.
+func _animate_off_hand() -> void:
+	if _hand_busy:
+		return
+	var hand := Vector3.ZERO
+	var w := 0.0
+	if _throw_t > 0.0:
+		var u := 1.0 - _throw_t / THROW_TIME
+		var cocked := Vector3(-0.2, 0.06, 0.12)
+		var flung := Vector3(-0.06, 0.02, -0.5)
+		if u < 0.35:
+			hand = cocked
+			w = smoothstep(0.0, 0.25, u)
+		elif u < 0.6:
+			hand = cocked.lerp(flung, smoothstep(0.35, 0.55, u))
+			w = 1.0
+		else:
+			hand = flung
+			w = 1.0 - smoothstep(0.6, 1.0, u)
+	elif _grapple_blend > 0.0:
+		hand = Vector3(-0.2, -0.04, -0.38)
+		w = _grapple_blend
+	if w > 0.0:
+		_arms.set_left_hand(hand, w)
+		_off_hand_used = true
+	elif _off_hand_used:
+		_arms.set_left_hand(Vector3.ZERO, 0.0)
+		_off_hand_used = false
+
+
+## Draws a fading ribbon behind the knife's edge while a slash is cutting.
+func _update_trail() -> void:
+	_trail_mesh.clear_surfaces()
+	var cutting := _melee_t > 0.0 and _melee_knife and _muzzle != null
+	if cutting:
+		var u := 1.0 - _melee_t / _melee_len
+		cutting = u > SLASH_WINDUP - 0.02 and u < SLASH_STRIKE + 0.12
+	if cutting:
+		var inv := global_transform.affine_inverse()
+		var tip := inv * _muzzle.global_position
+		var base := inv * _gun.global_transform * Vector3(0, 0.006, -0.08)
+		_trail_tips.append(tip)
+		_trail_bases.append(base)
+		if _trail_tips.size() > TRAIL_POINTS:
+			_trail_tips.pop_front()
+			_trail_bases.pop_front()
+	elif not _trail_tips.is_empty():
+		# Let the ribbon shrink away over a few frames after the cut.
+		_trail_tips.pop_front()
+		_trail_bases.pop_front()
+	var n := _trail_tips.size()
+	if n < 2:
+		return
+	_trail_mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLE_STRIP)
+	for i in n:
+		var a := float(i + 1) / float(n)
+		_trail_mesh.surface_set_color(Color(1, 1, 1, a * a))
+		_trail_mesh.surface_add_vertex(_trail_tips[i])
+		_trail_mesh.surface_set_color(Color(1, 1, 1, a * a * 0.2))
+		_trail_mesh.surface_add_vertex(_trail_bases[i])
+	_trail_mesh.surface_end()
 
 
 ## Replaces each StandardMaterial3D in a subtree with the depth-squashing viewmodel shader.
