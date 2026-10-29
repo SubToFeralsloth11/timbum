@@ -7,7 +7,13 @@ const TIME_LIMITS: Array[int] = [5, 8, 10, 15]
 const ROTATION := "rotation"
 
 ## Last choices this session, shared by both modes.
-static var _choice := {"map": ROTATION, "bots_fill": 8, "difficulty": 1, "kill_limit": 20, "time_minutes": 8, "mutators": true}
+static var _choice := {"map": ROTATION, "bots_fill": 8, "difficulty": 1, "kill_limit": 20, "time_minutes": 8, "mutators": true, "link": Net.Link.DIRECT}
+
+const LINK_HINTS := {
+	Net.Link.DIRECT: "Wi-Fi friends see it under Join; others use the room code.",
+	Net.Link.STEAM: "Both players need Steam open. Invite from the pause menu.",
+	Net.Link.WEBRTC: "Fallback if room codes fail. Code is in the pause menu.",
+}
 
 var hosting := false
 
@@ -19,6 +25,10 @@ var _start: Button
 var _players_slider: HSlider
 var _map_group: ButtonGroup
 var _difficulty_row: HBoxContainer
+## Port and address rows, only shown for the DIRECT connection.
+var _direct_rows: Array[Control] = []
+## Waiting for Steam/WebRTC to set up hosting; leaving the page cancels it.
+var _host_pending := false
 var _kill_row: HBoxContainer
 var _time_row: HBoxContainer
 var _mutator_row: HBoxContainer
@@ -34,7 +44,7 @@ func _init(host_mode: bool) -> void:
 func _ready() -> void:
 	var page := make_page()
 	page.add_child(make_header("HOST GAME" if hosting else "PLAY VS BOTS",
-		"Friends join you by IP. Bots fill the empty slots." if hosting else "Offline match against bots."))
+		"Friends join by room code, on the same Wi-Fi or through Steam. Bots fill the empty slots." if hosting else "Offline match against bots."))
 	var body := UIKit.hbox(18)
 	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	page.add_child(body)
@@ -138,11 +148,14 @@ func _ready() -> void:
 	rv.add_child(_start)
 
 	Net.status.connect(_on_status)
+	back_requested.connect(func() -> void:
+		if _host_pending:
+			Net.leave())
 	_select_map(_choice.map)
 
 
 func on_shown() -> void:
-	_status.text = ""
+	_status.text = LINK_HINTS[_choice.link] if hosting else ""
 	_start.disabled = false
 	# Choices are shared with the other mode's screen, which may have changed them.
 	_players_slider.set_value_no_signal(_choice.bots_fill)
@@ -266,53 +279,69 @@ func _build_host_section(parent: VBoxContainer) -> void:
 	grid.add_theme_constant_override("h_separation", 14)
 	grid.add_theme_constant_override("v_separation", 8)
 	parent.add_child(grid)
+	var links: Array[int] = [Net.Link.DIRECT, Net.Link.STEAM, Net.Link.WEBRTC]
+	var link_names: Array[String] = ["CODE + WI-FI", "STEAM", "WEBRTC"]
+	_rule(grid, "CONNECTION", _segmented(link_names, links.find(_choice.link), func(i: int) -> void:
+		_choice.link = links[i]
+		_update_link_rows()))
+
+	# One row per address; the first also holds the port (only joining by address uses it, and
+	# only over the internet does it need forwarding).
 	_port_edit = LineEdit.new()
 	_port_edit.text = str(Net.DEFAULT_PORT)
 	_port_edit.max_length = 5
-	var port_row := UIKit.hbox(10)
-	_port_edit.custom_minimum_size.x = 100
-	port_row.add_child(_port_edit)
-	var port_hint := UIKit.label("Forward this port for internet play.", &"SmallLabel")
-	port_hint.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	port_row.add_child(port_hint)
-	_rule(grid, "PORT", port_row)
-
-	var addresses := lan_addresses()
+	_port_edit.custom_minimum_size.x = 84
+	_port_edit.tooltip_text = "Port for joining by address. Forward it only for internet joins by address."
+	var addresses := NetLinkAddresses.local_addresses()
 	if addresses.is_empty():
-		var none := UIKit.label("No local network found. Connect to Wi-Fi or Ethernet.", &"DimLabel")
-		none.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		_rule(grid, "JOIN AT", none)
+		var row := UIKit.hbox(8)
+		var none := UIKit.label("No local network found.", &"DimLabel")
+		none.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		none.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(none)
+		row.add_child(UIKit.label("PORT", &"SmallLabel"))
+		row.add_child(_port_edit)
+		_direct_rule(grid, "ADDRESS", row)
 	for i in addresses.size():
-		var ip := addresses[i]
+		var ip: String = addresses[i].address
 		var row := UIKit.hbox(8)
 		var ip_label := UIKit.label(ip, &"ValueLabel")
 		ip_label.add_theme_font_size_override("font_size", 18)
 		ip_label.add_theme_color_override("font_color", UITheme.ACCENT_2)
-		ip_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		ip_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		row.add_child(ip_label)
+		var kind := UIKit.label(str(addresses[i].kind).to_upper(), &"SmallLabel")
+		kind.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		kind.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(kind)
+		if i == 0:
+			var port_label := UIKit.label("PORT", &"SmallLabel")
+			port_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			row.add_child(port_label)
+			row.add_child(_port_edit)
 		var copy := UIKit.button("COPY", &"IconButton")
 		copy.pressed.connect(func() -> void:
 			DisplayServer.clipboard_set(ip)
 			_status.text = "Copied %s to the clipboard." % ip)
 		row.add_child(copy)
-		_rule(grid, "JOIN AT" if i == 0 else "", row)
+		_direct_rule(grid, "ADDRESS" if i == 0 else "", row)
+	_update_link_rows()
 
 
-## Private IPv4 addresses of this machine (what LAN friends type into Join).
-static func lan_addresses() -> Array[String]:
-	var out: Array[String] = []
-	for addr in IP.get_local_addresses():
-		if not addr.is_valid_ip_address() or ":" in addr:
-			continue
-		var p := addr.split(".")
-		var a := int(p[0])
-		var b := int(p[1])
-		if a == 10 or (a == 192 and b == 168) or (a == 172 and b >= 16 and b <= 31):
-			if not out.has(addr):
-				out.append(addr)
-	out.sort()
-	return out
+func _direct_rule(grid: GridContainer, text: String, control: Control) -> void:
+	_rule(grid, text, control)
+	_direct_rows.append(grid.get_child(grid.get_child_count() - 2))
+	_direct_rows.append(control)
+
+
+## The idle status line explains the chosen connection (keeps the panel short enough for 720p).
+func _update_link_rows() -> void:
+	if _status:
+		_status.remove_theme_color_override("font_color")
+		_status.text = LINK_HINTS[_choice.link]
+	for c in _direct_rows:
+		c.visible = _choice.link == Net.Link.DIRECT
+
 
 
 func _config() -> Dictionary:
@@ -332,19 +361,25 @@ func _on_start() -> void:
 		_status.text = "Loading map..."
 		Net.play_offline(_config())
 		return
-	var port := _port_edit.text.strip_edges().to_int()
-	if not _port_edit.text.strip_edges().is_valid_int() or port < 1024 or port > 65535:
-		Sfx.play(&"ui_error")
-		_set_error("Port must be a number between 1024 and 65535.")
-		return
+	var link: int = _choice.link
+	var port := Net.DEFAULT_PORT
+	if link == Net.Link.DIRECT:
+		port = _port_edit.text.strip_edges().to_int()
+		if not _port_edit.text.strip_edges().is_valid_int() or port < 1024 or port > 65535:
+			Sfx.play(&"ui_error")
+			_set_error("Port must be a number between 1024 and 65535.")
+			return
 	_start.disabled = true
 	_status.remove_theme_color_override("font_color")
-	_status.text = "Starting server on port %d..." % port
-	var err := Net.host(port, _config())
-	if err != OK:
+	_status.text = "Starting server on port %d..." % port if link == Net.Link.DIRECT else "Starting..."
+	_host_pending = true
+	var err: Error = await Net.host(port, _config(), link)
+	_host_pending = false
+	if err != OK and err != ERR_SKIP:
 		_start.disabled = false
 		Sfx.play(&"ui_error")
-		_set_error("Could not host on port %d: %s" % [port, error_string(err)])
+		# Net already reported why on `status`.
+		_set_error(_status.text if not _status.text.ends_with("...") else "Could not start hosting: %s" % error_string(err))
 
 
 func _set_error(text: String) -> void:

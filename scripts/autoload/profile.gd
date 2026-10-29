@@ -33,6 +33,7 @@ const DEFAULT_SETTINGS := {
 	"crosshair_color": "ffffff",
 	"last_ip": "127.0.0.1",
 	"last_port": 7777,
+	"last_code": "",
 }
 
 const ANTI_ALIASING_NAMES: Array[String] = ["Off", "FXAA", "MSAA 2x", "MSAA 4x", "TAA"]

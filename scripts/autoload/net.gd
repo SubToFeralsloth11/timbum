@@ -1,15 +1,33 @@
 extends Node
 ## Session layer: hosting, joining, the peer registry, and moving everyone between the menu and matches.
 ## Match gameplay RPCs live on the World node (scripts/game/world.gd).
+##
+## Ways to connect (addons/netlink), so players never have to know an IP:
+## - DIRECT: one ENet server reachable four ways at once: same-Wi-Fi discovery (NetLinkLan), an
+##   internet room code through noray with NAT punch-through and relay fallback (NetLinkNoray),
+##   a virtual-LAN address (Tailscale/ZeroTier), or a plain IP / hostname.
+## - STEAM: a Steam lobby + SteamMultiplayerPeer; the lobby id is the code, friends can join from Steam.
+## - WEBRTC: a "W-XXXXXX" code through PeerJS signalling and STUN.
 
 signal status(text: String)
 signal players_changed
+## room_code / how friends can join changed (host side).
+signal invite_changed
+
+enum Link { DIRECT, STEAM, WEBRTC }
 
 const DEFAULT_PORT := 7777
+## UDP port hosts answer same-Wi-Fi discovery on.
+const DISCOVERY_PORT := 47777
+const GAME_ID := "timbum"
 ## 5: tacticals, grapple relay, _s_explode carries the kind, lean/slide state flags, new weapons.
 ## 6: prone state flag.
 const PROTOCOL_VERSION := 6
 const CONNECT_TIMEOUT := 8.0
+## A room-code join first tries a direct (NAT punch-through) link this long, then the relay.
+const NAT_CONNECT_TIMEOUT := 6.0
+## Steam and WebRTC connections negotiate through a third party first, so they get longer.
+const RELAYED_CONNECT_TIMEOUT := 20.0
 const WORLD_SCENE := "res://scenes/world.tscn"
 const MENU_SCENE := "res://scenes/main_menu.tscn"
 
@@ -33,6 +51,17 @@ var config := DEFAULT_CONFIG.duplicate()
 ## Map the world scene should build when it loads.
 var current_map := "village"
 var offline := false
+## How the current session was hosted or joined.
+var link := Link.DIRECT
+## Host: the code friends type into Join (noray id, "W-..." or Steam lobby id); "" until ready.
+var room_code := ""
+## Host: the ENet port of a DIRECT session (LAN discovery advertises it).
+var host_port := 0
+
+var lan: NetLinkLan
+var noray: NetLinkNoray
+var steam: NetLinkSteam
+var webrtc: NetLinkWebRtc
 
 ## Maps left in the current shuffled rotation.
 var _rotation: Array[String] = []
@@ -44,6 +73,14 @@ var _connect_timer: SceneTreeTimer
 var _leaving := false
 ## Shown by the menu after returning from a dropped session.
 var last_error := ""
+## Joining by room code over a direct link: retry through the relay if it fails.
+var _relay_retry_code := ""
+## Bumped whenever the session is closed, so async host/join steps from before give up.
+var _attempt := 0
+## Host: why there is no room code (service unreachable), shown instead of the code.
+var room_code_error := ""
+## Joining by typed address (so a failure hints at address/port/firewall).
+var _joined_by_address := false
 
 
 func _ready() -> void:
@@ -52,6 +89,23 @@ func _ready() -> void:
 	multiplayer.connected_to_server.connect(_on_connected_to_server)
 	multiplayer.connection_failed.connect(_on_connection_failed)
 	multiplayer.server_disconnected.connect(_on_server_disconnected)
+	lan = NetLinkLan.new(GAME_ID, DISCOVERY_PORT)
+	noray = NetLinkNoray.new()
+	steam = NetLinkSteam.new(GAME_ID)
+	webrtc = NetLinkWebRtc.new(GAME_ID)
+	for n: Node in [lan, noray, steam, webrtc]:
+		add_child(n)
+	noray.code_ready.connect(func(code: String) -> void:
+		room_code = code
+		room_code_error = ""
+		invite_changed.emit()
+		status.emit("Room code ready: %s" % code))
+	noray.failed.connect(_on_link_failed)
+	webrtc.failed.connect(_on_link_failed)
+	steam.invite_accepted.connect(func(lobby_id: int) -> void: join_steam_lobby(lobby_id))
+	var lobby := steam.lobby_from_command_line()
+	if lobby != 0:
+		join_steam_lobby.call_deferred(lobby)
 
 
 # ---------------------------------------------------------------- entry points
@@ -63,38 +117,155 @@ func play_offline(cfg: Dictionary) -> void:
 	_start_server(cfg)
 
 
-func host(port: int, cfg: Dictionary) -> Error:
+## Starts a match others can join. DIRECT hosts an ENet server on `port`; STEAM and WEBRTC
+## first register with their service (await it). Returns OK or the failure (also sent to `status`).
+func host(port: int, cfg: Dictionary, p_link := Link.DIRECT) -> Error:
 	_close_peer()
-	var peer := ENetMultiplayerPeer.new()
-	# One spare slot past the 11 clients that fit, so a 12th joiner connects and is told
-	# "Server is full." by _rpc_register instead of timing out.
-	var err := peer.create_server(port, Data.MAX_PLAYERS)
-	if err != OK:
-		status.emit("Could not host on port %d (%s). Is it already in use?" % [port, error_string(err)])
-		return err
+	var attempt := _attempt
+	var peer: MultiplayerPeer
+	var code := ""
+	match p_link:
+		Link.DIRECT:
+			var enet := ENetMultiplayerPeer.new()
+			# One spare slot past the 11 clients that fit, so a 12th joiner connects and is told
+			# "Server is full." by _rpc_register instead of timing out.
+			var err := enet.create_server(port, Data.MAX_PLAYERS)
+			if err != OK:
+				status.emit("Could not host on port %d (%s). Is it already in use?" % [port, error_string(err)])
+				return err
+			peer = enet
+			host_port = port
+		Link.STEAM:
+			status.emit("Creating a Steam lobby...")
+			var r: Dictionary = await steam.host(Data.MAX_PLAYERS, Profile.peer_info().name)
+			if attempt != _attempt:
+				return ERR_SKIP
+			if r.peer == null:
+				status.emit(r.error)
+				return FAILED
+			peer = r.peer
+			code = str(steam.lobby_id)
+		Link.WEBRTC:
+			status.emit("Getting a WebRTC room code...")
+			var r: Dictionary = await webrtc.host()
+			if attempt != _attempt:
+				return ERR_SKIP
+			if r.peer == null:
+				status.emit(r.error)
+				return FAILED
+			peer = r.peer
+			code = r.code
 	offline = false
+	link = p_link
+	room_code = code
 	multiplayer.multiplayer_peer = peer
+	if p_link == Link.DIRECT:
+		lan.advertise(_lan_info)
+		noray.start_host(peer as ENetMultiplayerPeer)
 	_start_server(cfg)
+	invite_changed.emit()
 	return OK
 
 
-func join(ip: String, port: int) -> Error:
+## Joins by IP, hostname, virtual-LAN address (Tailscale/ZeroTier) or tunnel address (playit.gg).
+func join(address: String, port: int) -> Error:
 	_close_peer()
-	ip = ip.strip_edges()
-	if ip.is_empty():
-		status.emit("Enter the host's IP address.")
+	address = address.strip_edges()
+	if address.is_empty():
+		status.emit("Enter the host's address.")
 		return ERR_INVALID_PARAMETER
 	var peer := ENetMultiplayerPeer.new()
-	var err := peer.create_client(ip, port)
+	var err := peer.create_client(address, port)
 	if err != OK:
-		status.emit("Could not connect to %s:%d (%s)." % [ip, port, error_string(err)])
+		status.emit("Could not connect to %s:%d (%s)." % [address, port, error_string(err)])
 		return err
-	offline = false
-	multiplayer.multiplayer_peer = peer
-	status.emit("Connecting to %s:%d..." % [ip, port])
-	_connect_timer = get_tree().create_timer(CONNECT_TIMEOUT)
-	_connect_timer.timeout.connect(_on_connect_timeout.bind(peer))
+	status.emit("Connecting to %s:%d..." % [address, port])
+	_begin_client(peer, Link.DIRECT, CONNECT_TIMEOUT)
+	_joined_by_address = true
 	return OK
+
+
+## Joins by any room code: noray id, "W-XXXXXX" (WebRTC) or a Steam lobby id.
+func join_code(code: String) -> Error:
+	_close_peer()
+	code = code.strip_edges()
+	match NetLinkAddresses.code_kind(code):
+		NetLinkAddresses.CodeKind.STEAM:
+			return await join_steam_lobby(int(code))
+		NetLinkAddresses.CodeKind.WEBRTC:
+			var attempt := _attempt
+			status.emit("Connecting through WebRTC...")
+			var r: Dictionary = await webrtc.join(code)
+			if attempt != _attempt:
+				return ERR_SKIP
+			if r.peer == null:
+				status.emit(r.error)
+				return FAILED
+			_begin_client(r.peer, Link.WEBRTC, RELAYED_CONNECT_TIMEOUT)
+			return OK
+		NetLinkAddresses.CodeKind.NORAY:
+			return await _join_noray(code, false)
+	status.emit("That doesn't look like a room code.")
+	return ERR_INVALID_PARAMETER
+
+
+func join_steam_lobby(lobby_id: int) -> Error:
+	_close_peer()
+	var attempt := _attempt
+	status.emit("Joining the Steam lobby...")
+	var r: Dictionary = await steam.join(lobby_id)
+	if attempt != _attempt:
+		return ERR_SKIP
+	if r.peer == null:
+		status.emit(r.error)
+		return FAILED
+	_begin_client(r.peer, Link.STEAM, RELAYED_CONNECT_TIMEOUT)
+	return OK
+
+
+## Host: opens the Steam friend picker for the lobby (false when not hosting on Steam).
+func invite_steam_friends() -> bool:
+	return link == Link.STEAM and steam.invite_friends()
+
+
+func _join_noray(code: String, relay: bool) -> Error:
+	var attempt := _attempt
+	status.emit("Trying the relay..." if relay else "Finding the host...")
+	var r: Dictionary = await noray.join(code, relay)
+	if attempt != _attempt:
+		return ERR_SKIP
+	if r.error == "nat":
+		return await _join_noray(code, true)
+	if r.peer == null:
+		status.emit(r.error)
+		return FAILED
+	status.emit("Connecting through the relay..." if relay else "Connecting directly...")
+	_begin_client(r.peer, Link.DIRECT, CONNECT_TIMEOUT if relay else NAT_CONNECT_TIMEOUT)
+	_relay_retry_code = "" if relay else code
+	return OK
+
+
+func _begin_client(peer: MultiplayerPeer, p_link: Link, timeout: float) -> void:
+	offline = false
+	link = p_link
+	multiplayer.multiplayer_peer = peer
+	_connect_timer = get_tree().create_timer(timeout)
+	_connect_timer.timeout.connect(_on_connect_timeout.bind(peer))
+
+
+## Same-Wi-Fi discovery answer.
+func _lan_info() -> Dictionary:
+	var host_name: String = players[1].name if players.has(1) else Profile.peer_info().name
+	return {name = host_name, port = host_port, players = players.size(), max = Data.MAX_PLAYERS}
+
+
+## Host: the room code service dropped (or never answered). LAN, IP and already-connected
+## players are unaffected.
+func _on_link_failed(reason: String) -> void:
+	room_code = ""
+	room_code_error = reason
+	invite_changed.emit()
+	status.emit(reason)
 
 
 ## Ends the session (any role) and returns to the main menu.
@@ -109,12 +280,25 @@ func leave() -> void:
 
 
 func _close_peer() -> void:
+	_attempt += 1
 	_connect_timer = null
+	_relay_retry_code = ""
 	var peer := multiplayer.multiplayer_peer
 	if peer != null and not (peer is OfflineMultiplayerPeer):
 		peer.close()
 	multiplayer.multiplayer_peer = OfflineMultiplayerPeer.new()
 	offline = false
+	lan.stop_advertising()
+	noray.stop()
+	webrtc.stop()
+	steam.leave_lobby()
+	link = Link.DIRECT
+	host_port = 0
+	room_code_error = ""
+	_joined_by_address = false
+	if not room_code.is_empty():
+		room_code = ""
+		invite_changed.emit()
 
 
 func _start_server(cfg: Dictionary) -> void:
@@ -309,7 +493,7 @@ func _kick(id: int, reason: String) -> void:
 	_rpc_kicked.rpc_id(id, reason)
 	get_tree().create_timer(0.3).timeout.connect(func() -> void:
 		var peer := multiplayer.multiplayer_peer
-		if peer is ENetMultiplayerPeer and peer.get_connection_status() != MultiplayerPeer.CONNECTION_DISCONNECTED:
+		if peer != null and not (peer is OfflineMultiplayerPeer) and peer.get_connection_status() != MultiplayerPeer.CONNECTION_DISCONNECTED:
 			peer.disconnect_peer(id))
 
 
@@ -341,18 +525,34 @@ func _on_peer_disconnected(id: int) -> void:
 
 
 func _on_connection_failed() -> void:
-	last_error = "Could not reach the host. Check the IP, port and firewall."
-	status.emit(last_error)
-	_close_peer()
+	_connection_attempt_failed("Could not reach the host.")
 
 
-func _on_connect_timeout(peer: ENetMultiplayerPeer) -> void:
+func _on_connect_timeout(peer: MultiplayerPeer) -> void:
 	if _connect_timer == null or multiplayer.multiplayer_peer != peer:
 		return
 	if peer.get_connection_status() == MultiplayerPeer.CONNECTION_CONNECTING:
-		last_error = "Connection timed out. Check the IP, port and firewall."
-		status.emit(last_error)
+		_connection_attempt_failed("Connection timed out.")
+
+
+func _connection_attempt_failed(what: String) -> void:
+	if not _relay_retry_code.is_empty():
+		var code := _relay_retry_code
 		_close_peer()
+		status.emit("No direct route to the host. Trying the relay...")
+		_join_noray(code, true)
+		return
+	var hint := ""
+	match link:
+		Link.DIRECT:
+			hint = " Check the address, port and the host's firewall." if _joined_by_address else ""
+		Link.WEBRTC:
+			hint = " " + webrtc.last_error if not webrtc.last_error.is_empty() else " The routers may block WebRTC; try a room code instead."
+		Link.STEAM:
+			hint = " Both players need Steam open and signed in."
+	last_error = what + hint
+	status.emit(last_error)
+	_close_peer()
 
 
 func _on_server_disconnected() -> void:

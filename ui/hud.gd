@@ -136,6 +136,9 @@ func _ready() -> void:
 	_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_root.theme = UITheme.get_theme()
 	add_child(_root)
+	# The host learns the room code a moment after the match starts.
+	Net.invite_changed.connect(_on_invite_changed)
+	_on_invite_changed.call_deferred()
 
 	_vignette = TextureRect.new()
 	_vignette.texture = _make_vignette()
@@ -988,6 +991,11 @@ func announce(text: String) -> void:
 	_announce_t = 2.4
 	_announce_label.scale = Vector2(1.4, 1.4)
 	create_tween().tween_property(_announce_label, "scale", Vector2.ONE, 0.25).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+
+func _on_invite_changed() -> void:
+	if multiplayer.is_server() and not Net.room_code.is_empty():
+		announce("ROOM CODE READY  ·  ESC TO COPY IT")
 
 
 func pickup_message(kind: String) -> void:
