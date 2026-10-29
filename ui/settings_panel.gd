@@ -10,7 +10,8 @@ const QUALITY_NAMES: Array[String] = ["Low", "Medium", "High"]
 const CONTROLS: Array = [
 	["move_forward", "Move forward"], ["move_back", "Move back"], ["move_left", "Strafe left"],
 	["move_right", "Strafe right"], ["jump", "Jump"], ["sprint", "Sprint"],
-	["crouch", "Crouch / slide (while sprinting)"], ["lean_left", "Peek left"], ["lean_right", "Peek right"],
+	["crouch", "Crouch / slide (while sprinting)"], ["prone", "Go prone / get up"],
+	["lean_left", "Peek left"], ["lean_right", "Peek right"],
 	["fire", "Fire"], ["aim", "Aim down sights"], ["reload", "Reload"], ["weapon_1", "Primary"],
 	["weapon_2", "Secondary"], ["weapon_3", "Knife"], ["quick_swap", "Last weapon"],
 	["next_weapon", "Next weapon"], ["prev_weapon", "Previous weapon"], ["grenade", "Frag grenade"],
@@ -80,10 +81,17 @@ func _ready() -> void:
 	var video := _page(pages)
 	_check_row(video, "fullscreen", "Fullscreen")
 	_check_row(video, "vsync", "V-Sync")
-	_check_row(video, "post_fx", "Colour grading and sharpening")
 	_option_row(video, "quality", "Graphics quality", QUALITY_NAMES)
-	video.add_child(UIKit.label("Quality changes the view distance, shadows and effects. It takes effect from the next map.", &"DimLabel"))
+	video.add_child(UIKit.label("Quality sets view distance and shadow detail (next map) and switches the effects below to its preset. Effects apply at once.", &"DimLabel"))
 	(video.get_child(-1) as Label).autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_option_row(video, "anti_aliasing", "Anti-aliasing", Profile.ANTI_ALIASING_NAMES)
+	_slider_row(video, "render_scale", "Render scale", 0.5, 1.0, 0.05, "pct")
+	_check_row(video, "shadows", "Shadows")
+	_check_row(video, "ambient_occlusion", "Ambient occlusion")
+	_check_row(video, "bloom", "Bloom")
+	_check_row(video, "reflections", "Reflections")
+	_check_row(video, "block_detail", "Block shader effects")
+	_check_row(video, "post_fx", "Colour grading and sharpening")
 
 	var audio := _page(pages)
 	_slider_row(audio, "master_volume", "Master volume", 0.0, 1.0, 0.01, "pct")
@@ -236,7 +244,10 @@ func _option_row(parent: Control, key: String, text: String, names: Array[String
 		o.add_item(n)
 	o.custom_minimum_size.x = 384
 	UIKit.wire(o)
-	o.item_selected.connect(func(i: int) -> void: _stage(key, i))
+	o.item_selected.connect(func(i: int) -> void:
+		_stage(key, i)
+		if key == "quality":
+			_apply_quality_preset(i))
 	h.add_child(o)
 	_refreshers[key] = func() -> void: o.select(int(Profile.get_setting(key)))
 
@@ -264,6 +275,17 @@ func _stage(key: String, value: Variant) -> void:
 	Profile.apply_settings()
 	_pending[key] = value
 	_save_timer.start()
+
+
+## Picking a quality preset switches the effect toggles (and anti-aliasing) to match it.
+func _apply_quality_preset(quality: int) -> void:
+	var preset: Dictionary = Profile.QUALITY_PRESETS[quality]
+	for key: String in preset:
+		Profile.settings[key] = preset[key]
+		_pending[key] = preset[key]
+	Profile.apply_settings()
+	_save_timer.start()
+	refresh()
 
 
 func _flush() -> void:

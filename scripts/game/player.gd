@@ -21,6 +21,14 @@ const CROUCH_HEIGHT := 1.4
 const STAND_EYE := 1.6
 ## Avatar crouch lowers the body 0.35 m, so the eyes and hitboxes drop by the same amount.
 const CROUCH_DROP := 0.35
+## Prone (lying down): a short collider, eyes near the floor, a slow crawl, steadier aim. The
+## body hitbox lies flat and reaches back along the legs; the head sits slightly forward.
+const PRONE_HEIGHT := 0.8
+const PRONE_EYE := 0.42
+const PRONE_SPEED := 1.3
+const PRONE_HEAD_Z := -0.1
+const PRONE_BODY := Vector3(0.72, 0.42, 1.5)
+const PRONE_BODY_Z := 0.6
 const RADIUS := 0.4
 const SWITCH_TIME := 0.32
 const MELEE_TIME := 0.45
@@ -43,6 +51,7 @@ const FLAG_SPRINT := 8
 const FLAG_RELOAD := 16
 const FLAG_NEEDS_AMMO := 32
 const FLAG_SLIDE := 64
+const FLAG_PRONE := 128
 ## Bits 8-15: weapon index. Bits 16-19: lean, quantised to -7..7 and stored + 8.
 const FLAG_WEAPON_SHIFT := 8
 const FLAG_LEAN_SHIFT := 16
@@ -100,6 +109,8 @@ var pitch := 0.0
 var in_move := Vector2.ZERO
 var in_jump := false
 var in_crouch := false
+## One-shot "prone" press (toggles lying down).
+var in_prone := false
 var in_sprint := false
 var in_fire := false
 var in_aim := false
@@ -129,6 +140,8 @@ var recoil := 0.0
 var aim_blend := 0.0
 var crouch_blend := 0.0
 var crouching := false
+var prone := false
+var prone_blend := 0.0
 var sprinting := false
 var anim_speed := 0.0
 var on_floor_visual := true
@@ -171,6 +184,7 @@ var _snapshots: Array = []
 var _remote_flags := FLAG_FLOOR
 var _last_visual_pos := Vector3.ZERO
 var _applied_crouch := -1.0
+var _applied_prone := -1.0
 var _fall_speed := 0.0
 var _stand_query: PhysicsShapeQueryParameters3D
 ## Match mutator effects (see Data.MUTATORS), set once in _ready from Net.config.
@@ -191,6 +205,8 @@ var _slide_speed := 0.0
 var _slide_dir := Vector3.ZERO
 var _crouch_was_held := false
 var _jump_was_held := false
+## True from the jump press that got us up off the floor until jump is released.
+var _jump_spent := false
 var _was_sprinting := false
 ## Fraction of LEAN_DIST the eye can move before touching a wall (local/bot); 1 for remotes.
 var _lean_reach := 1.0
@@ -402,6 +418,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		in_tactical = true
 	elif event.is_action_pressed("grapple"):
 		in_grapple = true
+	elif event.is_action_pressed("prone"):
+		in_prone = true
 
 
 func _read_input() -> void:
@@ -457,26 +475,42 @@ func _simulate(delta: float) -> void:
 		in_grapple = false
 		if grappling:
 			release_grapple()
-		elif grapple_cooldown <= 0.0 and not world.match_over:
+		elif grapple_cooldown <= 0.0 and not world.match_over and not prone:
 			_fire_grapple()
-	if not sliding and not grappling and crouch_pressed and on_floor and _was_sprinting \
+	if in_prone:
+		in_prone = false
+		if prone:
+			_rise()
+		elif on_floor and not grappling:
+			# Diving out of a slide is allowed: the slide ends and the body drops flat.
+			_end_slide()
+			prone = true
+	elif prone and (crouch_pressed or jump_pressed):
+		_rise()
+		# The press that got us up must not also jump; wait for jump to be released.
+		_jump_spent = jump_pressed
+	_jump_spent = _jump_spent and in_jump
+	if not sliding and not grappling and not prone and crouch_pressed and on_floor and _was_sprinting \
 			and horiz.length() > SLIDE_MIN_ENTRY * speed_scale and _slide_cooldown <= 0.0:
 		_start_slide(horiz)
 
-	var want_crouch := in_crouch or sliding
-	if not want_crouch and crouching and not _can_stand():
+	var want_crouch := (in_crouch or sliding) and not prone
+	if not want_crouch and crouching and not _has_headroom(STAND_HEIGHT):
 		want_crouch = true
 	crouching = want_crouch
 	crouch_blend = move_toward(crouch_blend, 1.0 if crouching else 0.0, delta * (12.0 if sliding else 8.0))
+	prone_blend = move_toward(prone_blend, 1.0 if prone else 0.0, delta * 4.0)
 	_apply_crouch_shape()
 
 	var can_aim := in_aim and switch_timer <= 0.0 and not reloading and weapon_id() != "knife" and melee_timer <= 0.0
 	aim_blend = move_toward(aim_blend, 1.0 if can_aim else 0.0, delta / 0.16)
 
-	sprinting = in_sprint and in_move.y > 0.3 and not crouching and aim_blend < 0.2 and not in_fire \
+	sprinting = in_sprint and in_move.y > 0.3 and not crouching and not prone and aim_blend < 0.2 and not in_fire \
 		and not reloading and not grappling
 	var speed := WALK_SPEED
-	if crouching:
+	if prone:
+		speed = PRONE_SPEED
+	elif crouching:
 		speed = CROUCH_SPEED
 	elif sprinting:
 		speed = SPRINT_SPEED
@@ -496,11 +530,11 @@ func _simulate(delta: float) -> void:
 		velocity.x = horiz.x
 		velocity.z = horiz.z
 	if on_floor and not grappling:
-		if in_jump and (not crouching or sliding):
+		if in_jump and not prone and not _jump_spent and (not crouching or sliding):
 			if sliding:
 				# Slide-jump: keep the slide's speed and stand up in the air.
 				_end_slide()
-				crouching = in_crouch or not _can_stand()
+				crouching = in_crouch or not _has_headroom(STAND_HEIGHT)
 			velocity.y = JUMP_VELOCITY
 			Sfx.play(&"jump", global_position, -6.0)
 	elif not grappling:
@@ -508,7 +542,7 @@ func _simulate(delta: float) -> void:
 	_fall_speed = -velocity.y
 	move_and_slide()
 	_was_sprinting = sprinting
-	var lean_target := float(in_lean) if not sprinting and not sliding and not grappling else 0.0
+	var lean_target := float(in_lean) if not sprinting and not sliding and not grappling and not prone else 0.0
 	lean = move_toward(lean, lean_target, delta * LEAN_RATE)
 	_lean_reach = _measure_lean_reach() if not is_zero_approx(lean) else 1.0
 	_apply_head_pose()
@@ -529,6 +563,15 @@ func _end_slide() -> void:
 		return
 	sliding = false
 	_slide_cooldown = SLIDE_COOLDOWN
+
+
+## Gets up from prone into a crouch (which stands up on its own once crouch is released and
+## there is room). Stays down when there is no room to crouch.
+func _rise() -> void:
+	if not _has_headroom(CROUCH_HEIGHT):
+		return
+	prone = false
+	crouching = true
 
 
 ## One tick of a slide: friction, slopes (downhill speeds it up), a little steering. Returns the
@@ -554,7 +597,7 @@ func _slide_step(delta: float, on_floor: bool, wish: Vector3) -> Vector3:
 ## How much of the full lean the eye can make before a wall: a sphere swept sideways from the
 ## upright eye.
 func _measure_lean_reach() -> float:
-	var eye_y := STAND_EYE - CROUCH_DROP * crouch_blend
+	var eye_y := STAND_EYE - _eye_drop()
 	var base := global_position + Vector3.UP * eye_y
 	var side := Basis(Vector3.UP, yaw) * Vector3(signf(lean) * LEAN_DIST, -LEAN_DROP, 0.0)
 	_lean_query.transform = Transform3D(Basis.IDENTITY, base)
@@ -564,31 +607,45 @@ func _measure_lean_reach() -> float:
 	return r[0] if r.size() == 2 else 1.0
 
 
-## Eye, head hitbox and body hitbox follow crouching and leaning.
+## How far crouching and lying down lower the eyes and head hitbox from standing.
+func _eye_drop() -> float:
+	return lerpf(CROUCH_DROP * crouch_blend, STAND_EYE - PRONE_EYE, prone_blend)
+
+
+## Height above the feet to aim at or look for this player's body (bots, effects).
+func body_center_height() -> float:
+	return lerpf(1.25 - 0.25 * crouch_blend, 0.3, prone_blend)
+
+
+## Eye, head hitbox and body hitbox follow crouching, lying down and leaning.
 func _apply_head_pose() -> void:
-	var drop := CROUCH_DROP * crouch_blend
+	var drop := _eye_drop()
 	var side := lean * LEAN_DIST * _lean_reach
 	var lean_drop := absf(lean) * LEAN_DROP * _lean_reach
-	head.position = Vector3(side, STAND_EYE - drop - lean_drop, 0.0)
-	_hit_head_col.position = Vector3(side, _head_hit_y - drop - lean_drop, 0.0)
+	var fwd := PRONE_HEAD_Z * prone_blend
+	head.position = Vector3(side, STAND_EYE - drop - lean_drop, fwd)
+	_hit_head_col.position = Vector3(side, _head_hit_y - drop - lean_drop, fwd)
 	_hit_body_col.position.x = side * 0.35
 
 
-func _can_stand() -> bool:
-	_stand_query.transform = Transform3D(Basis.IDENTITY, global_position + Vector3.UP * (STAND_HEIGHT - RADIUS + 0.02))
+## Whether a collider `height` tall fits here (a sphere where its top would be is clear).
+func _has_headroom(height: float) -> bool:
+	_stand_query.transform = Transform3D(Basis.IDENTITY, global_position + Vector3.UP * (height - RADIUS + 0.02))
 	return get_world_3d().direct_space_state.intersect_shape(_stand_query, 1).is_empty()
 
 
 func _apply_crouch_shape() -> void:
-	if is_equal_approx(_applied_crouch, crouch_blend):
+	if is_equal_approx(_applied_crouch, crouch_blend) and is_equal_approx(_applied_prone, prone_blend):
 		return
 	_applied_crouch = crouch_blend
-	var h := lerpf(STAND_HEIGHT, CROUCH_HEIGHT, crouch_blend)
+	_applied_prone = prone_blend
+	var h := lerpf(lerpf(STAND_HEIGHT, CROUCH_HEIGHT, crouch_blend), PRONE_HEIGHT, prone_blend)
 	_shape.height = h
 	_collider.position.y = h * 0.5
-	var body_h := 1.35 - CROUCH_DROP * crouch_blend
-	_hit_body_shape.size.y = body_h
-	_hit_body_col.position.y = body_h * 0.5
+	var body := Vector3(0.72, 1.35 - CROUCH_DROP * crouch_blend, 0.42).lerp(PRONE_BODY, prone_blend)
+	_hit_body_shape.size = body
+	_hit_body_col.position.y = body.y * 0.5
+	_hit_body_col.position.z = PRONE_BODY_Z * prone_blend
 	_apply_head_pose()
 
 
@@ -667,7 +724,7 @@ func _pull_grapple(delta: float, wish: Vector3, jump_pressed: bool) -> void:
 func _rope_origin() -> Vector3:
 	if mode == Mode.LOCAL and camera != null and alive and not camera.top_level:
 		return camera.global_transform * Vector3(-0.22, -0.2, -0.35)
-	return global_position + Basis(Vector3.UP, yaw) * Vector3(-0.32, 1.3 - CROUCH_DROP * crouch_blend, -0.25)
+	return global_position + Basis(Vector3.UP, yaw) * Vector3(-0.32, maxf(0.3, 1.3 - _eye_drop()), -0.25)
 
 
 func _update_rope(delta: float) -> void:
@@ -952,7 +1009,9 @@ func current_spread() -> float:
 	s += clampf(hspeed / WALK_SPEED, 0.0, 1.4) * float(w.spread_hip) * 0.35 * (1.0 - aim_blend * 0.6)
 	if not is_on_floor():
 		s += float(w.spread_hip) * 0.6 + 1.5
-	if crouching:
+	if prone:
+		s *= 0.6
+	elif crouching:
 		s *= 0.8
 	return s
 
@@ -1006,7 +1065,7 @@ static func damage_at(w: Dictionary, dist: float) -> float:
 
 
 func _apply_kick(w: Dictionary) -> void:
-	var kick := float(w.recoil) * lerpf(1.0, 0.6, aim_blend) * (0.8 if crouching else 1.0)
+	var kick := float(w.recoil) * lerpf(1.0, 0.6, aim_blend) * (0.65 if prone else (0.8 if crouching else 1.0))
 	if mode == Mode.LOCAL:
 		pitch = clampf(pitch + deg_to_rad(kick * 0.55), -MAX_PITCH, MAX_PITCH)
 		yaw += deg_to_rad(randf_range(-0.35, 0.35) * kick * 0.4)
@@ -1128,6 +1187,8 @@ func state_flags() -> int:
 		f |= FLAG_NEEDS_AMMO
 	if sliding:
 		f |= FLAG_SLIDE
+	if prone:
+		f |= FLAG_PRONE
 	f |= weapon_index(weapon_id()) << FLAG_WEAPON_SHIFT
 	f |= (roundi(lean * _lean_reach * 7.0) + 8) << FLAG_LEAN_SHIFT
 	return f
@@ -1209,6 +1270,7 @@ func _interpolate() -> void:
 		avatar.stop_reload()
 	var dt := get_physics_process_delta_time()
 	crouching = (_remote_flags & FLAG_CROUCH) != 0
+	prone = (_remote_flags & FLAG_PRONE) != 0
 	sprinting = (_remote_flags & FLAG_SPRINT) != 0
 	var was_sliding := sliding
 	sliding = (_remote_flags & FLAG_SLIDE) != 0
@@ -1216,6 +1278,7 @@ func _interpolate() -> void:
 		Sfx.play(&"slide", global_position, -2.0)
 	aim_blend = 1.0 if (_remote_flags & FLAG_AIM) != 0 else 0.0
 	crouch_blend = move_toward(crouch_blend, 1.0 if crouching else 0.0, dt * 8.0)
+	prone_blend = move_toward(prone_blend, 1.0 if prone else 0.0, dt * 4.0)
 	lean = move_toward(lean, flags_lean(_remote_flags), dt * LEAN_RATE * 1.5)
 	_apply_crouch_shape()
 	_apply_head_pose()
@@ -1246,7 +1309,7 @@ func _update_visuals(delta: float) -> void:
 		var local_vel := Basis(Vector3.UP, yaw).inverse() * world_vel
 		avatar.set_motion(sliding, lean * _lean_reach, Vector2(local_vel.x, -local_vel.z), grappling)
 		avatar.set_look_pitch(pitch)
-		avatar.animate(delta, anim_speed, on_floor_visual, crouching)
+		avatar.animate(delta, anim_speed, on_floor_visual, crouching, prone)
 		_footsteps(delta)
 	_update_rope(delta)
 	if camera != null and not alive and camera.top_level:
@@ -1278,7 +1341,7 @@ func _footsteps(delta: float) -> void:
 	_step_timer -= delta
 	if _step_timer <= 0.0:
 		_step_timer = clampf(2.1 / anim_speed, 0.26, 0.55)
-		var vol := -14.0 if crouching else (-6.0 if sprinting else -9.0)
+		var vol := -14.0 if crouching or prone else (-6.0 if sprinting else -9.0)
 		if mode == Mode.LOCAL:
 			Sfx.play(&"footstep", null, vol - 4.0)
 		else:
@@ -1330,6 +1393,7 @@ func die(killer: Player = null) -> void:
 	grenade_cooldown = 0.0
 	knife_cooldown = 0.0
 	_applied_crouch = -1.0
+	_applied_prone = -1.0
 	_reset_movement_state()
 	velocity = Vector3.ZERO
 	collision_layer = 0
@@ -1348,6 +1412,8 @@ func die(killer: Player = null) -> void:
 ## runs these itself).
 func _reset_movement_state() -> void:
 	sliding = false
+	prone = false
+	prone_blend = 0.0
 	_slide_cooldown = 0.0
 	_burst_left = 0
 	lean = 0.0
@@ -1390,6 +1456,7 @@ func respawn(pos: Vector3, p_yaw: float) -> void:
 	aim_blend = 0.0
 	_trigger_down = false
 	_applied_crouch = -1.0
+	_applied_prone = -1.0
 	_snapshots.clear()
 	refill_ammo()
 	if current_slot != 0:
@@ -1419,6 +1486,7 @@ func _clear_intent() -> void:
 	in_aim = false
 	in_jump = false
 	in_crouch = false
+	in_prone = false
 	in_sprint = false
 	in_reload = false
 	in_grenade = false

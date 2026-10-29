@@ -19,6 +19,14 @@ const DEFAULT_SETTINGS := {
 	"vsync": true,
 	"quality": 1,
 	"post_fx": true,
+	## 0 off, 1 FXAA, 2 MSAA 2x, 3 MSAA 4x, 4 TAA (see ANTI_ALIASING_NAMES).
+	"anti_aliasing": 2,
+	"render_scale": 1.0,
+	"shadows": true,
+	"ambient_occlusion": true,
+	"bloom": true,
+	"reflections": false,
+	"block_detail": true,
 	"show_fps": false,
 	"damage_numbers": true,
 	"killfeed": true,
@@ -26,6 +34,14 @@ const DEFAULT_SETTINGS := {
 	"last_ip": "127.0.0.1",
 	"last_port": 7777,
 }
+
+const ANTI_ALIASING_NAMES: Array[String] = ["Off", "FXAA", "MSAA 2x", "MSAA 4x", "TAA"]
+## Effect toggles each graphics quality preset (Low, Medium, High) switches to when picked.
+const QUALITY_PRESETS: Array[Dictionary] = [
+	{"shadows": true, "ambient_occlusion": false, "bloom": false, "reflections": false, "anti_aliasing": 1},
+	{"shadows": true, "ambient_occlusion": true, "bloom": true, "reflections": false, "anti_aliasing": 2},
+	{"shadows": true, "ambient_occlusion": true, "bloom": true, "reflections": true, "anti_aliasing": 3},
+]
 
 const DEFAULT_STATS := {
 	"kills": 0, "deaths": 0, "headshots": 0, "matches": 0, "wins": 0,
@@ -260,6 +276,20 @@ func apply_settings() -> void:
 	if want_fs != is_fs:
 		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN if want_fs else DisplayServer.WINDOW_MODE_WINDOWED)
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_ENABLED if get_setting("vsync") else DisplayServer.VSYNC_DISABLED)
+	_apply_graphics()
+
+
+## Anti-aliasing and render scale on the main viewport; shadows, AO, bloom and reflections on
+## the current map; block shader detail on the shared block materials. All live.
+func _apply_graphics() -> void:
+	var vp := get_viewport()
+	var aa := int(get_setting("anti_aliasing"))
+	vp.msaa_3d = [Viewport.MSAA_DISABLED, Viewport.MSAA_DISABLED, Viewport.MSAA_2X, Viewport.MSAA_4X, Viewport.MSAA_DISABLED][aa]
+	vp.screen_space_aa = Viewport.SCREEN_SPACE_AA_FXAA if aa == 1 else Viewport.SCREEN_SPACE_AA_DISABLED
+	vp.use_taa = aa == 4
+	vp.scaling_3d_scale = float(get_setting("render_scale"))
+	BlockAtlas.set_detail(bool(get_setting("block_detail")))
+	MapBuilder.apply_graphics(get_tree())
 
 
 func _set_bus_volume(bus_name: String, linear: float) -> void:
@@ -344,6 +374,13 @@ func load_from_dict(d: Dictionary) -> void:
 			if settings.has(key) and (got == want or numeric):
 				settings[key] = int(saved_settings[key]) if want == TYPE_INT and numeric else saved_settings[key]
 	settings.quality = clampi(int(settings.quality), 0, 2)
+	# Saves from before the per-effect toggles take them from their quality preset.
+	var preset: Dictionary = QUALITY_PRESETS[settings.quality]
+	for key: String in preset:
+		if typeof(saved_settings) != TYPE_DICTIONARY or not (saved_settings as Dictionary).has(key):
+			settings[key] = preset[key]
+	settings.anti_aliasing = clampi(int(settings.anti_aliasing), 0, ANTI_ALIASING_NAMES.size() - 1)
+	settings.render_scale = clampf(float(settings.render_scale), 0.5, 1.0)
 	settings.fov = clampf(float(settings.fov), 60.0, 110.0)
 	settings.mouse_sens = clampf(float(settings.mouse_sens), 0.05, 10.0)
 	settings.ads_sens_mult = clampf(float(settings.ads_sens_mult), 0.05, 3.0)
@@ -384,6 +421,7 @@ const DEFAULT_BINDINGS := {
 	"move_forward": ["k%d" % KEY_W, "k%d" % KEY_UP], "move_back": ["k%d" % KEY_S, "k%d" % KEY_DOWN],
 	"move_left": ["k%d" % KEY_A, "k%d" % KEY_LEFT], "move_right": ["k%d" % KEY_D, "k%d" % KEY_RIGHT],
 	"jump": ["k%d" % KEY_SPACE], "sprint": ["k%d" % KEY_SHIFT], "crouch": ["k%d" % KEY_CTRL, "k%d" % KEY_C],
+	"prone": ["k%d" % KEY_Z],
 	"lean_left": ["k%d" % KEY_Q], "lean_right": ["k%d" % KEY_E],
 	"fire": ["m%d" % MOUSE_BUTTON_LEFT], "aim": ["m%d" % MOUSE_BUTTON_RIGHT],
 	"reload": ["k%d" % KEY_R], "weapon_1": ["k%d" % KEY_1], "weapon_2": ["k%d" % KEY_2],

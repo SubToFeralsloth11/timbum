@@ -1,7 +1,8 @@
 class_name PauseMenu
 extends Control
-## In-match pause overlay. Does not pause the tree (the match keeps running).
-## The HUD owner shows/hides it (`visible`, or `open()` / `close()`) and listens to
+## In-match pause overlay. Offline matches freeze while it is open (the HUD calls
+## World.set_frozen, and this node runs with PROCESS_MODE_ALWAYS); online the match keeps
+## running. The HUD owner shows/hides it (`visible`, or `open()` / `close()`) and listens to
 ## `resume_requested`. Becoming visible frees the mouse, resets to the main panel and
 ## animates in. While visible it consumes "pause" / "ui_cancel" in `_input` (it is a
 ## child of the HUD, so it sees Esc first): Esc closes the settings sub-panel, or
@@ -13,6 +14,7 @@ var _dim: ColorRect
 var _menu: PanelContainer
 var _settings: SettingsPanel
 var _resume_button: Button
+var _hint: Label
 
 
 func _ready() -> void:
@@ -36,8 +38,8 @@ func _ready() -> void:
 	var v := UIKit.vbox(12)
 	_menu.add_child(v)
 	v.add_child(UIKit.label("PAUSED", &"HeaderLabel", HORIZONTAL_ALIGNMENT_CENTER))
-	var hint := UIKit.label("The match keeps running.", &"DimLabel", HORIZONTAL_ALIGNMENT_CENTER)
-	v.add_child(hint)
+	_hint = UIKit.label("", &"DimLabel", HORIZONTAL_ALIGNMENT_CENTER)
+	v.add_child(_hint)
 	v.add_child(HSeparator.new())
 	_resume_button = UIKit.button("RESUME", &"PrimaryButton")
 	_resume_button.pressed.connect(func() -> void: resume_requested.emit())
@@ -70,6 +72,7 @@ func _on_visibility_changed() -> void:
 			_settings.close()
 		return
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	_hint.text = "The match is paused." if Net.offline else "The match keeps running."
 	_settings.visible = false
 	_menu.visible = true
 	_animate_in(_menu)

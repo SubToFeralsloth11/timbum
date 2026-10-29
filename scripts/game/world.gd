@@ -52,6 +52,10 @@ var _ready_peers := {}
 ## Peers who voted to skip the rest of the results screen.
 var _skip_votes := {}
 var _advancing := false
+## World.now() bookkeeping: total milliseconds spent frozen, and when the current freeze began
+## (-1 when running). Static because now() is static; frozen time only ever accumulates.
+static var _frozen_total_ms := 0
+static var _frozen_at_ms := -1
 ## When the results screen ends and the next match loads (World.now() seconds).
 var _results_until := 0.0
 var _respawn_at := {}
@@ -117,11 +121,34 @@ func _ready() -> void:
 
 
 func _exit_tree() -> void:
+	set_frozen(false)
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 
+## Match clock in seconds. Stops while an offline match is frozen (see set_frozen), so
+## respawns, pickups, smoke and spawn protection resume where they left off.
 static func now() -> float:
-	return Time.get_ticks_msec() * 0.001
+	var t := _frozen_at_ms if _frozen_at_ms >= 0 else Time.get_ticks_msec()
+	return (t - _frozen_total_ms) * 0.001
+
+
+## Freezes the whole match (scene tree, physics and World.now()). Only offline matches may
+## freeze: a networked host must keep simulating for its clients.
+func set_frozen(on: bool) -> void:
+	if on and not Net.offline:
+		return
+	if on == (_frozen_at_ms >= 0):
+		return
+	if on:
+		_frozen_at_ms = Time.get_ticks_msec()
+	else:
+		_frozen_total_ms += Time.get_ticks_msec() - _frozen_at_ms
+		_frozen_at_ms = -1
+	get_tree().paused = on
+
+
+func is_frozen() -> bool:
+	return _frozen_at_ms >= 0
 
 
 func my_id() -> int:
@@ -854,7 +881,7 @@ func _s_damaged(eid: int, hp: float, attacker_id: int, from_pos: Vector3) -> voi
 	var before := p.health
 	p.on_damaged(hp, attacker_id)
 	if attacker_id != eid:
-		fx.blood(p.global_position + Vector3.UP * 1.1)
+		fx.blood(p.global_position + Vector3.UP * (p.body_center_height() - 0.15))
 	if p == local_player:
 		if p.alive:
 			var taken: Array = _my_damage_taken.get(attacker_id, [0, 0.0])
@@ -1174,7 +1201,6 @@ static func _apply_time_of_day(map_root: Node3D, time_of_day: String) -> void:
 		env.fog_light_color = Color(0.1, 0.12, 0.22)
 		env.ambient_light_color = Color(0.45, 0.52, 0.8)
 		env.ambient_light_energy *= 0.55
-		env.glow_enabled = true
 
 
 static func weapon_label(wid: String) -> String:

@@ -7,7 +7,8 @@ signal players_changed
 
 const DEFAULT_PORT := 7777
 ## 5: tacticals, grapple relay, _s_explode carries the kind, lean/slide state flags, new weapons.
-const PROTOCOL_VERSION := 5
+## 6: prone state flag.
+const PROTOCOL_VERSION := 6
 const CONNECT_TIMEOUT := 8.0
 const WORLD_SCENE := "res://scenes/world.tscn"
 const MENU_SCENE := "res://scenes/main_menu.tscn"

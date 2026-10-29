@@ -184,6 +184,8 @@ func _ready() -> void:
 	_pause = PauseMenu.new()
 	_pause.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_pause.visible = false
+	# Keeps working while an offline match is frozen (the rest of the HUD stops with the tree).
+	_pause.process_mode = Node.PROCESS_MODE_ALWAYS
 	_pause.resume_requested.connect(_close_pause)
 	add_child(_pause)
 
@@ -895,6 +897,8 @@ func _movement_status(p: Player) -> String:
 		return "PEEK LEFT" if p.lean < 0.0 else "PEEK RIGHT"
 	if World.now() < p.flashed_until:
 		return "BLINDED"
+	if p.prone:
+		return "PRONE"
 	if p.crouching:
 		return "CROUCHED"
 	return ""
@@ -933,7 +937,7 @@ func _show_controls_hint() -> void:
 	var k := func(action: String) -> String: return Profile.key_text(action)
 	for line: String in [
 			"%s%s%s%s  move" % [k.call("move_forward"), k.call("move_left"), k.call("move_back"), k.call("move_right")],
-			"%s  sprint   %s  crouch (slide while sprinting)" % [k.call("sprint"), k.call("crouch")],
+			"%s  sprint   %s  crouch (slide while sprinting)   %s  prone" % [k.call("sprint"), k.call("crouch"), k.call("prone")],
 			"%s / %s  peek left / right" % [k.call("lean_left"), k.call("lean_right")],
 			"%s  aim   %s  reload" % [k.call("aim"), k.call("reload")],
 			"%s  frag   %s  tactical   %s  grapple hook" % [k.call("grenade"), k.call("tactical"), k.call("grapple")],
@@ -1174,6 +1178,7 @@ func _input(event: InputEvent) -> void:
 	elif not _results.visible:
 		_pause.visible = true
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		world.set_frozen(true)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -1208,5 +1213,6 @@ func _close_chat() -> void:
 
 func _close_pause() -> void:
 	_pause.visible = false
+	world.set_frozen(false)
 	if not is_blocking():
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED

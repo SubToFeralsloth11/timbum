@@ -22,6 +22,10 @@ const SLASH_TIME := 0.4
 const THROW_TIME := 0.5
 ## Hips height while sliding (the body lies back on one bent leg).
 const SLIDE_HIP := 0.3
+## Prone: the whole body tips forward flat (face down), lifted off the floor by its thickness and
+## shifted back so the head ends up over the player's origin, where the eyes are.
+const PRONE_LIFT := 0.14
+const PRONE_BACK := 1.25
 
 var outfit_id := ""
 var hat_id := ""
@@ -52,6 +56,7 @@ var _phase := 0.0
 var _swing := 0.0
 var _air := 0.0
 var _crouch := 0.0
+var _prone := 0.0
 var _recoil := 0.0
 var _flash := 0.0
 var _dead := false
@@ -156,11 +161,12 @@ func set_motion(sliding: bool, lean: float, local_velocity: Vector2, grappling: 
 
 
 ## Advances locomotion: `speed` = horizontal speed in m/s.
-func animate(delta: float, speed: float, on_floor: bool, crouching: bool) -> void:
+func animate(delta: float, speed: float, on_floor: bool, crouching: bool, prone: bool) -> void:
 	if _dead:
 		return
 	var k := 1.0 - exp(-14.0 * delta)
 	_crouch = move_toward(_crouch, 1.0 if crouching else 0.0, delta * 7.0)
+	_prone = move_toward(_prone, 1.0 if prone else 0.0, delta * 4.0)
 	_slide = move_toward(_slide, 1.0 if _sliding else 0.0, delta * 9.0)
 	_grapple = move_toward(_grapple, 1.0 if _grappling else 0.0, delta * 8.0)
 	_lean = lerpf(_lean, _lean_target, k)
@@ -275,6 +281,7 @@ func reset_pose() -> void:
 	_swing = 0.0
 	_air = 0.0
 	_crouch = 0.0
+	_prone = 0.0
 	_recoil = 0.0
 	_reload_left = 0.0
 	_reload_len = 0.0
@@ -417,21 +424,30 @@ func _apply_pose() -> void:
 	var knee_r := -2.0 * bend - maxf(0.0, c) * 0.8 - 1.0 * _air
 	var knee_l := -2.0 * bend - maxf(0.0, -c) * 0.8 - 0.3 * _air
 	# Slide: leading leg out straight, the other folded under.
-	_leg_r.rotation = Vector3(lerpf(leg_r, 1.45, _slide), 0.0, stride * side_share * 0.6)
-	_leg_l.rotation = Vector3(lerpf(leg_l, 0.55, _slide), 0.0, -stride * side_share * 0.6)
-	_knee_r.rotation.x = lerpf(knee_r, -0.1, _slide)
-	_knee_l.rotation.x = lerpf(knee_l, -2.1, _slide)
+	leg_r = lerpf(leg_r, 1.45, _slide)
+	leg_l = lerpf(leg_l, 0.55, _slide)
+	knee_r = lerpf(knee_r, -0.1, _slide)
+	knee_l = lerpf(knee_l, -2.1, _slide)
+	# Prone: legs out straight behind; crawling kicks them out sideways in turn.
+	var crawl := swing * 0.5
+	_leg_r.rotation = Vector3(lerpf(leg_r, 0.0, _prone), 0.0, lerpf(stride * side_share * 0.6, 0.12 + crawl, _prone))
+	_leg_l.rotation = Vector3(lerpf(leg_l, 0.0, _prone), 0.0, lerpf(-stride * side_share * 0.6, -0.12 + crawl, _prone))
+	_knee_r.rotation.x = lerpf(knee_r, -maxf(0.0, crawl) * 1.2, _prone)
+	_knee_l.rotation.x = lerpf(knee_l, -maxf(0.0, -crawl) * 1.2, _prone)
+	_visual.transform = Transform3D(Basis(Vector3.RIGHT, -PI * 0.5 * _prone), Vector3(0.0, PRONE_LIFT, PRONE_BACK) * _prone)
 
 	# Lean forward when crouching/sprinting, back when sliding; peeking rolls the upper body.
 	var lean := -0.32 * _crouch - 0.06 * minf(_swing, 1.0) - 0.16 * _sprint
-	lean = lerpf(lean, 0.5, _slide)
+	lean = lerpf(lerpf(lean, 0.5, _slide), 0.0, _prone)
 	var torso_basis := Basis.from_euler(Vector3(lean, _twist, -_lean * 0.55))
 	_torso.basis = torso_basis
 	var inv := torso_basis.inverse()
-	_head.basis = inv * Basis(Vector3.RIGHT, clampf(_pitch, -HEAD_PITCH_LIMIT, HEAD_PITCH_LIMIT))
+	# Lying face down, the head and the aim tilt back up by the body's quarter turn.
+	var lift := PI * 0.5 * _prone
+	_head.basis = inv * Basis(Vector3.RIGHT, clampf(_pitch, -HEAD_PITCH_LIMIT, HEAD_PITCH_LIMIT) + lift)
 
 	# Sprinting carries the gun low across the chest (muzzle down).
-	var aim_pitch := lerpf(_pitch, -0.55, _sprint * 0.8)
+	var aim_pitch := lerpf(_pitch, -0.55, _sprint * 0.8) + lift
 	var aim := Basis(Vector3.RIGHT, aim_pitch)
 	var center := torso_basis * Vector3(0.0, SHOULDER_Y, 0.0)
 	var bob := Vector3(0.0, -absf(sin(_phase)) * 0.02 * _swing + 0.015 * _recoil, 0.07 * _recoil)
