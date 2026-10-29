@@ -1,12 +1,12 @@
 # Timbum
 
-A blocky free-for-all shooter made with Godot 4.7. Play against bots offline, or host a match and have friends join by IP.
+A blocky free-for-all shooter made with Godot 4.7. Play against bots offline, or host a match and have friends join from the same Wi-Fi, with a room code, through Steam, or by IP.
 
 ## Features
 
 - **Free-for-all deathmatch.** The first player to reach the kill limit wins, or whoever has the most kills when time runs out. After each match a results screen shows the final table, match highlights (best streak, sharpshooter, survivor), an itemised list of the coins and XP you earned, and the next map, mutator and time of day. You can switch your primary and secondary for the next match right there, and start it early once most of the players in the lobby press Start Next Match.
 - **Bots.** Easy, Normal and Hard bots navigate with a navmesh. They strafe, aim-track, throw frags and tacticals and fall back to their knife. They also pick up health when hurt and ammo when low, and use the same moves you do: they slide, peek around corners, go prone to snipe at long range and grapple up ledges and across gaps. Smoke blocks their sight and a flash blinds them. They aim a little sharper at whoever is running away with the match and ease off on players who are behind. Bots fill the empty slots, and one drops out each time a human joins.
-- **Online play over IP.** Uses ENet on UDP port 7777 by default, with up to 12 players. The host's machine runs the match.
+- **Online play without typing an IP.** Up to 12 players; the host's machine runs the match. Friends on the same Wi-Fi see the game listed, anyone else pastes a room code (no port forwarding), and Steam lobbies, WebRTC codes, virtual LANs and plain IP addresses work too. See [Playing online](#playing-online).
 - **15 weapons.** Secondaries: Block 9 pistol, Cuber .44 revolver, Bitstorm MP machine pistol, Tri-Tap burst pistol, Pocket Boomer sawn-off and the suppressed Whisper .22 (no tracer, flash or flyby for anyone else). Primaries: Bit-SMG, AR-Cube rifle, Tri-Cube burst rifle, Brick Buster shotgun, Stacker LMG, Block Marksman DMR, Voxel Longshot sniper with a scope and Boom Block rocket launcher. Plus the Pixel Blade knife.
 - **Grenades.** Every player carries two frag grenades, which explode the moment they touch a wall, the floor or a player, and one tactical grenade picked in the locker: a Smoke Block (a 10-second cloud) or a Flash Cube (blinds whoever is looking at it).
 - **Movement.** Crouch while sprinting to slide (slopes keep it going, jump out of it to keep the speed). Peek left and right around corners; the eye, the view and your head hitbox lean out, stopping at walls. Go prone to lie flat: you crawl slowly but aim steadier (less spread and recoil) and present a much smaller target; crouch, jump or prone again gets you back up (a sprinting slide can dive straight into prone). A grapple hook reels you to whatever you aim at within 42 m.
@@ -42,10 +42,19 @@ Every action except Esc can be rebound in **Settings > Controls** (two keys or m
 
 ## Playing online
 
-1. **Host:** choose **Host Game**, pick your map and settings, then press Start. The host screen shows your LAN IP addresses.
-2. **Join:** choose **Join Game**, enter the host's IP and port (default 7777), then press Join.
+**Host:** choose **Host Game**, pick your map and settings and a **Connection**, then press Start Hosting. Once the match starts, press Esc: the pause menu shows how friends can join (room code with a COPY button, your addresses, or a Steam invite button).
 
-On the same Wi-Fi or LAN, use the LAN address the host screen shows. Over the internet, the host has to forward UDP port 7777 on their router to their computer and share their public IP. The host's firewall must also allow Timbum.
+**Join:** choose **Join Game**, then whichever works:
+
+| Way to join | Works across | What the joiner does | Needs |
+|---|---|---|---|
+| **Nearby games** | Same Wi-Fi / LAN | Click the game in the list | Nothing; hosts answer UDP discovery on port 47777 |
+| **Room code** (Connection: Code + Wi-Fi) | The internet | Paste the code, press Join | Internet access. The code server ([noray](https://github.com/foxssake/noray) at `tomfol.io`) tells both sides each other's address so they connect directly; if the routers block that, it relays the game traffic. Codes are case-sensitive, so use COPY and PASTE. |
+| **Steam** (Connection: Steam) | The internet | Accept the Steam invite, use **Find Steam Games**, or paste the lobby number | Steam open and signed in on both computers. Uses Valve's free test app (Spacewar, app id 480), so Steam shows you as playing Spacewar. |
+| **WebRTC code** (Connection: WebRTC) | The internet | Paste the `W-XXXXXX` code | Internet access; peers meet through the free [PeerJS](https://peerjs.com) server. A fallback when room codes fail; no relay, so some strict networks can't connect. |
+| **Address** | LAN, virtual LAN, or the internet | Type an IP or hostname and the port (default 7777) | For a virtual LAN, both players join the same [Tailscale](https://tailscale.com) or [ZeroTier](https://www.zerotier.com) network and use the address the host screen labels TAILSCALE or ZEROTIER. For a [playit.gg](https://playit.gg) tunnel, use the address it gives you. A public IP needs UDP 7777 forwarded on the host's router. |
+
+The host's firewall must allow Timbum. Steam and WebRTC support are native add-ons for macOS, Windows (64-bit) and Linux (x86_64); see `addons/`.
 
 ## Running from source
 
