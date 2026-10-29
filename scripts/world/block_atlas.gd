@@ -110,6 +110,7 @@ const _WOOL := {
 ## texel's brightness reads as height, bent in a tangent frame from screen derivatives) that fades
 ## out with distance; per-tile surface properties from `layer_props` (smoothness, metallic, wind
 ## sway for foliage, water); swaying leaves; and rippling, glossy water with a fresnel sheen.
+## `detail` 0 (the "Block shader effects" setting off) skips the bump, sway and ripples.
 const _SHADER_CODE := """
 shader_type spatial;
 render_mode %s;
@@ -118,6 +119,7 @@ uniform sampler2DArray tiles : source_color, filter_nearest_mipmap_anisotropic, 
 // Per tile layer: x smoothness, y metallic, z wind sway, w 1 for water.
 uniform vec4 layer_props[MAX_LAYERS];
 uniform float bump_strength = 3.0;
+uniform float detail = 1.0;
 
 varying flat float v_layer;
 varying flat float v_emit;
@@ -132,11 +134,11 @@ void vertex() {
 	vec3 w = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	// Offsets depend only on world position, so neighbouring blocks' shared corners move together.
 	if (props.z > 0.0) {
-		VERTEX.x += sin(TIME * 1.7 + w.x * 0.8 + w.z * 0.6 + w.y * 0.3) * 0.035 * props.z;
-		VERTEX.z += cos(TIME * 1.3 + w.z * 0.7 + w.x * 0.4) * 0.03 * props.z;
+		VERTEX.x += sin(TIME * 1.7 + w.x * 0.8 + w.z * 0.6 + w.y * 0.3) * 0.035 * props.z * detail;
+		VERTEX.z += cos(TIME * 1.3 + w.z * 0.7 + w.x * 0.4) * 0.03 * props.z * detail;
 	}
 	if (props.w > 0.0) {
-		VERTEX.y += (sin(TIME * 1.2 + w.x * 0.9) + sin(TIME * 0.9 + w.z * 1.1)) * 0.035;
+		VERTEX.y += (sin(TIME * 1.2 + w.x * 0.9) + sin(TIME * 0.9 + w.z * 1.1)) * 0.035 * detail;
 	}
 	v_world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 }
@@ -144,28 +146,30 @@ void vertex() {
 void fragment() {
 	vec4 props = layer_props[int(v_layer + 0.5)];
 	vec2 uv = UV;
-	if (props.w > 0.0) {
+	if (props.w > 0.0 && detail > 0.5) {
 		uv = fract(uv + vec2(TIME * 0.02, TIME * 0.013) + 0.04 * vec2(sin(TIME + v_world.z * 1.3), cos(TIME * 0.8 + v_world.x * 1.1)));
 	}
 	vec4 t = texture(tiles, vec3(uv, v_layer));
-	vec3 dp1 = dFdx(VERTEX);
-	vec3 dp2 = dFdy(VERTEX);
-	vec2 duv1 = dFdx(UV);
-	vec2 duv2 = dFdy(UV);
-	vec3 dp2perp = cross(dp2, NORMAL);
-	vec3 dp1perp = cross(NORMAL, dp1);
-	vec3 T = dp2perp * duv1.x + dp1perp * duv2.x;
-	vec3 B = dp2perp * duv1.y + dp1perp * duv2.y;
-	float inv_len = inversesqrt(max(dot(T, T), dot(B, B)) + 1e-12);
-	T *= inv_len;
-	B *= inv_len;
-	float texel = 1.0 / 16.0;
-	float hl = luma(texture(tiles, vec3(uv - vec2(texel, 0.0), v_layer)).rgb);
-	float hr = luma(texture(tiles, vec3(uv + vec2(texel, 0.0), v_layer)).rgb);
-	float hu = luma(texture(tiles, vec3(uv - vec2(0.0, texel), v_layer)).rgb);
-	float hd = luma(texture(tiles, vec3(uv + vec2(0.0, texel), v_layer)).rgb);
-	float bump = clamp(1.0 - length(VERTEX) / 35.0, 0.0, 1.0) * bump_strength * (1.0 - props.w);
-	NORMAL = normalize(NORMAL - (T * (hr - hl) + B * (hd - hu)) * bump);
+	if (detail > 0.5) {
+		vec3 dp1 = dFdx(VERTEX);
+		vec3 dp2 = dFdy(VERTEX);
+		vec2 duv1 = dFdx(UV);
+		vec2 duv2 = dFdy(UV);
+		vec3 dp2perp = cross(dp2, NORMAL);
+		vec3 dp1perp = cross(NORMAL, dp1);
+		vec3 T = dp2perp * duv1.x + dp1perp * duv2.x;
+		vec3 B = dp2perp * duv1.y + dp1perp * duv2.y;
+		float inv_len = inversesqrt(max(dot(T, T), dot(B, B)) + 1e-12);
+		T *= inv_len;
+		B *= inv_len;
+		float texel = 1.0 / 16.0;
+		float hl = luma(texture(tiles, vec3(uv - vec2(texel, 0.0), v_layer)).rgb);
+		float hr = luma(texture(tiles, vec3(uv + vec2(texel, 0.0), v_layer)).rgb);
+		float hu = luma(texture(tiles, vec3(uv - vec2(0.0, texel), v_layer)).rgb);
+		float hd = luma(texture(tiles, vec3(uv + vec2(0.0, texel), v_layer)).rgb);
+		float bump = clamp(1.0 - length(VERTEX) / 35.0, 0.0, 1.0) * bump_strength * (1.0 - props.w);
+		NORMAL = normalize(NORMAL - (T * (hr - hl) + B * (hd - hu)) * bump);
+	}
 	ALBEDO = t.rgb * mix(vec3(1.0), COLOR.rgb, 0.75);
 	AO = COLOR.r;
 	AO_LIGHT_AFFECT = 0.25;
@@ -199,6 +203,7 @@ static var _face_layers := PackedInt32Array()
 static var _top_colors := PackedColorArray()
 static var _opaque_material: ShaderMaterial
 static var _glass_material: ShaderMaterial
+static var _detail := 1.0
 
 
 ## Tile layer for `block`'s face: 0 top, 1 side, 2 bottom.
@@ -229,6 +234,14 @@ static func texture() -> Texture2DArray:
 static func material(transparent: bool) -> ShaderMaterial:
 	_ensure()
 	return _glass_material if transparent else _opaque_material
+
+
+## Turns the shader's bump, foliage sway and water ripples on or off (live, both materials).
+static func set_detail(on: bool) -> void:
+	_detail = 1.0 if on else 0.0
+	for mat in [_opaque_material, _glass_material]:
+		if mat != null:
+			(mat as ShaderMaterial).set_shader_parameter("detail", _detail)
 
 
 static func _ensure() -> void:
@@ -281,6 +294,7 @@ static func _make_material(transparent: bool, names: Array[String]) -> ShaderMat
 	mat.shader = shader
 	mat.set_shader_parameter("tiles", _texture)
 	mat.set_shader_parameter("layer_props", props)
+	mat.set_shader_parameter("detail", _detail)
 	return mat
 
 

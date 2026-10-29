@@ -22,6 +22,8 @@ const GENERATORS := {
 
 const NAV_CELL := 0.25
 const PREVIEW_SCALE := 4
+## Group holding each map's sun and WorldEnvironment, for live Video setting changes.
+const GRAPHICS_GROUP := &"map_graphics"
 
 static var _previews := {}
 
@@ -166,19 +168,16 @@ static func _add_environment(parent: Node3D, atm: Dictionary, quality: int) -> v
 	env.fog_sky_affect = atm.get("fog_sky", 0.3)
 	env.fog_aerial_perspective = 0.15
 	env.sdfgi_enabled = false
-	env.ssao_enabled = quality >= 1
+	# SSAO, bloom, SSR and sun shadows follow the Video toggles (apply_graphics), live.
 	env.ssao_radius = 1.2
 	env.ssao_intensity = 1.6
 	env.ssao_detail = 0.5
 	env.ssil_enabled = quality >= 2
 	env.ssil_radius = 3.0
 	env.ssil_intensity = 0.7
-	# Screen-space reflections for the glossy blocks (water, ice, metal) on High.
-	env.ssr_enabled = quality >= 2
 	env.ssr_max_steps = 48
 	env.ssr_fade_in = 0.2
 	env.ssr_fade_out = 2.0
-	env.glow_enabled = quality >= 1
 	env.glow_intensity = 0.5
 	env.glow_bloom = 0.03
 	env.glow_hdr_threshold = 1.1
@@ -189,6 +188,8 @@ static func _add_environment(parent: Node3D, atm: Dictionary, quality: int) -> v
 	var world_env := WorldEnvironment.new()
 	world_env.name = "WorldEnvironment"
 	world_env.environment = env
+	world_env.add_to_group(GRAPHICS_GROUP)
+	_apply_graphics_to(world_env)
 	parent.add_child(world_env)
 
 	var sun := DirectionalLight3D.new()
@@ -196,13 +197,14 @@ static func _add_environment(parent: Node3D, atm: Dictionary, quality: int) -> v
 	sun.rotation_degrees = Vector3(atm.sun_pitch, atm.sun_yaw, 0.0)
 	sun.light_color = atm.sun_color
 	sun.light_energy = atm.sun_energy
-	sun.shadow_enabled = true
+	sun.add_to_group(GRAPHICS_GROUP)
 	sun.shadow_bias = 0.04
 	sun.shadow_normal_bias = 1.2
 	sun.shadow_blur = 1.0
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS if quality >= 2 else DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
 	sun.directional_shadow_max_distance = [45.0, 80.0, 130.0][clampi(quality, 0, 2)]
 	sun.directional_shadow_blend_splits = quality >= 2
+	_apply_graphics_to(sun)
 	parent.add_child(sun)
 	RenderingServer.directional_shadow_atlas_set_size([2048, 4096, 8192][clampi(quality, 0, 2)], true)
 	RenderingServer.directional_soft_shadow_filter_set_quality([
@@ -210,6 +212,23 @@ static func _add_environment(parent: Node3D, atm: Dictionary, quality: int) -> v
 		RenderingServer.SHADOW_QUALITY_SOFT_LOW,
 		RenderingServer.SHADOW_QUALITY_SOFT_MEDIUM,
 	][clampi(quality, 0, 2)])
+
+
+## Applies the Video toggles (shadows, ambient occlusion, bloom, reflections) to every built
+## map's sun and environment. Profile calls it whenever a setting changes.
+static func apply_graphics(tree: SceneTree) -> void:
+	for node in tree.get_nodes_in_group(GRAPHICS_GROUP):
+		_apply_graphics_to(node)
+
+
+static func _apply_graphics_to(node: Node) -> void:
+	if node is DirectionalLight3D:
+		(node as DirectionalLight3D).shadow_enabled = bool(Profile.get_setting("shadows"))
+	elif node is WorldEnvironment and (node as WorldEnvironment).environment != null:
+		var env := (node as WorldEnvironment).environment
+		env.ssao_enabled = bool(Profile.get_setting("ambient_occlusion"))
+		env.glow_enabled = bool(Profile.get_setting("bloom"))
+		env.ssr_enabled = bool(Profile.get_setting("reflections"))
 
 
 ## Agent: radius 0.45 m, height 1.8 m, climb 0.3 m, slope 50 deg. Recast rounds
