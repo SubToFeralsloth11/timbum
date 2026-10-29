@@ -50,6 +50,22 @@ const FLINCH_PEAK := 1.1
 const READ_RATE := [2.0, 2.8, 4.0]
 const READ_ACCURACY := [0.55, 0.68, 0.78]
 const TRACK_LAG := [0.16, 0.12, 0.09]
+## Movement mechanics, per difficulty (Easy, Normal, Hard). Each is a chance per decision:
+## - slide: on a sprint with a clear straight run ahead (checked every 0.8-1.6 s);
+## - peek: lean out sideways for 0.8-1.8 s during a fight at range;
+## - prone: lie down for a steadier aim when the target is past PRONE_MIN_DIST and the bot
+##   has not just been hit; it gets up when the target closes in or the fight ends;
+## - grapple: hook up to a ledge on its route that is GRAPPLE_MIN_RISE higher, across a gap the
+##   navmesh cannot bridge, or (aggressive bots) toward a distant target.
+const SLIDE_CHANCE := [0.15, 0.35, 0.5]
+const PEEK_CHANCE := [0.15, 0.35, 0.5]
+const PRONE_CHANCE := [0.1, 0.25, 0.4]
+const PRONE_MIN_DIST := 20.0
+const PRONE_UP_DIST := 12.0
+const GRAPPLE_CHANCE := [0.25, 0.5, 0.75]
+const GRAPPLE_MIN_RISE := 2.5
+## Seconds the bot may spend turning onto a grapple point before giving up on it.
+const GRAPPLE_AIM_TIME := 1.2
 
 const PERCEIVE_INTERVAL := 0.15
 const REPATH_INTERVAL := 0.9
@@ -122,6 +138,18 @@ var _stuck_timer := 0.0
 var _stuck_check_pos := Vector3.ZERO
 var _crouch_timer := 0.0
 var _jump_timer := 0.0
+var _slide_hold := 0.0
+var _slide_check := 0.0
+## Peek side while leaning (-1, 0, 1) and seconds until the next peek decision.
+var _peek_side := 0
+var _peek_timer := 0.0
+var _prone_timer := 0.0
+## Minimum gap between prone toggles, so a press is never sent twice before it lands.
+var _prone_cooldown := 0.0
+## World point the bot is turning to fire its grapple at (NO_POS when none).
+var _grapple_aim := NO_POS
+var _grapple_aim_left := 0.0
+var _grapple_timer := 2.0
 
 
 func _ready() -> void:
@@ -153,6 +181,11 @@ func on_respawn() -> void:
 	_semi_wait = 0.0
 	_stuck_timer = 0.0
 	_stuck_check_pos = p.global_position
+	_slide_hold = 0.0
+	_peek_side = 0
+	_prone_cooldown = 0.0
+	_grapple_aim = NO_POS
+	_grapple_timer = randf_range(1.0, 3.0)
 
 
 func think(delta: float) -> void:
@@ -168,6 +201,7 @@ func think(delta: float) -> void:
 	if _perceive_timer <= 0.0:
 		_perceive_timer = PERCEIVE_INTERVAL
 		_perceive()
+	_prone_cooldown -= delta
 	_choose_weapon()
 	if target != null and _target_visible:
 		_tracking_time += delta
@@ -175,6 +209,10 @@ func think(delta: float) -> void:
 		_fight(delta)
 	else:
 		_tracking_time = 0.0
+		_peek_side = 0
+		# Nothing to shoot at: get up and move.
+		if p.prone:
+			_press_prone()
 		_roam(delta)
 		_maybe_flush(delta)
 	_check_stuck(delta)
@@ -187,6 +225,7 @@ func _reset_intent() -> void:
 	p.in_jump = false
 	p.in_sprint = false
 	p.in_crouch = false
+	p.in_lean = 0
 	# A melee or tactical press blocked by a weapon switch must not go off later, aimed elsewhere.
 	p.in_melee = false
 	p.in_tactical = false
@@ -203,7 +242,7 @@ func _can_see(other: Player, require_fov: bool) -> bool:
 	if World.now() < p.flashed_until:
 		return false
 	var eye := _eye()
-	var to := other.global_position + Vector3.UP * 1.2
+	var to := other.global_position + Vector3.UP * other.body_center_height()
 	var d := eye.distance_to(to)
 	if d > VIEW_DISTANCE[difficulty]:
 		return false
@@ -348,7 +387,7 @@ func _fight(delta: float) -> void:
 		_new_aim_offset()
 	_aim_offset = _aim_offset.lerp(_aim_offset_goal, 1.0 - exp(-AIM_DRIFT_RATE * delta))
 	_head_blend = move_toward(_head_blend, 1.0 if _aim_head else 0.0, delta * 3.0)
-	var aim_point := target.global_position + Vector3.UP * (1.0 if target.crouching else 1.25)
+	var aim_point := target.global_position + Vector3.UP * target.body_center_height()
 	if wid == "rocket":
 		aim_point = target.global_position + Vector3.UP * 0.2 + _target_velocity() * (dist / float(w.speed))
 	elif _head_blend > 0.0:
@@ -362,7 +401,11 @@ func _fight(delta: float) -> void:
 	aim_point -= _unread_motion(delta) * TRACK_LAG[difficulty]
 
 	var thrown := _reaction_left <= 0.0 and (_maybe_grenade(delta, dist) or _maybe_tactical(delta, dist))
-	if not thrown:
+	# Aggressive bots far outside their range hook toward the target instead of walking.
+	var hooking := false
+	if not thrown and aggression > 1.1 and dist > maxf(_preferred_range().y / aggression, 20.0):
+		hooking = _maybe_grapple(delta, target.global_position)
+	if not thrown and not hooking:
 		_turn_toward(aim_point, delta)
 
 	# Movement: hold preferred range and strafe.
@@ -378,8 +421,15 @@ func _fight(delta: float) -> void:
 	if dist > range_pref.y:
 		_go_toward(target.global_position, delta)
 		move = Vector3.ZERO
+		p.in_sprint = difficulty > 0 and dist > range_pref.y + 6.0 and not p.prone
+		_maybe_slide(delta)
 	elif dist < range_pref.x:
 		move -= flat * 0.8
+	_decide_peek(delta, dist)
+	_decide_prone(delta, dist, wid)
+	if _peek_side != 0 or p.prone:
+		# Holding a peek or lying down: barely drift, keep the sights steady.
+		move *= 0.3
 	if move != Vector3.ZERO:
 		if not _ground_ahead(move.normalized()):
 			_strafe_dir = -_strafe_dir
@@ -387,13 +437,14 @@ func _fight(delta: float) -> void:
 			if not _ground_ahead(move.normalized()):
 				move = Vector3.ZERO
 		_set_move_world(move)
+	p.in_lean = _peek_side
 
 	_jump_timer -= delta
 	if difficulty > 0 and _jump_timer <= 0.0:
 		_jump_timer = randf_range(2.5, 6.0)
-		p.in_jump = randf() < 0.35 and dist < 20.0
+		p.in_jump = randf() < 0.35 and dist < 20.0 and not p.prone and _peek_side == 0
 	_crouch_timer -= delta
-	if difficulty == 2 and dist > 18.0 and _crouch_timer > 0.0:
+	if difficulty == 2 and dist > 18.0 and _crouch_timer > 0.0 and not p.prone:
 		p.in_crouch = true
 	elif _crouch_timer <= -3.0:
 		_crouch_timer = randf_range(1.0, 2.5)
@@ -586,8 +637,11 @@ func _roam(delta: float) -> void:
 		_set_goal(_pick_roam_goal())
 	_go_toward(_goal, delta)
 	p.in_sprint = difficulty > 0 and now - _last_seen_time > 1.5
+	_maybe_slide(delta)
+	var hooking := _maybe_grapple(delta, NO_POS)
 	# Route finished (or there is none): the goal is reached, or as close as the navmesh gets.
-	if _path_index >= _path.size():
+	# A goal still being hooked toward is kept until the grapple is done.
+	if _path_index >= _path.size() and not hooking and not p.grappling:
 		_has_goal = false
 
 
@@ -657,7 +711,7 @@ func _go_toward(point: Vector3, delta: float) -> void:
 	if dir.length() < 0.3:
 		return
 	_set_move_world(dir.normalized())
-	if target == null or not _target_visible:
+	if (target == null or not _target_visible) and _grapple_aim == NO_POS:
 		var look := dest + Vector3.UP * 1.5
 		if _path_index + 1 < _path.size():
 			look = _path[_path_index + 1] + Vector3.UP * 1.5
@@ -690,3 +744,146 @@ func _check_stuck(delta: float) -> void:
 		if randf() < 0.4:
 			_has_goal = false
 			_set_goal(_pick_roam_goal())
+
+
+# ---------------------------------------------------------------- movement mechanics
+
+## One prone toggle press (lie down / get up), at most every 0.6 s.
+func _press_prone() -> void:
+	if _prone_cooldown > 0.0:
+		return
+	p.in_prone = true
+	_prone_cooldown = 0.6
+
+
+## Lies down to snipe at long range; gets up when the target closes in or lands hits.
+func _decide_prone(delta: float, dist: float, wid: String) -> void:
+	var hurt := World.now() - p.last_hurt_time < 1.2
+	if p.prone:
+		if dist < PRONE_UP_DIST or (hurt and p.health < 50.0):
+			_press_prone()
+		return
+	_prone_timer -= delta
+	if _prone_timer > 0.0:
+		return
+	_prone_timer = randf_range(1.5, 3.0)
+	var long_gun := wid not in ["knife", "shotgun", "sawed_off", "rocket"]
+	if long_gun and dist > PRONE_MIN_DIST and not hurt and p.is_on_floor() and not p.grappling \
+			and randf() < PRONE_CHANCE[difficulty]:
+		_press_prone()
+
+
+## Peeks (leans) out to one side for a moment during a ranged fight, then straightens up.
+func _decide_peek(delta: float, dist: float) -> void:
+	_peek_timer -= delta
+	if p.prone or p.sliding or p.grappling:
+		_peek_side = 0
+		return
+	if _peek_timer > 0.0:
+		return
+	if _peek_side != 0:
+		_peek_side = 0
+		_peek_timer = randf_range(1.5, 4.0)
+	elif dist > 8.0 and randf() < PEEK_CHANCE[difficulty]:
+		_peek_side = 1 if randf() < 0.5 else -1
+		_peek_timer = randf_range(0.8, 1.8)
+	else:
+		_peek_timer = randf_range(1.0, 2.5)
+
+
+## While sprinting with a clear straight run ahead, sometimes crouches into a slide (holding
+## crouch for the slide's length).
+func _maybe_slide(delta: float) -> void:
+	if _slide_hold > 0.0:
+		_slide_hold -= delta
+		p.in_crouch = true
+		return
+	_slide_check -= delta
+	if _slide_check > 0.0:
+		return
+	_slide_check = randf_range(0.8, 1.6)
+	if not p.sprinting or not p.is_on_floor() or randf() >= SLIDE_CHANCE[difficulty]:
+		return
+	var run := Vector3(p.velocity.x, 0.0, p.velocity.z)
+	if run.length() < Player.SLIDE_MIN_ENTRY * p.speed_scale:
+		return
+	run = run.normalized()
+	# Floor under the whole slide and nothing in the way at knee height.
+	for d: float in [2.0, 4.0, 6.0]:
+		if not _ground_ahead(run * d):
+			return
+	var knee := p.global_position + Vector3.UP * 0.5
+	var q := PhysicsRayQueryParameters3D.create(knee, knee + run * 6.0, Player.MASK_WORLD)
+	if not p.get_world_3d().direct_space_state.intersect_ray(q).is_empty():
+		return
+	_slide_hold = randf_range(0.5, 0.9)
+	p.in_crouch = true
+
+
+## Grapple use. With `toward` = NO_POS it looks at the current route: a ledge on it at least
+## GRAPPLE_MIN_RISE up, or the goal when the route stops short of it (a gap); otherwise it hooks
+## toward `toward`. Once a point is chosen the bot turns onto it and fires when lined up.
+## Returns true while it is turning onto a grapple point (the caller should not steer the view).
+func _maybe_grapple(delta: float, toward: Vector3) -> bool:
+	if p.grappling:
+		_grapple_aim = NO_POS
+		return false
+	if _grapple_aim != NO_POS:
+		_grapple_aim_left -= delta
+		_turn_toward(_grapple_aim, delta * 1.5)
+		var aim_dir := -Basis.from_euler(Vector3(p.pitch, p.yaw, 0.0)).z
+		var need := (_grapple_aim - p.head.global_position).normalized()
+		if aim_dir.angle_to(need) < deg_to_rad(2.5):
+			p.in_grapple = true
+			_grapple_aim = NO_POS
+			_grapple_timer = randf_range(3.0, 6.0)
+		elif _grapple_aim_left <= 0.0:
+			_grapple_aim = NO_POS
+		return true
+	_grapple_timer -= delta
+	if _grapple_timer > 0.0 or p.grapple_cooldown > 0.0 or p.prone or not p.is_on_floor():
+		return false
+	_grapple_timer = randf_range(1.0, 2.0)
+	if randf() >= GRAPPLE_CHANCE[difficulty]:
+		return false
+	var point := _hook_point(toward) if toward != NO_POS else _route_hook_point()
+	if point == NO_POS:
+		return false
+	_grapple_aim = point
+	_grapple_aim_left = GRAPPLE_AIM_TIME
+	return true
+
+
+func _route_hook_point() -> Vector3:
+	if _path.is_empty():
+		return NO_POS
+	# The route ends short of the goal: hook across the gap to the goal itself.
+	if _has_goal and _goal.distance_to(_path[_path.size() - 1]) > 4.0:
+		var across := _hook_point(_goal)
+		if across != NO_POS:
+			return across
+	var y := p.global_position.y
+	for i in range(_path_index, mini(_path_index + 8, _path.size())):
+		if _path[i].y - y >= GRAPPLE_MIN_RISE:
+			return _hook_point(_path[i])
+	return NO_POS
+
+
+## Where the hook would catch when fired at `point` (a little above it): the world surface hit
+## near it, or NO_POS if it is out of range, the line is blocked well short of it, or the catch
+## is more than a metre below the bot (no use reeling downhill).
+func _hook_point(point: Vector3) -> Vector3:
+	var eye := p.head.global_position
+	var at := point + Vector3.UP * 0.4
+	var d := eye.distance_to(at)
+	if d < 6.0 or d > Player.GRAPPLE_RANGE - 2.0:
+		return NO_POS
+	var dir := (at - eye) / d
+	var q := PhysicsRayQueryParameters3D.create(eye, eye + dir * (d + 1.5), Player.MASK_WORLD, p.exclude_rids())
+	var hit := p.get_world_3d().direct_space_state.intersect_ray(q)
+	if hit.is_empty():
+		return NO_POS
+	var pos: Vector3 = hit.position
+	if pos.distance_to(at) > 2.0 or pos.y < p.global_position.y - 1.0:
+		return NO_POS
+	return pos
