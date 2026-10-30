@@ -133,7 +133,7 @@ func _process(delta: float) -> void:
 	else:
 		pivot.rotate_y(spin_speed * delta)
 	if _animated and is_instance_valid(model):
-		model.call(&"animate", delta, 0.0, true, false)
+		model.call(&"animate", delta, 0.0, true, false, false)
 
 
 ## Bounding box of every visual under `root`, in `root`'s local space.
