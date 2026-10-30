@@ -175,7 +175,8 @@ func _ready() -> void:
 	_win_banner.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
 	_win_banner.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	_win_banner.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_win_banner.position.y = 70
+	# Below the clock / kill race card.
+	_win_banner.position.y = 200
 	_win_banner.add_theme_constant_override("outline_size", 12)
 	_win_banner.add_theme_color_override("font_outline_color", Color(0.25, 0.12, 0.0))
 	_win_banner.visible = false

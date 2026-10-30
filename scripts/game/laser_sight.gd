@@ -22,7 +22,7 @@ func _init() -> void:
 		_beam_mat = StandardMaterial3D.new()
 		_beam_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		_beam_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		_beam_mat.albedo_color = Color(1.0, 0.12, 0.08, 0.35)
+		_beam_mat.albedo_color = Color(1.0, 0.1, 0.06, 0.6)
 		_beam_mat.disable_receive_shadows = true
 		_dot_mat = StandardMaterial3D.new()
 		_dot_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
@@ -33,14 +33,14 @@ func _init() -> void:
 		_dot_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
 	_beam = MeshInstance3D.new()
 	var box := BoxMesh.new()
-	box.size = Vector3(0.006, 0.006, 1.0)
+	box.size = Vector3(0.012, 0.012, 1.0)
 	_beam.mesh = box
 	_beam.material_override = _beam_mat
 	_beam.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(_beam)
 	_dot = MeshInstance3D.new()
 	var quad := QuadMesh.new()
-	quad.size = Vector2(0.05, 0.05)
+	quad.size = Vector2(0.08, 0.08)
 	_dot.mesh = quad
 	_dot.material_override = _dot_mat
 	_dot.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -65,4 +65,6 @@ func aim(from: Vector3, eye: Vector3, dir: Vector3, exclude: Array[RID], show_be
 		var mid := from + span * 0.5
 		var fwd := span / length
 		var up := Vector3.RIGHT if absf(fwd.y) > 0.99 else Vector3.UP
-		_beam.global_transform = Transform3D(Basis.looking_at(fwd, up).scaled(Vector3(1.0, 1.0, length)), mid)
+		var b := Basis.looking_at(fwd, up)
+		b.z *= length
+		_beam.global_transform = Transform3D(b, mid)
