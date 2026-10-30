@@ -16,6 +16,8 @@ var _vote_group := ButtonGroup.new()
 var _vote_cards: Array[Button] = []
 var _vote_counts: Array[Label] = []
 var _ready_button: Button
+## SPECTATE / PLAY INSTEAD (Net.set_spectating; applies from the first match).
+var _spectate_button: Button
 var _start_button: Button
 var _status: Label
 var _hint: Label
@@ -84,6 +86,12 @@ func _ready() -> void:
 		_start_button.tooltip_text = "Start the match without waiting for everyone."
 		_start_button.pressed.connect(func() -> void: Net.lobby_start())
 		footer.add_child(_start_button)
+	_spectate_button = UIKit.button("SPECTATE")
+	_spectate_button.toggle_mode = true
+	_spectate_button.custom_minimum_size = Vector2(170, 56)
+	_spectate_button.tooltip_text = "Watch the match without taking a player slot (a bot keeps it)."
+	_spectate_button.toggled.connect(func(on: bool) -> void: Net.set_spectating(on))
+	footer.add_child(_spectate_button)
 	_ready_button = UIKit.button("READY", &"PrimaryButton")
 	_ready_button.toggle_mode = true
 	_ready_button.custom_minimum_size = Vector2(230, 56)
@@ -254,7 +262,10 @@ func _refresh() -> void:
 	ids.sort()
 	for pid: int in ids:
 		_player_rows.add_child(_player_row(pid, ready_ids.has(pid), pid == me))
-	_players_title.text = "PLAYERS  %d / %d" % [ids.size(), Data.MAX_PLAYERS]
+	var watching := Net.spectator_ids().size()
+	_players_title.text = "PLAYERS  %d / %d%s" % [Net.playing_count(), Data.MAX_PLAYERS, "  ·  %d SPECTATING" % watching if watching > 0 else ""]
+	_spectate_button.set_pressed_no_signal(Net.is_spectator(me))
+	_spectate_button.text = "PLAY INSTEAD" if Net.is_spectator(me) else "SPECTATE"
 	# Map vote.
 	var options: Array = Net.lobby.get("options", [])
 	var counts := Net.vote_counts(Net.lobby.get("votes", {}), options.size())
@@ -283,6 +294,8 @@ func _player_row(pid: int, is_ready: bool, is_me: bool) -> Control:
 	if is_me:
 		player_name.add_theme_color_override("font_color", UITheme.ACCENT)
 	row.add_child(player_name)
+	if bool(info.get("spectator", false)):
+		row.add_child(UIKit.badge("SPECTATOR"))
 	if pid == 1:
 		row.add_child(UIKit.badge("HOST"))
 	var lvl := UIKit.label("LVL %d" % int(info.get("level", 1)), &"SmallLabel", HORIZONTAL_ALIGNMENT_RIGHT)

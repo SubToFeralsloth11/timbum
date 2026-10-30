@@ -92,9 +92,8 @@ func bot_drop_team() -> int:
 	return SURVIVORS if c[SURVIVORS] > 1 else -1
 
 
-func server_human_joined(pid: int) -> void:
+func server_sync(pid: int) -> void:
 	_s_started.rpc_id(pid, started)
-	super(pid)
 
 
 func server_human_left(pid: int) -> void:

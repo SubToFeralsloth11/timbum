@@ -83,8 +83,11 @@ var team_markers: Array = []
 ## Grid (0, 0, 0) corner in world space.
 var origin := Vector3.ZERO
 var overlay: TacticalOverlay
-## Client: who the camera follows while this player is dead (null until spectating).
-var spectating: Player
+## Client: who the camera follows while this player is dead (null until spectating). The view is
+## World.spectator's FOLLOW view, limited to spectate_candidates() (teammates first).
+var spectating: Player:
+	get:
+		return world.spectator.target if world.spectator.is_dead_follow() else null
 
 # Server only.
 var _markers: Array = []
@@ -100,7 +103,6 @@ var _squad_timer := 0.0
 var _rng := RandomNumberGenerator.new()
 
 var _barriers: Array[Node3D] = []
-var _spec_cam: Camera3D
 var _dead_since := -1.0
 
 
@@ -120,12 +122,6 @@ func _ready() -> void:
 	overlay.name = "TacticalOverlay"
 	overlay.setup(self)
 	add_child(overlay)
-	_spec_cam = Camera3D.new()
-	_spec_cam.name = "SpectateCam"
-	_spec_cam.near = 0.05
-	_spec_cam.far = 400.0
-	_spec_cam.top_level = true
-	add_child(_spec_cam)
 	if multiplayer.is_server():
 		planning_ends = World.now() + PLANNING_TIME
 		for i in spots.size():
@@ -278,11 +274,15 @@ func _bot_to_drop(bots: Array[int]) -> int:
 	return lowest
 
 
-## A human finished loading. During planning they join the smaller human side and a bot makes
-## room; later they take over a living bot of that side (its position, health and weapons), or
-## spectate if their side has no bots left.
-func server_human_joined(pid: int) -> void:
+## Every peer that loads the match (spectators too) gets the phase and the weapon spots.
+func server_sync(pid: int) -> void:
 	_sync_peer(pid)
+
+
+## A human finished loading (or a spectator started playing). During planning they join the
+## smaller human side and a bot makes room; later they take over a living bot of that side (its
+## position, health and weapons), or spectate their team if it has no bots left.
+func server_human_joined(pid: int) -> void:
 	var team := server_team_for(false)
 	if phase == Phase.PLANNING:
 		world.server_add_human(pid, team, true)
@@ -976,78 +976,27 @@ func row_dimmed(r: Dictionary) -> bool:
 	return not bool(r.get("alive", true))
 
 
-func _process(delta: float) -> void:
+func _process(_delta: float) -> void:
 	var me := world.local_player
-	if me == null or me.alive or _dead_since < 0.0:
+	if me == null or me.alive or _dead_since < 0.0 or world.match_over:
 		return
-	# The winner's emote camera owns the view at the end of the match.
-	if world.match_over and not _spec_cam.current:
-		return
-	if World.now() - _dead_since < SPECTATE_DELAY:
-		return
-	if spectating == null or not is_instance_valid(spectating) or not spectating.alive:
-		_cycle_spectate(1)
-	if spectating == null:
-		return
-	if not _spec_cam.current:
-		_spec_cam.make_current()
-		_spec_cam.fov = float(Profile.get_setting("fov"))
-		world.hud.hide_death()
-	_follow(spectating, delta)
+	if World.now() - _dead_since >= SPECTATE_DELAY and not world.spectator.is_active():
+		world.spectator.begin_dead()
 
 
-## Living teammates first; anyone alive once the team is wiped out.
-func _spectate_candidates() -> Array[Player]:
+## Dead players follow living teammates first; anyone alive once the team is wiped out.
+## Spectators (no player of their own) follow anyone.
+func spectate_candidates() -> Array[Player]:
+	var all := super()
+	if world.local_player == null:
+		return all
 	var mine := my_team()
 	var out: Array[Player] = []
-	for eid: int in world.entities:
-		var p: Player = world.entities[eid]
-		if p.alive and p != world.local_player and Teams.of(p) == mine:
+	for p: Player in all:
+		if Teams.of(p) == mine:
 			out.append(p)
-	if out.is_empty():
-		for eid: int in world.entities:
-			var p: Player = world.entities[eid]
-			if p.alive and p != world.local_player:
-				out.append(p)
-	out.sort_custom(func(a: Player, b: Player) -> bool: return a.id < b.id)
-	return out
-
-
-func _cycle_spectate(step: int) -> void:
-	var list := _spectate_candidates()
-	if list.is_empty():
-		spectating = null
-		return
-	var i := list.find(spectating)
-	spectating = list[posmod(i + step, list.size())] if i >= 0 else list[0]
-	if overlay != null:
-		overlay.spectate_changed()
+	return out if not out.is_empty() else all
 
 
 func is_spectating() -> bool:
-	return spectating != null and _spec_cam != null and _spec_cam.current
-
-
-## Over-the-shoulder view along the target's aim, pulled in front of walls.
-func _follow(p: Player, delta: float) -> void:
-	var basis := Basis.from_euler(Vector3(p.pitch * 0.8, p.yaw, 0.0))
-	var pivot := p.global_position + Vector3.UP * (p.body_center_height() + 0.55)
-	var want := pivot + basis * Vector3(0.55, 0.3, 2.6)
-	var q := PhysicsRayQueryParameters3D.create(pivot, want, Player.MASK_WORLD)
-	var r := get_viewport().get_world_3d().direct_space_state.intersect_ray(q)
-	if not r.is_empty():
-		want = (r.position as Vector3).lerp(pivot, 0.12)
-	var k := minf(1.0, delta * 10.0)
-	_spec_cam.global_position = _spec_cam.global_position.lerp(want, k) if _spec_cam.global_position.distance_to(want) < 6.0 else want
-	var look := pivot - basis.z * 30.0
-	if _spec_cam.global_position.distance_squared_to(look) > 0.01:
-		_spec_cam.look_at(look, Vector3.UP)
-
-
-func _unhandled_input(event: InputEvent) -> void:
-	if not is_spectating() or world.input_blocked():
-		return
-	if event.is_action_pressed("fire") or event.is_action_pressed("next_weapon"):
-		_cycle_spectate(1)
-	elif event.is_action_pressed("aim") or event.is_action_pressed("prev_weapon"):
-		_cycle_spectate(-1)
+	return world.spectator.is_dead_follow() and world.spectator.target != null

@@ -20,6 +20,7 @@ const CONTROLS: Array = [
 	["streak_reward", "Call in Block Bomber (killstreak)"], ["ping", "Ping (team modes)"],
 	["interact", "Swap weapon (Tactical)"], ["tactical_map", "Floor plan (Tactical)"],
 	["scoreboard", "Scoreboard"], ["chat", "Chat"], ["skip_killcam", "Skip kill cam"],
+	["spectate_view", "Spectator: free camera / follow"], ["photo_mode", "Photo mode (offline)"],
 ]
 ## The `index` meta of a binding button in the controller column (key columns are 0 and 1).
 const PAD_SLOT := -1

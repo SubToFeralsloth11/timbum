@@ -72,9 +72,8 @@ func spawn_point(eid: int, team: int) -> Array:
 	return [pick, atan2(-to_center.x, -to_center.z)]
 
 
-func server_human_joined(pid: int) -> void:
+func server_sync(pid: int) -> void:
 	_s_score.rpc_id(pid, score[0], score[1])
-	super(pid)
 
 
 func server_on_kill(victim_id: int, killer_id: int, _wid: String) -> void:

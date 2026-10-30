@@ -6,15 +6,24 @@ extends Control
 ## `resume_requested`. Becoming visible frees the mouse, resets to the main panel and
 ## animates in. While visible it consumes "pause" / "ui_cancel" in `_input` (it is a
 ## child of the HUD, so it sees Esc first): Esc closes the settings sub-panel, or
-## requests resume.
+## requests resume. `configure(world)` (before showing) sets the match buttons: SPECTATE / PLAY
+## (offline SPECTATE BOTS / PLAY; `spectate_requested`) and PHOTO MODE (offline only, not during
+## a kill cam replay or the results; `photo_requested`).
 
 signal resume_requested
+## SPECTATE (`on`) or PLAY.
+signal spectate_requested(on: bool)
+signal photo_requested
 
 var _dim: ColorRect
 var _menu: PanelContainer
 var _settings: SettingsPanel
 var _resume_button: Button
 var _settings_button: Button
+var _spectate_button: Button
+var _photo_button: Button
+## The spectate button's request: true = spectate, false = play.
+var _spectate_on := true
 var _hint: Label
 ## Host of an online match: how friends can join (room code, Wi-Fi, Steam invite).
 var _invite: InviteBox
@@ -49,6 +58,12 @@ func _ready() -> void:
 	_resume_button = UIKit.button("RESUME", &"PrimaryButton")
 	_resume_button.pressed.connect(func() -> void: resume_requested.emit())
 	v.add_child(_resume_button)
+	_spectate_button = UIKit.button("SPECTATE")
+	_spectate_button.pressed.connect(func() -> void: spectate_requested.emit(_spectate_on))
+	v.add_child(_spectate_button)
+	_photo_button = UIKit.button("PHOTO MODE")
+	_photo_button.pressed.connect(func() -> void: photo_requested.emit())
+	v.add_child(_photo_button)
 	_settings_button = UIKit.button("SETTINGS")
 	_settings_button.pressed.connect(_open_settings)
 	v.add_child(_settings_button)
@@ -65,6 +80,19 @@ func _ready() -> void:
 
 func open() -> void:
 	visible = true
+
+
+## Match state for the buttons, read each time the menu opens.
+func configure(world: World) -> void:
+	_spectate_on = not Net.is_spectator(world.my_id())
+	var key := Profile.key_text("photo_mode")
+	if Net.offline:
+		_spectate_button.text = "SPECTATE BOTS" if _spectate_on else "PLAY"
+	else:
+		_spectate_button.text = "SPECTATE" if _spectate_on else "PLAY"
+	_spectate_button.visible = not world.match_over
+	_photo_button.text = "PHOTO MODE  [%s]" % key
+	_photo_button.visible = world.photo.can_open()
 
 
 func close() -> void:

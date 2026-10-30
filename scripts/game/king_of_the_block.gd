@@ -153,9 +153,8 @@ func _physics_process(delta: float) -> void:
 			world.server_end_match()
 
 
-func server_human_joined(pid: int) -> void:
+func server_sync(pid: int) -> void:
 	_s_state.rpc_id(pid, zone, next_zone, move_at, points, holder, contested, progress)
-	super(pid)
 
 
 func server_human_left(pid: int) -> void:

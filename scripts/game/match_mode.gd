@@ -79,6 +79,18 @@ func on_local_death(_killer_id: int) -> void:
 	pass
 
 
+## Living players a spectator, or the dead local player in a mode without respawns, may follow
+## (Spectator), ordered by entity id. Base: everyone alive but the local player.
+func spectate_candidates() -> Array[Player]:
+	var out: Array[Player] = []
+	for eid: int in world.entities:
+		var p: Player = world.entities[eid]
+		if p.alive and p != world.local_player:
+			out.append(p)
+	out.sort_custom(func(a: Player, b: Player) -> bool: return a.id < b.id)
+	return out
+
+
 # ================================================================ server hooks
 
 ## Team for a player joining now (-1 in free-for-all).
@@ -118,12 +130,18 @@ func bot_drop_team() -> int:
 	return -1 if c[0] == c[1] else (0 if c[0] > c[1] else 1)
 
 
-## A human finished loading the match.
+## A peer finished loading the match (players and spectators): the mode's state so far (scores,
+## zone, phase). Runs before server_human_joined.
+func server_sync(_pid: int) -> void:
+	pass
+
+
+## A human finished loading the match, or a spectator started playing.
 func server_human_joined(pid: int) -> void:
 	world.server_add_human(pid, server_team_for(false), true)
 
 
-## A human left mid-match.
+## A human left mid-match, or started spectating.
 func server_human_left(pid: int) -> void:
 	world.server_remove_entity(pid)
 

@@ -17,6 +17,8 @@ signal invite_changed
 signal lobby_changed
 ## A lobby chat line ("" sender: a system message).
 signal lobby_chat(sender: String, text: String)
+## Server, in a match: peer `pid` asked to spectate (`on`) or to play (World does the switch).
+signal spectate_requested(pid: int, on: bool)
 
 enum Link { DIRECT, STEAM, WEBRTC }
 
@@ -35,7 +37,8 @@ const GAME_ID := "timbum"
 ## 13: prestige rank and mastery camos in peer_info, the weapon id in World._s_hit_confirm, the
 ##     dropper's gun skin on Tactical weapon spots.
 ## 14: the pre-match lobby (Net lobby RPCs) and the results screen's next-map vote.
-const PROTOCOL_VERSION := 14
+## 15: spectators (`spectator` in peer_info, Net spectate RPCs).
+const PROTOCOL_VERSION := 15
 const CONNECT_TIMEOUT := 8.0
 ## A room-code join first tries a direct (NAT punch-through) link this long, then the relay.
 const NAT_CONNECT_TIMEOUT := 6.0
@@ -49,6 +52,8 @@ const LOBBY_COUNTDOWN := 10.0
 ## Maps offered in a map vote (the lobby adds RANDOM_MAP).
 const MAP_VOTE_CHOICES := 3
 const RANDOM_MAP := "random"
+## Spectators allowed on top of Data.MAX_PLAYERS players.
+const MAX_SPECTATORS := 4
 
 const DEFAULT_CONFIG := {
 	## A Data.MODES id: "ffa" (deathmatch), "tdm", "gungame", "koth", "infected" or "tactical"
@@ -70,6 +75,8 @@ const DEFAULT_CONFIG := {
 
 ## peer id -> peer_info dictionary (see Profile.peer_info()). Kept in sync on every peer.
 var players := {}
+## Join as a spectator (the Join screen's option); sent with the registration.
+var join_as_spectator := false
 ## Active match configuration (server's copy is authoritative; clients receive it).
 var config := DEFAULT_CONFIG.duplicate()
 ## Map the world scene should build when it loads.
@@ -291,7 +298,7 @@ func _begin_client(peer: MultiplayerPeer, p_link: Link, timeout: float) -> void:
 ## Same-Wi-Fi discovery answer.
 func _lan_info() -> Dictionary:
 	var host_name: String = players[1].name if players.has(1) else Profile.peer_info().name
-	return {name = host_name, port = host_port, players = players.size(), max = Data.MAX_PLAYERS}
+	return {name = host_name, port = host_port, players = playing_count(), max = Data.MAX_PLAYERS}
 
 
 ## Host: the room code service dropped (or never answered). LAN, IP and already-connected
@@ -450,6 +457,74 @@ func lobby_say(text: String) -> void:
 func lobby_start() -> void:
 	if multiplayer.is_server() and in_lobby:
 		_lobby_begin()
+
+
+# ---------------------------------------------------------------- spectators
+
+## Whether peer `pid` watches without playing (`players[pid].spectator`, set by the server).
+func is_spectator(pid: int) -> bool:
+	return bool((players.get(pid, {}) as Dictionary).get("spectator", false))
+
+
+## Peers taking a player slot (everyone but the spectators); bots fill up to `bots_fill`.
+func playing_count() -> int:
+	var n := 0
+	for pid: int in players:
+		if not is_spectator(pid):
+			n += 1
+	return n
+
+
+func spectator_ids() -> Array:
+	var out: Array = []
+	for pid: int in players:
+		if is_spectator(pid):
+			out.append(pid)
+	out.sort()
+	return out
+
+
+## This player asks to spectate (`on`) or to play: in the lobby (applies from the first match)
+## or in a match (World removes or spawns the player). Offline it spectates the bots.
+func set_spectating(on: bool) -> void:
+	if multiplayer.is_server():
+		_server_request_spectating(1, on)
+	else:
+		_rpc_set_spectating.rpc_id(1, on)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_set_spectating(on: bool) -> void:
+	if multiplayer.is_server():
+		_server_request_spectating(multiplayer.get_remote_sender_id(), on)
+
+
+func _server_request_spectating(pid: int, on: bool) -> void:
+	if not players.has(pid) or is_spectator(pid) == on:
+		return
+	if in_lobby:
+		var err := server_set_spectating(pid, on)
+		_server_lobby_said("", err if not err.is_empty() else "%s %s" % [players[pid].name, "will spectate" if on else "will play"])
+		_server_lobby_update()
+	else:
+		spectate_requested.emit(pid, on)
+
+
+## Server: sets peer `pid`'s spectator flag and tells everyone. Returns "" or why it was refused
+## (no player slot or spectator place left).
+func server_set_spectating(pid: int, on: bool) -> String:
+	if not players.has(pid):
+		return "Unknown player."
+	if is_spectator(pid) == on:
+		return ""
+	if on and spectator_ids().size() >= MAX_SPECTATORS:
+		return "%s can't spectate: all %d spectator places are taken." % [players[pid].name, MAX_SPECTATORS]
+	if not on and playing_count() >= Data.MAX_PLAYERS:
+		return "%s can't play: the match is full (%d players)." % [players[pid].name, Data.MAX_PLAYERS]
+	players[pid].spectator = on
+	_rpc_sync_players.rpc(players)
+	players_changed.emit()
+	return ""
 
 
 func _server_lobby_ready(pid: int, on: bool) -> void:
@@ -717,12 +792,14 @@ func _rpc_update_info(info: Dictionary) -> void:
 		_apply_info(multiplayer.get_remote_sender_id(), info)
 
 
-## Server: replaces a registered peer's info, keeping the (already unique) name it joined with.
+## Server: replaces a registered peer's info, keeping the (already unique) name it joined with
+## and its spectator flag (only set_spectating changes that).
 func _apply_info(id: int, info: Dictionary) -> void:
 	if not players.has(id):
 		return
 	var clean := sanitize_info(info)
 	clean.name = players[id].name
+	clean.spectator = is_spectator(id)
 	players[id] = clean
 	_rpc_sync_players.rpc(players)
 	players_changed.emit()
@@ -744,7 +821,9 @@ func _rpc_load_match(map_id: String, cfg: Dictionary) -> void:
 func _on_connected_to_server() -> void:
 	_connect_timer = null
 	status.emit("Connected. Joining match...")
-	_rpc_register.rpc_id(1, Profile.peer_info(), PROTOCOL_VERSION)
+	var info := Profile.peer_info()
+	info.spectator = join_as_spectator
+	_rpc_register.rpc_id(1, info, PROTOCOL_VERSION)
 
 
 @rpc("any_peer", "call_remote", "reliable")
@@ -758,10 +837,14 @@ func _rpc_register(info: Dictionary, version: int) -> void:
 	if version != PROTOCOL_VERSION:
 		_kick(id, "Version mismatch: host runs protocol %d, you run %d." % [PROTOCOL_VERSION, version])
 		return
-	if players.size() >= Data.MAX_PLAYERS:
+	var clean := sanitize_info(info)
+	# Spectators take no player slot, but only MAX_SPECTATORS of them fit.
+	if clean.spectator and spectator_ids().size() >= MAX_SPECTATORS:
+		_kick(id, "No spectator places left (%d)." % MAX_SPECTATORS)
+		return
+	if not clean.spectator and playing_count() >= Data.MAX_PLAYERS:
 		_kick(id, "Server is full.")
 		return
-	var clean := sanitize_info(info)
 	clean.name = _unique_name(clean.name)
 	players[id] = clean
 	_rpc_sync_players.rpc(players)
@@ -791,6 +874,8 @@ static func sanitize_info(info: Dictionary) -> Dictionary:
 		"level": clampi(int(info.get("level", 1)), 1, 9999),
 		"prestige": clampi(int(info.get("prestige", 0)) if typeof(info.get("prestige", 0)) in [TYPE_INT, TYPE_FLOAT] else 0, 0, Data.PRESTIGE_MAX),
 		"camos": [],
+		# Watches without a player entity (see Spectator); only a real bool counts.
+		"spectator": info.get("spectator", false) is bool and bool(info.get("spectator", false)),
 	}
 	var mods: Variant = info.get("mods", {})
 	if typeof(mods) == TYPE_DICTIONARY:

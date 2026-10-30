@@ -1120,6 +1120,7 @@ const DEFAULT_BINDINGS := {
 	"interact": ["k%d" % KEY_B], "tactical_map": ["k%d" % KEY_M],
 	"scoreboard": ["k%d" % KEY_TAB], "chat": ["k%d" % KEY_T, "k%d" % KEY_ENTER],
 	"skip_killcam": ["k%d" % KEY_K],
+	"spectate_view": ["k%d" % KEY_N], "photo_mode": ["k%d" % KEY_P],
 	"pause": ["k%d" % KEY_ESCAPE],
 }
 ## Keyboard/mouse bindings per action; at most this many codes each.
@@ -1128,7 +1129,7 @@ const MAX_BINDINGS := 2
 ## Default controller bindings, action -> one code: "j<joypad button>", or "a<axis>+" / "a<axis>-"
 ## for a stick direction or a trigger. Godot's SDL layout (Xbox names): buttons A 0, B 1, X 2, Y 3,
 ## Back 4, Start 6, L3 7, R3 8, LB 9, RB 10, D-pad up/down/left/right 11-14; axes: left stick 0 (x)
-## and 1 (y, down is +), right stick 2 and 3, LT 4, RT 5. A pad has 24 inputs for 35 actions, so
+## and 1 (y, down is +), right stick 2 and 3, LT 4, RT 5. A pad has 24 inputs for 37 actions, so
 ## the direct weapon slots, last/previous weapon, peeking and chat have no default (Y cycles the
 ## weapons); the player can bind them. Start is the pause button and can't be rebound.
 const DEFAULT_PAD_BINDINGS := {
@@ -1138,14 +1139,16 @@ const DEFAULT_PAD_BINDINGS := {
 	"sprint": "j7", "melee": "j8", "tactical": "j9", "grenade": "j10",
 	"aim": "a4+", "fire": "a5+",
 	"grapple": "j11", "prone": "j12", "ping": "j13", "streak_reward": "j14",
-	"interact": "j2", "tactical_map": "j11",
+	"interact": "j2", "tactical_map": "j11", "spectate_view": "j2", "photo_mode": "j15",
 	"scoreboard": "j4", "pause": "j6",
 }
 ## Actions that may share one pad button, by default and when rebound, because they never get in
 ## each other's way: Tactical has no grapple hook (so D-pad up opens its floor plan), a gun
 ## swapped in at a Tactical weapon spot comes with a full magazine (so the reload that goes with
-## X's swap does nothing), and the kill cam only plays while you are dead (so A skips it).
-const PAD_SHARED: Array = [["reload", "interact"], ["grapple", "tactical_map"], ["jump", "skip_killcam"]]
+## X's swap does nothing), the kill cam only plays while you are dead (so A skips it), and a
+## spectator (who has no gun to reload or swap) switches the camera view with X.
+const PAD_SHARED: Array = [["reload", "interact"], ["grapple", "tactical_map"], ["jump", "skip_killcam"],
+	["reload", "spectate_view"], ["interact", "spectate_view"]]
 ## Start: the pad's pause button, reserved like Esc.
 const PAD_PAUSE := "j6"
 ## On-screen names of the pad buttons (JoyButton index) and axes ([negative, positive]).

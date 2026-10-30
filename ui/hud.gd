@@ -129,6 +129,8 @@ var _death_detail: Label
 var _death_timer_label: Label
 var _scoreboard: PanelContainer
 var _score_rows: VBoxContainer
+## "SPECTATORS (n) · names" under the scoreboard rows (hidden without spectators).
+var _score_spectators: Label
 var _results: Control
 ## End-of-match banner shown while every camera watches the winner's emote.
 var _win_banner: Label
@@ -268,7 +270,11 @@ func _ready() -> void:
 	# Keeps working while an offline match is frozen (the rest of the HUD stops with the tree).
 	_pause.process_mode = Node.PROCESS_MODE_ALWAYS
 	_pause.resume_requested.connect(_close_pause)
+	_pause.spectate_requested.connect(_on_spectate_requested)
+	_pause.photo_requested.connect(open_photo)
 	add_child(_pause)
+	# The scoreboard's SPECTATORS list follows Net.players.
+	Net.players_changed.connect(func() -> void: _scores_dirty = true)
 
 
 ## Team colours and shapes in the top panel, and the shield colour. When the colour mode changes
@@ -619,6 +625,20 @@ func _build_scoreboard() -> void:
 	v.add_child(_score_row(["#", "PLAYER"] + world.rules.score_columns(), Color(0.7, 0.75, 0.85), false))
 	_score_rows = VBoxContainer.new()
 	v.add_child(_score_rows)
+	_score_spectators = _label("", 17, Color(0.78, 0.82, 0.9))
+	_score_spectators.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_score_spectators.custom_minimum_size.x = 600
+	_score_spectators.visible = false
+	v.add_child(_score_spectators)
+
+
+## The scoreboard's SPECTATORS line: everyone in Net.players watching without playing.
+func spectators_text() -> String:
+	var names: Array[String] = []
+	for pid: int in Net.spectator_ids():
+		var n := Data.badged_name(str(Net.players[pid].name), int(Net.players[pid].get("prestige", 0)))
+		names.append(n + ("  (you)" if pid == world.my_id() else ""))
+	return "" if names.is_empty() else "SPECTATORS (%d)  ·  %s" % [names.size(), ",  ".join(names)]
 
 
 func _score_row(cells: Array, color: Color, highlight: bool) -> Control:
@@ -795,6 +815,8 @@ func _process(delta: float) -> void:
 	_scoreboard.visible = scoreboard_held
 	if _scoreboard.visible and _scores_dirty:
 		_fill_rows(_score_rows, _sorted_rows())
+		_score_spectators.text = spectators_text()
+		_score_spectators.visible = not _score_spectators.text.is_empty()
 		_scores_dirty = false
 	_fps_label.visible = Profile.get_setting("show_fps")
 	_killfeed.visible = Profile.get_setting("killfeed")
@@ -840,6 +862,15 @@ func _process(delta: float) -> void:
 		_crosshair.visible = false
 		_scope.visible = false
 		_protect_label.visible = false
+		if p == null:
+			# Spectating (no player of our own): the Spectator overlay shows whom we watch.
+			_health_card.visible = false
+			_weapon_card.visible = false
+			var cam := get_viewport().get_camera_3d()
+			if cam != null:
+				_compass.heading = -cam.global_rotation.y
+				_compass.queue_redraw()
+			_update_mode_hud()
 		return
 	var hp_frac := p.health / p.max_health()
 	_health_label.text = str(int(ceil(p.health)))
@@ -943,7 +974,8 @@ func _age_list(list: Container, delta: float, life: float) -> void:
 
 func is_blocking() -> bool:
 	return _pause.visible or _chat_input.visible or _results.visible \
-		or (world.tactical != null and world.tactical.overlay.is_blocking())
+		or (world.tactical != null and world.tactical.overlay.is_blocking()) \
+		or (world.photo != null and world.photo.is_open())
 
 
 func refresh_scores() -> void:
@@ -977,6 +1009,9 @@ func refresh_scores() -> void:
 		elif mine == top:
 			gap = "  -  leading by %d" % (top - runner_up) if top > runner_up else "  -  tied for the lead"
 		_rank_label.text = "You: %s  -  #%d of %d%s" % [rules.race_text(mine), my_rank, rows.size(), gap]
+	elif Net.is_spectator(me):
+		_you_bar.value = 0.0
+		_rank_label.text = "Spectating  ·  %d players" % rows.size()
 	# Only an outright lead counts, so ties don't flicker the callout.
 	if top > runner_up:
 		var leader := int(rows[0].id)
@@ -1547,6 +1582,7 @@ func _input(event: InputEvent) -> void:
 
 
 func _open_pause() -> void:
+	_pause.configure(world)
 	_pause.visible = true
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	world.set_frozen(true)
@@ -1556,9 +1592,31 @@ func _open_pause() -> void:
 ## match), so the match doesn't carry on without you.
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_FOCUS_OUT and is_inside_tree() and not _pause.visible \
-			and not _results.visible and not _celebrating:
+			and not _results.visible and not _celebrating and not world.photo.is_open():
 		_close_chat()
 		_open_pause()
+
+
+func is_chatting() -> bool:
+	return _chat_input.visible
+
+
+## Pause menu PHOTO MODE or the photo_mode key (offline): the pause menu makes way (the match
+## stays frozen) and comes back when photo mode closes.
+func open_photo() -> void:
+	if not world.photo.can_open():
+		return
+	_close_chat()
+	_pause.visible = false
+	if not world.photo.closed.is_connected(_open_pause):
+		world.photo.closed.connect(_open_pause)
+	world.photo.open()
+
+
+## Pause menu SPECTATE / PLAY (offline: SPECTATE BOTS / PLAY): back to the match, then switch.
+func _on_spectate_requested(on: bool) -> void:
+	_close_pause()
+	world.request_spectate(on)
 
 
 func _unhandled_input(event: InputEvent) -> void:

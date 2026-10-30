@@ -53,6 +53,10 @@ var streaks: Streaks
 var pings: Pings
 ## Kill cam replay (records on every peer; plays when another player kills the local player).
 var killcam: KillCam
+## Spectating: a spectator's free / follow camera, or a dead player following teammates (Tactical).
+var spectator: Spectator
+## Photo mode (offline only): frozen match, free camera, filters, screenshots.
+var photo: PhotoMode
 
 var _entities_root: Node3D
 var _shake := 0.0
@@ -161,6 +165,12 @@ func _ready() -> void:
 	killcam.name = "KillCam"
 	killcam.world = self
 	add_child(killcam)
+	spectator = Spectator.new()
+	spectator.world = self
+	add_child(spectator)
+	photo = PhotoMode.new()
+	photo.world = self
+	add_child(photo)
 	time_left = float(Net.config.time_limit)
 	# Today's challenges exist before the first kill (live toasts compare against them).
 	Profile.refresh_challenges()
@@ -169,8 +179,11 @@ func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	if multiplayer.is_server():
 		multiplayer.peer_disconnected.connect(_on_peer_disconnected)
+		Net.spectate_requested.connect(_server_spectate)
 		var me := multiplayer.get_unique_id()
-		_server_add_entity(me, Net.players[me], false, rules.server_team_for(false))
+		# A host who spectates (offline: "Spectate bots") has no entity; bots take the slot.
+		if not Net.is_spectator(me):
+			_server_add_entity(me, Net.players[me], false, rules.server_team_for(false))
 		_balance_bots()
 	else:
 		_c_ready.rpc_id(1)
@@ -410,12 +423,13 @@ func _balance_bots() -> void:
 	rules.server_balance()
 
 
-## The standard bot balance (MatchMode.server_balance): keeps bots + humans at `bots_fill`.
-## When a bot has to leave, it comes from the mode's `bot_drop_team()` (team modes: the bigger
-## team) and is the one whose exit disturbs the match least: dead bots first, then bots out of
-## combat, then the lowest scorer. New bots join the team the mode picks.
+## The standard bot balance (MatchMode.server_balance): keeps bots + playing humans at
+## `bots_fill` (spectators take no slot). When a bot has to leave, it comes from the mode's
+## `bot_drop_team()` (team modes: the bigger team) and is the one whose exit disturbs the match
+## least: dead bots first, then bots out of combat, then the lowest scorer. New bots join the
+## team the mode picks.
 func server_balance_bots() -> void:
-	var want := maxi(0, int(Net.config.bots_fill) - Net.players.size())
+	var want := maxi(0, int(Net.config.bots_fill) - Net.playing_count())
 	var bots: Array[int] = []
 	for eid: int in entities:
 		if eid < 0:
@@ -541,6 +555,34 @@ func _on_peer_disconnected(pid: int) -> void:
 	if match_over and not _advancing:
 		_server_tally_maps()
 		_server_tally_skip()
+
+
+## Peer `pid` asked to spectate (`on`) or to play (Net.spectate_requested). Net sets the flag (or
+## refuses: no spectator place or player slot left, told to them in chat); then a player who
+## spectates leaves the match like a leaver (Tactical: a bot takes over their living body) and a
+## spectator who plays joins like a joiner, and the bots rebalance (one leaves or comes back).
+## During the results nothing spawns; the next match uses the flag.
+func _server_spectate(pid: int, on: bool) -> void:
+	var err := Net.server_set_spectating(pid, on)
+	if not err.is_empty():
+		if pid == my_id():
+			_s_chat("", err)
+		elif _ready_peers.has(pid):
+			_s_chat.rpc_id(pid, "", err)
+		return
+	var who := str(Net.players[pid].name)
+	if not match_over:
+		if on and entities.has(pid):
+			rules.server_human_left(pid)
+		elif not on and not entities.has(pid) and (pid == my_id() or _ready_peers.has(pid)):
+			rules.server_human_joined(pid)
+		_balance_bots()
+	_server_chat_system("%s is spectating" % who if on else "%s joined the match" % who)
+
+
+## This player spectates (`on`) or plays (pause menu; offline: spectate the bots).
+func request_spectate(on: bool) -> void:
+	Net.set_spectating(on)
 
 
 # ================================================================ server: combat
@@ -937,6 +979,7 @@ func _server_chat(sender: int, text: String) -> void:
 
 func _play_shot_fx(p: Player, wid: String, ends: PackedVector3Array, normals: PackedVector3Array) -> void:
 	killcam.record_shot(p, wid, ends, normals)
+	spectator.on_shot(p, wid)
 	var w: Dictionary = Data.WEAPONS[wid]
 	var muzzle := p.muzzle_position()
 	var is_local := p == local_player
@@ -996,6 +1039,11 @@ func _c_ready() -> void:
 		_server_tally_skip()
 		return
 	streaks.server_sync(pid)
+	rules.server_sync(pid)
+	# A spectator gets everything above but no entity: nothing to see, hit or collide with.
+	if Net.is_spectator(pid):
+		_server_chat_system("%s is spectating" % Net.players[pid].name)
+		return
 	rules.server_human_joined(pid)
 	_server_chat_system("%s joined the game" % Net.players[pid].name)
 	_balance_bots()
@@ -1268,6 +1316,7 @@ func _s_spawn_projectile(pid: int, kind: String, owner_id: int, origin: Vector3,
 	add_child(proj)
 	projectiles[pid] = proj
 	killcam.record_launch(owner_id, kind)
+	spectator.on_launch(owner_id, kind)
 	if owner_id != my_id():
 		Sfx.play(&"shot_rocket" if kind == "rocket" else &"grenade_throw", origin)
 	var thrower: Player = entities.get(owner_id)

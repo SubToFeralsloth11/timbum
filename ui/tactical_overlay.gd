@@ -223,10 +223,6 @@ func markers_changed() -> void:
 		_markers.queue_redraw()
 
 
-func spectate_changed() -> void:
-	pass
-
-
 func is_blocking() -> bool:
 	return map != null and map.visible
 

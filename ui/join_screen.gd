@@ -19,6 +19,8 @@ var _ip: LineEdit
 var _port: LineEdit
 var _join_buttons: Array[Button] = []
 var _cancel: Button
+## Join as a spectator (Net.join_as_spectator) for any of the joins on this page.
+var _spectate: CheckButton
 var _status: Label
 var _spinner: Label
 var _connecting := false
@@ -96,6 +98,16 @@ func _ready() -> void:
 	row.add_child(join_ip)
 	_join_buttons.append(join_ip)
 	_hint(v, "An IP, a hostname, a Tailscale or ZeroTier address (both players in the same virtual network), or a playit.gg tunnel address.")
+
+	v.add_child(HSeparator.new())
+	_spectate = CheckButton.new()
+	_spectate.text = "JOIN AS SPECTATOR"
+	_spectate.tooltip_text = "Watch without taking a player slot: fly around or follow any player. Press PLAY in the pause menu to join the fight."
+	_spectate.button_pressed = Net.join_as_spectator
+	_spectate.toggled.connect(func(on: bool) -> void: Net.join_as_spectator = on)
+	UIKit.wire(_spectate)
+	v.add_child(_spectate)
+	_hint(v, "Spectators take no player slot (a bot keeps it) and can switch to playing from the pause menu.")
 
 	v.add_child(UIKit.spacer(false))
 	var status_box := UIKit.panel(&"InsetPanel")
