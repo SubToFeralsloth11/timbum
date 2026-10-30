@@ -74,6 +74,11 @@ func _ready() -> void:
 		add_child(glow)
 
 
+## False once it has hit something and waits (hidden) for the server's explosion.
+func in_flight() -> bool:
+	return not _stopped
+
+
 func _orient() -> void:
 	if kind == "rocket" and vel.length_squared() > 0.01:
 		var dir := vel.normalized()

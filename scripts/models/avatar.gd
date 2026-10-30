@@ -525,6 +525,10 @@ func set_tint(mat: Material) -> void:
 	_apply_overlay()
 
 
+func get_tint() -> Material:
+	return _tint
+
+
 func _apply_overlay() -> void:
 	var overlay: Material = _tint
 	if _flash > 0.0:

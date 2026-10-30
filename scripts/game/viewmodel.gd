@@ -342,7 +342,14 @@ func play_draw(length := 0.3) -> void:
 
 
 func update_pose(delta: float, p: Player) -> void:
-	var ads := p.aim_blend
+	pose(delta, p.aim_blend, p.sprinting, p.sliding, p.grappling,
+		Basis(Vector3.UP, p.yaw).inverse() * p.velocity, p.on_floor_visual, p.anim_speed, p.crouching)
+
+
+## The pose from explicit movement state, for the local player (update_pose) and the kill cam's
+## replay of another player's view (KillCam). `local_vel` is the velocity in the yaw frame.
+func pose(delta: float, ads: float, sprinting: bool, sliding: bool, grappling: bool, local_vel: Vector3,
+		on_floor: bool, anim_speed: float, crouching: bool) -> void:
 	_sway_smooth = _sway_smooth.lerp(_sway, minf(1.0, delta * 12.0))
 	_sway = _sway.lerp(Vector2.ZERO, minf(1.0, delta * 10.0))
 	_kick = move_toward(_kick, 0.0, delta * 6.0)
@@ -353,20 +360,19 @@ func update_pose(delta: float, p: Player) -> void:
 	_throw_t = maxf(0.0, _throw_t - delta)
 	_land_kick = move_toward(_land_kick, 0.0, delta * 4.0)
 	_breath_t += delta
-	_sprint_blend = move_toward(_sprint_blend, 1.0 if p.sprinting else 0.0, delta * 6.0)
-	_slide_blend = move_toward(_slide_blend, 1.0 if p.sliding else 0.0, delta * 7.0)
-	_grapple_blend = move_toward(_grapple_blend, 1.0 if p.grappling else 0.0, delta * 8.0)
-	var local_vel := Basis(Vector3.UP, p.yaw).inverse() * p.velocity
+	_sprint_blend = move_toward(_sprint_blend, 1.0 if sprinting else 0.0, delta * 6.0)
+	_slide_blend = move_toward(_slide_blend, 1.0 if sliding else 0.0, delta * 7.0)
+	_grapple_blend = move_toward(_grapple_blend, 1.0 if grappling else 0.0, delta * 8.0)
 	_strafe = lerpf(_strafe, clampf(local_vel.x / Player.SPRINT_SPEED, -1.0, 1.0), minf(1.0, delta * 8.0))
 	# Landing dips the gun in proportion to how hard the player came down.
-	if p.on_floor_visual and not _was_floor:
+	if on_floor and not _was_floor:
 		_land_kick = clampf(-_air_vy / 14.0, 0.0, 1.0)
-	if not p.on_floor_visual:
-		_air_vy = p.velocity.y
-	_was_floor = p.on_floor_visual
-	if p.on_floor_visual and not p.sliding:
-		_bob_t += delta * p.anim_speed * 1.55
-	var speed_k := clampf(p.anim_speed / Player.WALK_SPEED, 0.0, 1.5) * (1.0 if p.on_floor_visual and not p.sliding else 0.3)
+	if not on_floor:
+		_air_vy = local_vel.y
+	_was_floor = on_floor
+	if on_floor and not sliding:
+		_bob_t += delta * anim_speed * 1.55
+	var speed_k := clampf(anim_speed / Player.WALK_SPEED, 0.0, 1.5) * (1.0 if on_floor and not sliding else 0.3)
 
 	var pos := HIP_POS.lerp(_ads_pos, ads)
 	var rot := Vector3.ZERO
@@ -397,7 +403,7 @@ func update_pose(delta: float, p: Player) -> void:
 	pos += Vector3(0.02, -0.06, 0.04) * _grapple_blend
 	pos.y -= _land_kick * 0.045
 	rot.x -= _land_kick * 0.09
-	if p.crouching and not p.sliding:
+	if crouching and not sliding:
 		rot.z += 0.06 * (1.0 - ads)
 	if _reload_t > 0.0:
 		var u := 1.0 - _reload_t / _reload_len

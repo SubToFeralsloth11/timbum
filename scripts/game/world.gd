@@ -51,6 +51,8 @@ var tactical: Tactical
 var streaks: Streaks
 ## Quick pings (child "Pings"; idle outside team modes).
 var pings: Pings
+## Kill cam replay (records on every peer; plays when another player kills the local player).
+var killcam: KillCam
 
 var _entities_root: Node3D
 var _shake := 0.0
@@ -153,6 +155,10 @@ func _ready() -> void:
 	pings = Pings.new()
 	pings.world = self
 	add_child(pings)
+	killcam = KillCam.new()
+	killcam.name = "KillCam"
+	killcam.world = self
+	add_child(killcam)
 	time_left = float(Net.config.time_limit)
 	# Today's challenges exist before the first kill (live toasts compare against them).
 	Profile.refresh_challenges()
@@ -893,6 +899,7 @@ func _server_chat(sender: int, text: String) -> void:
 
 
 func _play_shot_fx(p: Player, wid: String, ends: PackedVector3Array, normals: PackedVector3Array) -> void:
+	killcam.record_shot(p, wid, ends, normals)
 	var w: Dictionary = Data.WEAPONS[wid]
 	var muzzle := p.muzzle_position()
 	var is_local := p == local_player
@@ -1025,6 +1032,7 @@ func _s_despawn(eid: int) -> void:
 	entities.erase(eid)
 	streaks.on_death(eid)
 	if p == local_player:
+		killcam.stop("left")
 		local_player = null
 	p.queue_free()
 
@@ -1085,6 +1093,7 @@ func _s_damaged(eid: int, hp: float, attacker_id: int, from_pos: Vector3, shield
 	p.on_damaged(hp, attacker_id)
 	if attacker_id != eid:
 		fx.blood(p.global_position + Vector3.UP * (p.body_center_height() - 0.15))
+		killcam.record_hit(p)
 	if had_shield > shield:
 		var sound := &"shield_break" if shield <= 0.0 else &"shield_hit"
 		Sfx.play(sound, null if p == local_player else p.global_position, -2.0 if p == local_player else -6.0)
@@ -1164,6 +1173,7 @@ func _s_killed(victim_id: int, killer_id: int, wid: String, head: bool, killer_h
 		_my_multi = 0
 		hud.show_death(display_name(killer_id) if killer_id != me else "", weapon_label(wid), rules.respawn_delay(), _death_detail(killer_id, killer_hp, killer_dist))
 		rules.on_local_death(killer_id)
+		killcam.on_local_death(killer_id, wid)
 		_my_damage_taken.clear()
 
 
@@ -1192,6 +1202,8 @@ func _s_respawn(eid: int, pos: Vector3, p_yaw: float) -> void:
 	var p: Player = entities.get(eid)
 	if p == null:
 		return
+	if p == local_player:
+		killcam.stop("respawn")
 	p.respawn(pos, p_yaw)
 	if p == local_player:
 		hud.hide_death()
@@ -1211,6 +1223,7 @@ func _s_spawn_projectile(pid: int, kind: String, owner_id: int, origin: Vector3,
 	proj.setup(self, pid, kind, owner_id, origin, vel)
 	add_child(proj)
 	projectiles[pid] = proj
+	killcam.record_launch(owner_id, kind)
 	if owner_id != my_id():
 		Sfx.play(&"shot_rocket" if kind == "rocket" else &"grenade_throw", origin)
 	var thrower: Player = entities.get(owner_id)
@@ -1224,6 +1237,7 @@ func _s_spawn_projectile(pid: int, kind: String, owner_id: int, origin: Vector3,
 @rpc("authority", "call_remote", "reliable")
 func _s_explode(pid: int, pos: Vector3, kind: String) -> void:
 	var proj: Projectile = projectiles.get(pid)
+	killcam.record_explosion(pos, kind)
 	if proj != null:
 		projectiles.erase(pid)
 		proj.queue_free()
@@ -1356,6 +1370,7 @@ func _s_chat(sender_name: String, text: String) -> void:
 
 @rpc("authority", "call_remote", "reliable")
 func _s_match_end(rows: Array, next: Dictionary, wait: float) -> void:
+	killcam.stop("match_end")
 	match_over = true
 	results = rows
 	next_up = next

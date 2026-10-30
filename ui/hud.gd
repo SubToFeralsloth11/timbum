@@ -147,6 +147,13 @@ var _results_leave: Button
 var _results_pickers := {}
 var _pause: PauseMenu
 var _fps_label: Label
+## Kill cam (KillCam) playing: the player's own cards, crosshair and death screen are hidden;
+## the kill feed, chat, toasts, scoreboard and pause menu stay.
+var _killcam := false
+## The death screen was up when the kill cam hid it (it comes back when the replay ends).
+var _death_under_killcam := false
+## Compass, clock and score race strip across the top.
+var _top: Control
 
 var _death_left := 0.0
 var _results_left := 0.0
@@ -314,6 +321,7 @@ func _build_top() -> void:
 	col.add_theme_constant_override("separation", 4)
 	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_root.add_child(col)
+	_top = col
 	_compass = Compass.new()
 	_compass.custom_minimum_size = Vector2(440, 30)
 	_compass.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
@@ -778,9 +786,9 @@ func _process(delta: float) -> void:
 	if not _chat_input.visible:
 		_age_list(_chat_log, delta, CHAT_LIFE)
 
+	if _death_left > 0.0:
+		_death_left = maxf(0.0, _death_left - delta)
 	if _death_panel.visible:
-		if _death_left >= 0.0:
-			_death_left = maxf(0.0, _death_left - delta)
 		if _death_left < 0.0:
 			_death_timer_label.text = "No respawns in Tactical  ·  spectating your team next"
 		else:
@@ -797,7 +805,7 @@ func _process(delta: float) -> void:
 	# Full white for the first part of the blindness, then it fades.
 	_flash_rect.color.a = _flash_peak * clampf(_flash_left / (_flash_total * 0.6), 0.0, 1.0)
 
-	if p == null or _celebrating:
+	if p == null or _celebrating or _killcam:
 		_crosshair.visible = false
 		_scope.visible = false
 		_protect_label.visible = false
@@ -1272,6 +1280,27 @@ func show_death(killer: String, weapon: String, respawn_time: float, detail := "
 
 func hide_death() -> void:
 	_death_panel.visible = false
+	_death_under_killcam = false
+
+
+## The kill cam (KillCam) starts or ends: hides the player's own HUD (cards, top strip, crosshair,
+## death screen) while it plays and brings back the death screen if the player is still dead.
+func set_killcam(on: bool) -> void:
+	if on == _killcam:
+		return
+	_killcam = on
+	if on:
+		_death_under_killcam = _death_panel.visible
+		_death_panel.visible = false
+	elif _death_under_killcam:
+		_death_panel.visible = true
+		_death_under_killcam = false
+	for c: Control in [_top, _health_card, _weapon_card, _hint_label, _damage_ring, _vignette]:
+		c.visible = not on
+	if on:
+		_crosshair.visible = false
+		_scope.visible = false
+		_protect_label.visible = false
 
 
 func add_chat(sender: String, text: String) -> void:

@@ -514,6 +514,7 @@ func _s_strike(id: int, caller: int, points: PackedVector3Array, land_in: float,
 @rpc("authority", "call_remote", "reliable")
 func _s_blast(id: int, index: int, pos: Vector3) -> void:
 	world.fx.explosion(pos)
+	world.killcam.record_explosion(pos, "bomber")
 	Sfx.play(&"explosion", pos, 2.0)
 	if world.local_player != null:
 		world.shake(clampf(1.4 - world.local_player.global_position.distance_to(pos) / 10.0, 0.0, 1.2))

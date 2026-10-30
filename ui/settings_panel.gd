@@ -19,7 +19,7 @@ const CONTROLS: Array = [
 	["tactical", "Tactical grenade"], ["melee", "Quick melee"], ["grapple", "Grapple hook"],
 	["streak_reward", "Call in Block Bomber (killstreak)"], ["ping", "Ping (team modes)"],
 	["interact", "Swap weapon (Tactical)"], ["tactical_map", "Floor plan (Tactical)"],
-	["scoreboard", "Scoreboard"], ["chat", "Chat"],
+	["scoreboard", "Scoreboard"], ["chat", "Chat"], ["skip_killcam", "Skip kill cam"],
 ]
 ## The `index` meta of a binding button in the controller column (key columns are 0 and 1).
 const PAD_SLOT := -1
@@ -177,6 +177,7 @@ func _ready() -> void:
 	_check_row(gameplay, "show_fps", "Show FPS counter")
 	_check_row(gameplay, "damage_numbers", "Show damage numbers")
 	_check_row(gameplay, "killfeed", "Show kill feed")
+	_check_row(gameplay, "killcam", "Kill cam (replay your killer's view)")
 
 	var crosshair := _preview_page(pages, CrosshairPreview.new())
 	_option_row(crosshair, "crosshair_style", "Style", Crosshair.STYLE_NAMES)
