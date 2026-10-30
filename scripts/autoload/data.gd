@@ -397,6 +397,10 @@ const XP_PER_KILL := 100
 const XP_PER_HEADSHOT := 25
 const XP_MATCH := 150
 
+## Kill sources tracked in the per-weapon stats besides Data.WEAPONS: frag grenades and the Block
+## Bomber (Streaks.WEAPON). They have kills, headshots and damage but no shots.
+const STAT_EXTRA_SOURCES: Array[String] = ["grenade", "bomber"]
+
 
 func catalog(category: String) -> Dictionary:
 	match category:

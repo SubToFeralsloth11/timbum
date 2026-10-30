@@ -48,6 +48,13 @@ const DEFAULT_STATS := {
 	"kills": 0, "deaths": 0, "headshots": 0, "matches": 0, "wins": 0,
 	"best_streak": 0, "coins_earned": 0,
 }
+## Per-weapon numbers kept for each Data.WEAPONS id and Data.STAT_EXTRA_SOURCES (weapon_stats).
+## A shot is one round leaving the gun: one trigger pull of a single-shot gun, each round of a
+## burst (a 3-round burst is 3 shots), one shotgun shell however many pellets it holds, one rocket,
+## one knife swing. A hit is a shot that struck at least one enemy (never more than one hit per
+## shot, so accuracy stays 0-100 %). Damage is what the server says the hits took (health and
+## Overshield). Grenades and the Block Bomber have kills, headshots and damage but no shots.
+const WEAPON_STAT_KEYS: Array[String] = ["kills", "headshots", "shots", "hits", "damage"]
 
 var player_name := "Player"
 var coins := 500
@@ -64,6 +71,8 @@ var upgrades := {}
 var settings := DEFAULT_SETTINGS.duplicate()
 var stats := DEFAULT_STATS.duplicate()
 var last_daily := 0
+## Lifetime per-weapon stats: weapon or source id -> {kills, headshots, shots, hits, damage}.
+var weapon_stats := {}
 
 ## Set to false by tests so they never touch the real save file.
 var persist := true
@@ -239,9 +248,13 @@ func claim_daily() -> int:
 	return Data.DAILY_REWARD
 
 
-## result: {kills, deaths, headshots, placement (1-based), players, won, best_streak}
-## Returns {coins, xp, levels_gained, breakdown}; breakdown is [[label, coins, xp], ...], one row
-## per source, in the order the results screen lists them.
+## result: {kills, deaths, headshots, placement (1-based), players, won, best_streak, weapons}
+## `weapons` is the match's per-weapon numbers (World.my_weapon_stats: id -> {kills, headshots,
+## shots, hits, damage}); they are added to weapon_stats.
+## Returns {coins, xp, levels_gained, breakdown, accuracy, shots, hits, most_used};
+## breakdown is [[label, coins, xp], ...], one row per source, in the order the results screen
+## lists them. accuracy is hits / shots of the match (-1 without shots), most_used the weapon
+## fired most ("" if none).
 func record_match(result: Dictionary) -> Dictionary:
 	var kills := int(result.get("kills", 0))
 	var heads := int(result.get("headshots", 0))
@@ -261,6 +274,9 @@ func record_match(result: Dictionary) -> Dictionary:
 		breakdown.append(["Victory", place_coins, 200])
 	elif place_coins > 0:
 		breakdown.append(["#%d place" % placement, place_coins, 0])
+	var match_weapons := _clean_weapon_stats(result.get("weapons", {}))
+	var summary := match_summary(match_weapons)
+	_add_weapon_stats(match_weapons)
 	var earned := 0
 	var gained_xp := 0
 	for row: Array in breakdown:
@@ -285,7 +301,73 @@ func record_match(result: Dictionary) -> Dictionary:
 	stats.coins_earned += earned
 	save()
 	changed.emit()
-	return {"coins": earned, "xp": gained_xp, "levels_gained": levels, "breakdown": breakdown}
+	var out := {"coins": earned, "xp": gained_xp, "levels_gained": levels, "breakdown": breakdown}
+	out.merge(summary)
+	return out
+
+
+# ---------------------------------------------------------------- per-weapon stats
+
+## Every id weapon_stats tracks: the weapons, then the frag grenade and the Block Bomber.
+static func stat_sources() -> Array[String]:
+	var ids: Array[String] = []
+	for id: String in Data.WEAPONS:
+		ids.append(id)
+	ids.append_array(Data.STAT_EXTRA_SOURCES)
+	return ids
+
+
+## Lifetime `key` (one of WEAPON_STAT_KEYS) for weapon or source `wid`.
+func weapon_stat(wid: String, key: String) -> int:
+	return int((weapon_stats.get(wid, {}) as Dictionary).get(key, 0))
+
+
+## Match accuracy and most-used weapon of a set of per-weapon numbers (see record_match).
+static func match_summary(per_weapon: Dictionary) -> Dictionary:
+	var shots := 0
+	var hits := 0
+	var most := ""
+	for id: String in per_weapon:
+		var s: Dictionary = per_weapon[id]
+		shots += int(s.get("shots", 0))
+		hits += int(s.get("hits", 0))
+		if int(s.get("shots", 0)) <= 0 or not Data.WEAPONS.has(id):
+			continue
+		if most.is_empty() or int(s.shots) > int(per_weapon[most].shots) \
+				or (int(s.shots) == int(per_weapon[most].shots) and int(s.get("kills", 0)) > int(per_weapon[most].get("kills", 0))):
+			most = id
+	return {"shots": shots, "hits": hits, "accuracy": float(hits) / shots if shots > 0 else -1.0, "most_used": most}
+
+
+## Keeps known ids and non-negative whole numbers, with hits never above shots.
+static func _clean_weapon_stats(raw: Variant) -> Dictionary:
+	var out := {}
+	if typeof(raw) != TYPE_DICTIONARY:
+		return out
+	for id: String in stat_sources():
+		var s: Variant = (raw as Dictionary).get(id)
+		if typeof(s) != TYPE_DICTIONARY:
+			continue
+		var clean := {}
+		var any := false
+		for key: String in WEAPON_STAT_KEYS:
+			var v: Variant = (s as Dictionary).get(key, 0)
+			clean[key] = maxi(0, roundi(float(v)) if typeof(v) in [TYPE_INT, TYPE_FLOAT] else 0)
+			any = any or clean[key] > 0
+		clean.hits = mini(clean.hits, clean.shots) if Data.WEAPONS.has(id) else 0
+		if not Data.WEAPONS.has(id):
+			clean.shots = 0
+		if any:
+			out[id] = clean
+	return out
+
+
+func _add_weapon_stats(per_weapon: Dictionary) -> void:
+	for id: String in per_weapon:
+		var total: Dictionary = weapon_stats.get(id, {})
+		for key: String in WEAPON_STAT_KEYS:
+			total[key] = int(total.get(key, 0)) + int(per_weapon[id][key])
+		weapon_stats[id] = total
 
 
 # ---------------------------------------------------------------- settings
@@ -358,6 +440,7 @@ func _payload() -> Dictionary:
 		"player_name": player_name, "coins": coins, "xp": xp, "level": level,
 		"owned": owned, "loadout": loadout, "equipped": equipped, "upgrades": upgrades,
 		"settings": settings, "stats": stats, "last_daily": last_daily, "bindings": bindings,
+		"weapon_stats": weapon_stats,
 	}
 
 
@@ -492,6 +575,8 @@ func load_from_dict(d: Dictionary) -> void:
 			var lvl := clampi(_num(saved_up.get(id), 0), 0, int(Data.ATTACHMENTS[id].max))
 			if lvl > 0:
 				upgrades[id] = lvl
+	# Per-weapon stats (saves from before them start empty).
+	weapon_stats = _clean_weapon_stats(d.get("weapon_stats", {}))
 	_load_bindings(d.get("bindings", {}))
 
 

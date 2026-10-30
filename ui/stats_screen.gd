@@ -26,15 +26,24 @@ var _export_dialog: FileDialog
 var _import_dialog: FileDialog
 var _confirm: ConfirmationDialog
 var _import_path := ""
+var _weapon_table: GridContainer
+## Per-weapon table columns: [header, minimum width].
+const WEAPON_COLUMNS: Array = [["WEAPON", 190], ["KILLS", 70], ["ACCURACY", 100], ["HEADSHOT %", 100],
+	["DAMAGE", 90]]
 
 
 func _ready() -> void:
 	var page := make_page()
 	page.add_child(make_header("STATS", "Your career across every match."))
+	# Scrolls when the per-weapon table and the dev card don't fit the window.
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	page.add_child(scroll)
 	var center := CenterContainer.new()
-	center.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	center.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	page.add_child(center)
+	scroll.add_child(center)
 	var col := UIKit.vbox(16)
 	col.custom_minimum_size.x = 780
 	center.add_child(col)
@@ -80,6 +89,17 @@ func _ready() -> void:
 	_grid.add_theme_constant_override("h_separation", 12)
 	_grid.add_theme_constant_override("v_separation", 12)
 	col.add_child(_grid)
+
+	var table_card := UIKit.panel()
+	col.add_child(table_card)
+	var tv := UIKit.vbox(8)
+	table_card.add_child(tv)
+	tv.add_child(UIKit.label("PER WEAPON", &"SubheaderLabel"))
+	_weapon_table = GridContainer.new()
+	_weapon_table.columns = WEAPON_COLUMNS.size()
+	_weapon_table.add_theme_constant_override("h_separation", 14)
+	_weapon_table.add_theme_constant_override("v_separation", 4)
+	tv.add_child(_weapon_table)
 
 	_build_dev_card(col)
 	_dev_timer = Timer.new()
@@ -232,7 +252,37 @@ func on_shown() -> void:
 	_tile("BEST STREAK", UIKit.format_int(int(s.best_streak)), UITheme.TEXT)
 	_tile("COINS EARNED", UIKit.format_int(int(s.coins_earned)), UITheme.ACCENT)
 	_dev_text = ""
+	_fill_weapon_table()
 	_refresh_dev()
+
+
+## One row per weapon (and grenade / Block Bomber) the player has used: kills, accuracy,
+## headshot share of kills and damage.
+func _fill_weapon_table() -> void:
+	for c in _weapon_table.get_children():
+		c.queue_free()
+	for col: Array in WEAPON_COLUMNS:
+		var h := UIKit.label(str(col[0]), &"SmallLabel")
+		h.custom_minimum_size.x = int(col[1])
+		_weapon_table.add_child(h)
+	var any := false
+	for id: String in Profile.stat_sources():
+		var kills := Profile.weapon_stat(id, "kills")
+		var shots := Profile.weapon_stat(id, "shots")
+		var damage := Profile.weapon_stat(id, "damage")
+		if kills == 0 and shots == 0 and damage == 0:
+			continue
+		any = true
+		var name_text: String = str(Data.WEAPONS[id].name) if Data.WEAPONS.has(id) else World.weapon_label(id)
+		var acc := "-" if shots == 0 else "%d%%" % roundi(100.0 * Profile.weapon_stat(id, "hits") / shots)
+		var hs := "-" if kills == 0 else "%d%%" % roundi(100.0 * Profile.weapon_stat(id, "headshots") / kills)
+		for cell: String in [name_text, UIKit.format_int(kills), acc, hs, UIKit.format_int(damage)]:
+			var l := UIKit.label(cell, &"ValueLabel")
+			l.add_theme_font_size_override("font_size", 16)
+			_weapon_table.add_child(l)
+	if not any:
+		var empty := UIKit.label("Play a match to fill this table.", &"DimLabel")
+		_weapon_table.add_child(empty)
 
 
 func _tile(caption: String, value: String, color: Color, note := "") -> void:

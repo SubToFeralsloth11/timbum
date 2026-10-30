@@ -1280,6 +1280,7 @@ func show_results(rows: Array, placement: int, rewards: Dictionary, wait: float,
 			_results_scroll.get_v_scroll_bar().changed.connect(func() -> void: _results_scroll.scroll_vertical = target, CONNECT_ONE_SHOT)
 	_fill_highlights(rows)
 	_fill_rewards(rewards)
+	_fill_match_stats(rewards)
 	_fill_next(next)
 	_fill_results_loadout()
 	_results_skip.disabled = false
@@ -1367,6 +1368,20 @@ func _fill_highlights(rows: Array) -> void:
 		_results_highlights.add_child(l)
 	for extra: Array in world.rules.extra_highlights(rows):
 		_results_highlights.add_child(_label(str(extra[0]), 18, Color(1, 0.82, 0.25) if extra[1] else Color.WHITE))
+
+
+## The local player's match accuracy and most-used weapon (Profile.record_match), under the
+## highlights.
+func _fill_match_stats(rewards: Dictionary) -> void:
+	var parts: Array[String] = []
+	if float(rewards.get("accuracy", -1.0)) >= 0.0:
+		parts.append("Accuracy %d%%  (%d of %d shots hit)" % [roundi(100.0 * float(rewards.accuracy)), int(rewards.hits), int(rewards.shots)])
+	if not str(rewards.get("most_used", "")).is_empty():
+		parts.append("Most used: %s" % Data.WEAPONS[rewards.most_used].name)
+	if parts.is_empty():
+		return
+	_results_highlights.add_child(_label("YOUR MATCH", 16, Color(0.7, 0.75, 0.85)))
+	_results_highlights.add_child(_label("  ·  ".join(parts), 18, Color(0.75, 0.92, 1.0)))
 
 
 ## One row per reward source from Profile.record_match, then the total.

@@ -28,7 +28,8 @@ const GAME_ID := "timbum"
 ## 10: Gun Game and King of the Block (their controllers' RPCs, `ladder` / `no_grenades` in info).
 ## 11: killstreak rewards (config `streaks`, Streaks RPCs, the shield in World._s_damaged).
 ## 12: quick pings (Pings RPCs).
-const PROTOCOL_VERSION := 12
+## 13: the weapon id in World._s_hit_confirm.
+const PROTOCOL_VERSION := 13
 const CONNECT_TIMEOUT := 8.0
 ## A room-code join first tries a direct (NAT punch-through) link this long, then the relay.
 const NAT_CONNECT_TIMEOUT := 6.0

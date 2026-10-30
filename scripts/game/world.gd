@@ -59,6 +59,15 @@ var _my_last_kill := -100.0
 var _my_streak := 0
 ## Client: attacker id -> [hits, damage] dealt to the local player this life, for the death screen.
 var _my_damage_taken := {}
+## The local player's per-weapon numbers this match (see Profile.WEAPON_STAT_KEYS for what a shot
+## and a hit are): id -> {kills, headshots, shots, hits, damage}. Counted on this peer: shots and
+## hitscan/knife hits when the shot is fired, rocket hits, damage, kills and headshots from the
+## server's hit confirms and kill events. Added to the profile at the match end.
+var my_weapon_stats := {}
+## Frame of the last rocket hit counted, so one blast hitting several players is one hit.
+var _my_rocket_hit_frame := -1
+## Profile.record_match's answer for this match (rewards, accuracy, most-used weapon); {} before.
+var match_rewards := {}
 ## End of match: the camera circling the winner while they emote (null otherwise).
 var _win_cam: Camera3D
 var _win_target: Player
@@ -588,9 +597,9 @@ func _server_damage(target: Player, amount: float, attacker_id: int, wid: String
 	if attacker_id != target.id:
 		var label_pos := target.global_position + Vector3.UP * 2.0
 		if attacker_id == my_id():
-			_s_hit_confirm(head, killed, dealt, label_pos)
+			_s_hit_confirm(head, killed, dealt, label_pos, wid)
 		elif _ready_peers.has(attacker_id):
-			_s_hit_confirm.rpc_id(attacker_id, head, killed, dealt, label_pos)
+			_s_hit_confirm.rpc_id(attacker_id, head, killed, dealt, label_pos, wid)
 	if killed:
 		_server_kill(target.id, attacker_id, wid, head)
 
@@ -800,17 +809,41 @@ func submit_local_state(p: Player) -> void:
 func report_shot(p: Player, wid: String, ends: PackedVector3Array, normals: PackedVector3Array, hits: Dictionary) -> void:
 	_play_shot_fx(p, wid, ends, normals)
 	var hit_list: Array = []
+	var hit_enemy := false
 	for tid: int in hits:
 		hit_list.append([tid, hits[tid][0], hits[tid][1]])
+		hit_enemy = hit_enemy or not Teams.same(p, entities.get(tid))
+	if p == local_player:
+		_count_my_shot(wid, hit_enemy)
 	if multiplayer.is_server():
 		_server_shot(p.id, wid, ends, normals, hit_list)
 	else:
 		_c_shot.rpc_id(1, wid, ends, normals, hit_list)
 
 
+## Per-weapon numbers of the local player this match (my_weapon_stats), created on first use.
+func _my_stats(wid: String) -> Dictionary:
+	if not my_weapon_stats.has(wid):
+		my_weapon_stats[wid] = {"kills": 0, "headshots": 0, "shots": 0, "hits": 0, "damage": 0.0}
+	return my_weapon_stats[wid]
+
+
+## One shot of the local player: a hitscan pellet group, a burst round, a knife swing or a rocket
+## (whose hit is counted when its blast is confirmed, see _s_hit_confirm).
+func _count_my_shot(wid: String, hit: bool) -> void:
+	if match_over or not Data.WEAPONS.has(wid):
+		return
+	var s := _my_stats(wid)
+	s.shots += 1
+	if hit:
+		s.hits += 1
+
+
 func request_projectile(p: Player, kind: String, origin: Vector3, vel: Vector3) -> void:
 	if p.mode == Player.Mode.LOCAL:
 		Sfx.play(&"shot_rocket" if kind == "rocket" else &"grenade_throw", null, -2.0)
+		if kind == "rocket":
+			_count_my_shot("rocket", false)
 	if multiplayer.is_server():
 		_server_projectile(p.id, kind, origin, vel)
 	else:
@@ -1039,11 +1072,20 @@ func _s_health(eid: int, hp: float) -> void:
 		p.health = hp
 
 
+## `wid` is the weapon or source that dealt the hit: per-weapon damage, and a rocket's blast
+## counts its shot as a hit (once per blast, see my_weapon_stats).
 @rpc("authority", "call_remote", "reliable")
-func _s_hit_confirm(head: bool, killed: bool, amount: float, pos: Vector3) -> void:
+func _s_hit_confirm(head: bool, killed: bool, amount: float, pos: Vector3, wid: String) -> void:
 	hud.show_hitmarker(head, killed)
 	hud.damage_number(pos, amount, head)
 	Sfx.play(&"headshot" if head else &"hit_marker", null, -2.0)
+	if match_over or not (Data.WEAPONS.has(wid) or Data.STAT_EXTRA_SOURCES.has(wid)):
+		return
+	var s := _my_stats(wid)
+	s.damage += amount
+	if wid == "rocket" and Engine.get_process_frames() != _my_rocket_hit_frame:
+		_my_rocket_hit_frame = Engine.get_process_frames()
+		s.hits = mini(s.hits + 1, s.shots)
 
 
 @rpc("authority", "call_remote", "reliable")
@@ -1058,6 +1100,12 @@ func _s_killed(victim_id: int, killer_id: int, wid: String, head: bool, killer_h
 	hud.add_killfeed(display_name(killer_id), weapon_label(wid), display_name(victim_id), head, killer_id == victim_id, teams[0], teams[1], wid)
 	var me := my_id()
 	if killer_id == me and victim_id != me:
+		# Per-weapon kills go to the source that killed: the gun, the grenade or the Block Bomber.
+		if not match_over and (Data.WEAPONS.has(wid) or Data.STAT_EXTRA_SOURCES.has(wid)):
+			var s := _my_stats(wid)
+			s.kills += 1
+			if head:
+				s.headshots += 1
 		Sfx.play(&"kill_confirm", null, -1.0)
 		var t := now()
 		_my_multi = _my_multi + 1 if t - _my_last_kill < MULTI_KILL_WINDOW else 1
@@ -1298,8 +1346,10 @@ func _s_match_end(rows: Array, next: Dictionary, wait: float) -> void:
 		rewards = Profile.record_match({
 			"kills": mine.kills, "deaths": mine.deaths, "headshots": mine.headshots,
 			"placement": reward_place, "players": rows.size(), "won": won,
-			"best_streak": mine.best_streak,
+			"best_streak": mine.best_streak, "weapons": my_weapon_stats,
 		})
+	my_weapon_stats = {}
+	match_rewards = rewards
 	Sfx.play(&"match_end")
 	Sfx.play_music(&"results")
 	var winner: Player = entities.get(int(rows[0].id)) if not rows.is_empty() else null
