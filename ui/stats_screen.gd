@@ -21,6 +21,11 @@ var _dev_agents: Label
 var _dev_done: Label
 var _dev_timer: Timer
 var _dev_text := ""
+var _backup_status: Label
+var _export_dialog: FileDialog
+var _import_dialog: FileDialog
+var _confirm: ConfirmationDialog
+var _import_path := ""
 
 
 func _ready() -> void:
@@ -53,6 +58,22 @@ func _ready() -> void:
 	_xp_bar.show_percentage = false
 	_xp_bar.custom_minimum_size.y = 20
 	lv.add_child(_xp_bar)
+	_backup_status = UIKit.label("", &"SmallLabel")
+	lv.add_child(_backup_status)
+	var backup := UIKit.vbox(6)
+	backup.alignment = BoxContainer.ALIGNMENT_CENTER
+	lh.add_child(backup)
+	var export_btn := UIKit.button("EXPORT PROGRESS", &"IconButton")
+	export_btn.tooltip_text = "Save your coins, items, upgrades, stats and settings to a file."
+	export_btn.pressed.connect(func() -> void:
+		_export_dialog.current_file = "timbum-progress-%s.json" % Time.get_date_string_from_system()
+		_export_dialog.popup_centered_ratio(0.7))
+	backup.add_child(export_btn)
+	var import_btn := UIKit.button("IMPORT PROGRESS", &"IconButton")
+	import_btn.tooltip_text = "Load progress from a file you exported (replaces what you have now)."
+	import_btn.pressed.connect(func() -> void: _import_dialog.popup_centered_ratio(0.7))
+	backup.add_child(import_btn)
+	_build_backup_dialogs()
 
 	_grid = GridContainer.new()
 	_grid.columns = 4
@@ -70,6 +91,56 @@ func _ready() -> void:
 			_dev_timer.start()
 		else:
 			_dev_timer.stop())
+
+
+## Export/import of the whole profile (Profile.export_to / import_from) through the system's
+## file dialogs, with a confirmation before an import replaces the current progress.
+func _build_backup_dialogs() -> void:
+	_export_dialog = _file_dialog(FileDialog.FILE_MODE_SAVE_FILE, "Export Timbum progress")
+	_export_dialog.file_selected.connect(func(path: String) -> void:
+		var err := Profile.export_to(path)
+		if err == OK:
+			_say("Progress saved to %s" % path.get_file(), UITheme.GOOD)
+		else:
+			_say("Couldn't save: %s" % error_string(err), UITheme.BAD))
+	_import_dialog = _file_dialog(FileDialog.FILE_MODE_OPEN_FILE, "Import Timbum progress")
+	_import_dialog.file_selected.connect(func(path: String) -> void:
+		_import_path = path
+		_confirm.dialog_text = "Replace your current progress with %s?\nCoins, items, upgrades, stats and settings will all be replaced." % path.get_file()
+		_confirm.popup_centered())
+	_confirm = ConfirmationDialog.new()
+	_confirm.title = "Import progress"
+	_confirm.ok_button_text = "Replace"
+	_confirm.confirmed.connect(_do_import)
+	add_child(_confirm)
+
+
+func _file_dialog(file_mode: FileDialog.FileMode, dialog_title: String) -> FileDialog:
+	var d := FileDialog.new()
+	d.file_mode = file_mode
+	d.access = FileDialog.ACCESS_FILESYSTEM
+	d.use_native_dialog = true
+	d.title = dialog_title
+	d.filters = PackedStringArray(["*.json ; Timbum progress"])
+	d.current_dir = OS.get_system_dir(OS.SYSTEM_DIR_DOCUMENTS)
+	add_child(d)
+	return d
+
+
+func _do_import() -> void:
+	var problem := Profile.import_from(_import_path)
+	if problem.is_empty():
+		Sfx.play(&"ui_buy")
+		on_shown()
+		_say("Progress restored from %s" % _import_path.get_file(), UITheme.GOOD)
+	else:
+		Sfx.play(&"ui_error")
+		_say(problem, UITheme.BAD)
+
+
+func _say(text: String, color: Color) -> void:
+	_backup_status.text = text
+	_backup_status.add_theme_color_override("font_color", color)
 
 
 func _build_dev_card(parent: Control) -> void:
@@ -167,7 +238,7 @@ func on_shown() -> void:
 func _tile(caption: String, value: String, color: Color, note := "") -> void:
 	var p := UIKit.panel(&"CardPanel")
 	p.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	p.custom_minimum_size = Vector2(180, 118)
+	p.custom_minimum_size = Vector2(180, 100)
 	var v := UIKit.vbox(2)
 	v.alignment = BoxContainer.ALIGNMENT_CENTER
 	p.add_child(v)
