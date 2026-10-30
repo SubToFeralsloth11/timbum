@@ -998,6 +998,9 @@ func _process(delta: float) -> void:
 	var me := world.local_player
 	if me == null or me.alive or _dead_since < 0.0:
 		return
+	# The winner's emote camera owns the view at the end of the match.
+	if world.match_over and not _spec_cam.current:
+		return
 	if World.now() - _dead_since < SPECTATE_DELAY:
 		return
 	if spectating == null or not is_instance_valid(spectating) or not spectating.alive:

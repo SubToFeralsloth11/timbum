@@ -365,7 +365,7 @@ func _choose_weapon() -> void:
 		p.in_slot = want
 	if target == null and not p.reloading:
 		var cur: Vector2i = p.ammo[p.weapon_id()]
-		var mag := int(p.weapon_data().mag)
+		var mag := p.mag_size(p.weapon_id())
 		if mag > 0 and cur.x < mag * 0.6 and cur.y > 0:
 			p.in_reload = true
 
@@ -663,7 +663,7 @@ func _pick_roam_goal() -> Vector3:
 	var info := p.world.map_info
 	var needs_health := p.health < 60.0
 	var cur: Vector2i = p.ammo[p.slots[0]]
-	var needs_ammo := cur.x + cur.y < int(Data.WEAPONS[p.slots[0]].mag)
+	var needs_ammo := cur.x + cur.y < p.mag_size(p.slots[0])
 	if needs_health or needs_ammo:
 		var best: PickupNode = null
 		var best_d := INF

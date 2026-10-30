@@ -107,6 +107,9 @@ var _death_timer_label: Label
 var _scoreboard: PanelContainer
 var _score_rows: VBoxContainer
 var _results: Control
+## End-of-match banner shown while every camera watches the winner's emote.
+var _win_banner: Label
+var _celebrating := false
 var _results_rows: VBoxContainer
 var _results_scroll: ScrollContainer
 var _results_title: Label
@@ -183,6 +186,16 @@ func _ready() -> void:
 	_build_death()
 	_build_scoreboard()
 	_build_results()
+	_win_banner = _label("", 54, Color(1.0, 0.85, 0.3))
+	_win_banner.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+	_win_banner.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_win_banner.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	# Below the clock / kill race card.
+	_win_banner.position.y = 200
+	_win_banner.add_theme_constant_override("outline_size", 12)
+	_win_banner.add_theme_color_override("font_outline_color", Color(0.25, 0.12, 0.0))
+	_win_banner.visible = false
+	_root.add_child(_win_banner)
 	_flash_rect = ColorRect.new()
 	_flash_rect.color = Color(1, 1, 1, 0)
 	_flash_rect.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -711,7 +724,7 @@ func _process(delta: float) -> void:
 	# Full white for the first part of the blindness, then it fades.
 	_flash_rect.color.a = _flash_peak * clampf(_flash_left / (_flash_total * 0.6), 0.0, 1.0)
 
-	if p == null:
+	if p == null or _celebrating:
 		_crosshair.visible = false
 		_scope.visible = false
 		_protect_label.visible = false
@@ -745,9 +758,9 @@ func _process(delta: float) -> void:
 		var a: Vector2i = p.ammo[wid]
 		_ammo_label.text = str(a.x)
 		_reserve_label.text = "/ %d" % a.y
-		var low_ammo := a.x <= int(w.mag) / 4
+		var low_ammo := a.x <= p.mag_size(wid) / 4
 		_ammo_label.self_modulate = Color(1, 0.35, 0.3) if low_ammo else Color.WHITE
-		_mag_bar.value = float(a.x) / float(w.mag)
+		_mag_bar.value = float(a.x) / float(p.mag_size(wid))
 		_mag_bar.self_modulate = Color(1, 0.4, 0.35) if low_ammo else Color.WHITE
 		if p.reloading:
 			# A shell-by-shell reload can be cut short; say so, so a loaded tube never feels locked.
@@ -783,11 +796,13 @@ func _process(delta: float) -> void:
 	var hook_ready := p.grapple_cooldown <= 0.0 and not p.grappling
 	_grapple_label.text = "%s HOOK" % Profile.key_text("grapple")
 	_grapple_label.self_modulate = Color.WHITE if hook_ready or p.grappling else Color(0.6, 0.6, 0.65)
-	_grapple_bar.value = 1.0 if p.grappling else 1.0 - clampf(p.grapple_cooldown / Player.GRAPPLE_COOLDOWN, 0.0, 1.0)
+	_grapple_bar.value = 1.0 if p.grappling else 1.0 - clampf(p.grapple_cooldown / p.grapple_cooldown_time(), 0.0, 1.0)
 	_hook_box.visible = world.tactical == null
 
 	var scoped: bool = w.get("scope", false) and p.aim_blend > 0.85 and p.alive
 	_scope.visible = scoped
+	if scoped:
+		_scope.style = w.get("scope_style", "sniper")
 	_crosshair.visible = p.alive and not _results.visible
 	_crosshair.show_lines = (not scoped and p.aim_blend < 0.6) or wid == "knife"
 	_crosshair.spread = p.current_spread()
@@ -1149,11 +1164,25 @@ func add_chat(sender: String, text: String) -> void:
 		old.queue_free()
 
 
+## Winner celebration before the results: a big banner, and the crosshair and scope hidden
+## while the camera shows the winner's emote.
+func show_winner(winner_name: String, is_me: bool) -> void:
+	_close_pause()
+	_close_chat()
+	_death_panel.visible = false
+	_celebrating = true
+	_win_banner.text = "YOU WIN!" if is_me else "%s WINS!" % winner_name.to_upper()
+	_win_banner.visible = true
+	_win_banner.move_to_front()
+
+
 func show_results(rows: Array, placement: int, rewards: Dictionary, wait: float, next: Dictionary) -> void:
 	_close_pause()
 	_close_chat()
 	_death_panel.visible = false
 	_results.visible = true
+	_celebrating = false
+	_win_banner.visible = false
 	# Above the intro card and controls hint, which a joiner arriving mid-results also gets.
 	_results.move_to_front()
 	_results_left = wait
@@ -1312,9 +1341,22 @@ func _input(event: InputEvent) -> void:
 	elif _pause.visible:
 		_close_pause()
 	elif not _results.visible:
-		_pause.visible = true
-		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-		world.set_frozen(true)
+		_open_pause()
+
+
+func _open_pause() -> void:
+	_pause.visible = true
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	world.set_frozen(true)
+
+
+## Clicking or alt-tabbing out of the game window opens the pause menu (and freezes an offline
+## match), so the match doesn't carry on without you.
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_APPLICATION_FOCUS_OUT and is_inside_tree() and not _pause.visible \
+			and not _results.visible and not _celebrating:
+		_close_chat()
+		_open_pause()
 
 
 func _unhandled_input(event: InputEvent) -> void:

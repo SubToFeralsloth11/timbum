@@ -22,8 +22,9 @@ const DISCOVERY_PORT := 47777
 const GAME_ID := "timbum"
 ## 5: tacticals, grapple relay, _s_explode carries the kind, lean/slide state flags, new weapons.
 ## 6: prone state flag.
-## 7: Tactical mode (config `mode`, team/weapon-pickup/marker RPCs).
-const PROTOCOL_VERSION := 7
+## 7: charms, win emotes, draw animations and attachment levels in peer_info; win emote at match end.
+## 8: Tactical mode (config `mode`, team/weapon-pickup/marker RPCs).
+const PROTOCOL_VERSION := 8
 const CONNECT_TIMEOUT := 8.0
 ## A room-code join first tries a direct (NAT punch-through) link this long, then the relay.
 const NAT_CONNECT_TIMEOUT := 6.0
@@ -475,8 +476,18 @@ static func sanitize_info(info: Dictionary) -> Dictionary:
 		"primary": str(info.get("primary", "smg")),
 		"secondary": str(info.get("secondary", "pistol")),
 		"tactical": str(info.get("tactical", "flash")),
+		"charm": str(info.get("charm", "none")),
+		"emote": str(info.get("emote", "wave")),
+		"draw": str(info.get("draw", "standard")),
+		"mods": {},
 		"level": clampi(int(info.get("level", 1)), 1, 9999),
 	}
+	var mods: Variant = info.get("mods", {})
+	if typeof(mods) == TYPE_DICTIONARY:
+		for id: String in Data.ATTACHMENTS:
+			var lvl := clampi(int(mods.get(id, 0)) if typeof(mods.get(id, 0)) in [TYPE_INT, TYPE_FLOAT] else 0, 0, int(Data.ATTACHMENTS[id].max))
+			if lvl > 0:
+				clean.mods[id] = lvl
 	if clean.name.is_empty():
 		clean.name = "Player"
 	if not Data.OUTFITS.has(clean.outfit): clean.outfit = "classic"
@@ -485,6 +496,9 @@ static func sanitize_info(info: Dictionary) -> Dictionary:
 	if not Data.WEAPONS.has(clean.primary) or Data.WEAPONS[clean.primary].slot != "primary": clean.primary = "smg"
 	if not Data.WEAPONS.has(clean.secondary) or Data.WEAPONS[clean.secondary].slot != "secondary": clean.secondary = "pistol"
 	if not Data.TACTICALS.has(clean.tactical): clean.tactical = "flash"
+	if not Data.CHARMS.has(clean.charm): clean.charm = "none"
+	if not Data.EMOTES.has(clean.emote): clean.emote = "wave"
+	if not Data.DRAWS.has(clean.draw): clean.draw = "standard"
 	return clean
 
 

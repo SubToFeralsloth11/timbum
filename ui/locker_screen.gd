@@ -12,6 +12,9 @@ const ROWS: Array = [
 	["skins", "WEAPON SKIN", "skin"],
 	["hats", "HAT", "hat"],
 	["outfits", "OUTFIT", "outfit"],
+	["charms", "GUN CHARM", "charm"],
+	["draws", "DRAW ANIMATION", "draw"],
+	["emotes", "WIN EMOTE", "emote"],
 ]
 ## ROWS before this index are loadout, the rest style.
 const STYLE_START := 3
@@ -139,10 +142,12 @@ func _on_pick(key: String, idx: int) -> void:
 
 func _rebuild_models() -> void:
 	var avatar := Models.build_avatar(Profile.equipped.outfit, Profile.equipped.hat)
+	avatar.charm_id = Profile.equipped.charm
 	avatar.hold_weapon(Profile.loadout.primary, Profile.equipped.skin)
 	# Three-quarter side view so the held gun reads clearly.
 	_preview.show_model(avatar, true, PI - 1.1, 0.95)
-	_gun_preview.show_model(Models.build_gun(Profile.loadout.secondary, Profile.equipped.skin), false, ShopScreen.GUN_YAW, 1.0)
+	_gun_preview.show_model(DrawPreview.create(Profile.equipped.draw, Profile.loadout.secondary, Profile.equipped.skin,
+		Profile.equipped.charm), false, ShopScreen.GUN_YAW, 1.0)
 	_name_tag.text = Profile.player_name.to_upper()
 	_summary.text = "Secondary: %s  ·  %s  ·  Knife always carried" % [Data.WEAPONS[Profile.loadout.secondary].name,
 		Data.TACTICALS[Profile.loadout.tactical].name]
