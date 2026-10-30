@@ -16,3 +16,6 @@ var nav_map := RID()
 ## Named spots a map's own controller reads (the Firing Range's line, dummy posts, signs, console
 ## and grapple ledge), world space: a Vector3, an AABB, or an Array of Dictionaries with a `pos`.
 var marks := {}
+## The map's jump pads (MapBuilder adds them from the generator's `jump_pads` mark; deathmatch
+## maps only).
+var jump_pads: Array[JumpPad] = []

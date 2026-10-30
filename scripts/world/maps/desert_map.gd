@@ -19,6 +19,13 @@ const ATMOSPHERE := {
 const TEMPLE := [24, 24, 39, 39]
 const TOWERS := [[6, 6, 11, 11], [52, 52, 57, 57]]
 const FLOOR := 5
+## Jump pads (MapKit.jump_pads): onto the temple's east and west terraces, and onto a ruin top in
+## the north-east (with a drop back to the sand).
+const JUMP_PADS := [
+	[Vector3i(42, 5, 34), Vector3i(38, 9, 37), 1.5],
+	[Vector3i(30, 5, 42), Vector3i(26, 9, 38), 1.5],
+	[Vector3i(36, 4, 14), Vector3i(46, 12, 19), 1.5, Vector3(46.5, 12, 17.5), Vector3(47.5, 5, 17.5)],
+]
 
 
 static func generate(g: VoxelGrid, info: MapInfo) -> void:
@@ -65,6 +72,7 @@ static func generate(g: VoxelGrid, info: MapInfo) -> void:
 	Kit.pickup(g, hm, info, "health", 12, 49)
 	Kit.pickup(g, hm, info, "ammo", 9, 9, 8)
 	Kit.pickup(g, hm, info, "grenade", 32, 47)
+	Kit.jump_pads(g, info, JUMP_PADS)
 
 
 static func _pad(g: VoxelGrid, hm: PackedInt32Array, lock: PackedByteArray, x0: int, z0: int, x1: int, z1: int, h: int) -> void:

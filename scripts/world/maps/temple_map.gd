@@ -28,6 +28,13 @@ const TIERS := [10, 7, 4]
 const BRIDGES := [[8, 10, 1], [30, 34, 0], [52, 54, 2]]
 const TOWER := [4, 4, 12, 12]
 const TERRACE := [26, 55, 38, 60]
+## Jump pads (MapKit.jump_pads): up the pyramid's east and west faces, and over the river gorge
+## from the south ruins.
+const JUMP_PADS := [
+	[Vector3i(42, 7, 26), Vector3i(35, 13, 26), 1.5],
+	[Vector3i(22, 7, 26), Vector3i(26, 11, 21), 1.5],
+	[Vector3i(46, 7, 54), Vector3i(41, 7, 39), 1.5],
+]
 
 
 static func generate(g: VoxelGrid, info: MapInfo) -> void:
@@ -117,6 +124,7 @@ static func generate(g: VoxelGrid, info: MapInfo) -> void:
 	Kit.pickup(g, hm, info, "grenade", 51, 12)
 	Kit.pickup(g, hm, info, "health", 11, 59)
 	Kit.pickup(g, hm, info, "ammo", 53, 60)
+	Kit.jump_pads(g, info, JUMP_PADS)
 
 
 static func _river_z(x: int) -> float:

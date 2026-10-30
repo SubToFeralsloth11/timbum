@@ -17,6 +17,15 @@ const ATMOSPHERE := {
 	"saturation": 0.95, "fog_sky": 0.45, "ambient_color": Color("b7b2a8"),
 }
 const F := 3
+## Jump pads (MapKit.jump_pads): from the yard up onto the grate bridge and the hall catwalks,
+## and from the container yard onto the halls' catwalk level (a pair turned 180 degrees like the
+## halls).
+const JUMP_PADS := [
+	[Vector3i(28, 3, 28), Vector3i(32, 7, 25), 2.5],
+	[Vector3i(34, 3, 42), Vector3i(36, 7, 48), 1.5],
+	[Vector3i(28, 3, 12), Vector3i(20, 7, 15), 1.5],
+	[Vector3i(35, 3, 51), Vector3i(43, 7, 48), 1.5],
+]
 
 
 static func generate(g: VoxelGrid, info: MapInfo) -> void:
@@ -55,6 +64,7 @@ static func generate(g: VoxelGrid, info: MapInfo) -> void:
 	Kit.pickup(g, hm, info, "ammo", 24, 26)
 	Kit.pickup(g, hm, info, "grenade", 39, 38)
 	Kit.pickup(g, hm, info, "health", 17, 52, F + 3)
+	Kit.jump_pads(g, info, JUMP_PADS)
 
 
 ## Conveyor hall in the north-west corner (hall B is the same hall rotated

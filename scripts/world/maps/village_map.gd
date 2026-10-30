@@ -28,6 +28,13 @@ const COTTAGES := [
 const INN := [34, 12, 42, 20]
 const MILL := [6, 6, 12, 13]
 const SQUARE := [22, 24, 41, 41]
+## Jump pads (MapKit.jump_pads): onto three of the market stalls' awnings, each with a drop back
+## down to the square.
+const JUMP_PADS := [
+	[Vector3i(28, 5, 32), Vector3i(25, 9, 39), 1.5, Vector3(25.5, 9, 36.5), Vector3(25.5, 5, 35.5)],
+	[Vector3i(42, 5, 36), Vector3i(37, 9, 27), 1.5, Vector3(37.5, 9, 26.5), Vector3(37.5, 5, 25.5)],
+	[Vector3i(14, 5, 26), Vector3i(24, 9, 27), 1.5, Vector3(24.5, 9, 26.5), Vector3(24.5, 5, 25.5)],
+]
 
 
 static func generate(g: VoxelGrid, info: MapInfo) -> void:
@@ -96,6 +103,7 @@ static func generate(g: VoxelGrid, info: MapInfo) -> void:
 	Kit.pickup(g, hm, info, "ammo", 11, 10, hm[9 * sx + 9] + 4)
 	Kit.pickup(g, hm, info, "health", 52, 15)
 	Kit.pickup(g, hm, info, "grenade", 20, 44)
+	Kit.jump_pads(g, info, JUMP_PADS)
 
 
 static func _mark(mask: PackedByteArray, sx: int, x0: int, z0: int, x1: int, z1: int) -> void:

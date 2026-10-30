@@ -46,6 +46,12 @@ const LINKS := [
 	[Vector2i(8, 39), Vector2i(8, 52), 22, 24, 5, false],
 	[Vector2i(10, 52), Vector2i(24, 52), 24, 26, 6, false],
 ]
+## Jump pads (MapKit.jump_pads): across the streets from lower roofs up to higher ones.
+const JUMP_PADS := [
+	[Vector3i(4, 22, 24), Vector3i(6, 30, 12), 1.5],
+	[Vector3i(40, 20, 12), Vector3i(53, 28, 21), 1.5],
+	[Vector3i(40, 26, 50), Vector3i(49, 31, 51), 2.5],
+]
 
 
 static func generate(g: VoxelGrid, info: MapInfo) -> void:
@@ -86,6 +92,7 @@ static func generate(g: VoxelGrid, info: MapInfo) -> void:
 	Kit.pickup(g, hm, info, "health", 54, 54)
 	Kit.pickup(g, hm, info, "ammo", 55, 11)
 	Kit.pickup(g, hm, info, "ammo", 10, 55)
+	Kit.jump_pads(g, info, JUMP_PADS)
 
 
 ## Asphalt with lane dashes, kerbs, parked cars and street lamps.

@@ -19,6 +19,11 @@ const ATMOSPHERE := {
 const F := 5
 const POND := Vector2(31.5, 31.5)
 const CABIN := Rect2i(28, 49, 8, 7)
+## Jump pads (MapKit.jump_pads): from the forest floor in front of each fort up onto its walkway.
+const JUMP_PADS := [
+	[Vector3i(12, 5, 22), Vector3i(12, 10, 28), 1.5],
+	[Vector3i(52, 5, 22), Vector3i(52, 10, 28), 1.5],
+]
 
 
 static func generate(g: VoxelGrid, info: MapInfo) -> void:
@@ -76,6 +81,7 @@ static func generate(g: VoxelGrid, info: MapInfo) -> void:
 	Kit.pickup(g, hm, info, "ammo", 19, 22, F + 3)
 	Kit.pickup(g, hm, info, "ammo", 44, 41, F + 3)
 	Kit.pickup(g, hm, info, "grenade", 31, 39)
+	Kit.jump_pads(g, info, JUMP_PADS)
 
 
 static func _in_pond(x: int, z: int) -> bool:

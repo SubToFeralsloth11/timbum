@@ -30,6 +30,13 @@ const STACKS := [
 	[23, 0, 1, true], [29, 0, 1, true], [35, 0, 2, true], [47, 0, 1, false], [53, 0, 1, true],
 	[23, 1, 2, true], [35, 1, 1, true], [41, 1, 1, false], [47, 1, 2, true], [53, 1, 1, false],
 ]
+## Jump pads (MapKit.jump_pads): from the quay onto a container stack, onto the north quay's upper
+## level, and up onto the gantry crane walkway (with a drop back to that level).
+const JUMP_PADS := [
+	[Vector3i(20, 5, 38), Vector3i(24, 11, 41), 1.5],
+	[Vector3i(38, 5, 16), Vector3i(39, 9, 8), 1.5],
+	[Vector3i(40, 5, 32), Vector3i(41, 14, 18), 1.5, Vector3(40.5, 14, 7.5), Vector3(39.5, 9, 7.5)],
+]
 
 
 static func generate(g: VoxelGrid, info: MapInfo) -> void:
@@ -76,6 +83,7 @@ static func generate(g: VoxelGrid, info: MapInfo) -> void:
 	Kit.pickup(g, hm, info, "health", 38, 36)
 	Kit.pickup(g, hm, info, "ammo", 11, 14)
 	Kit.pickup(g, hm, info, "ammo", 61, 40)
+	Kit.jump_pads(g, info, JUMP_PADS)
 
 
 static func _is_water(x: int, z: int) -> bool:

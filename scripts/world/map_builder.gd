@@ -62,7 +62,20 @@ static func build(map_id: String, root: Node3D, quality: int) -> MapInfo:
 	_add_bounds(map_root, info.bounds)
 	_add_environment(map_root, gen.ATMOSPHERE, quality)
 	info.nav_map = _add_navigation(map_root, source, info.bounds)
+	_add_jump_pads(map_root, info)
 	return info
+
+
+## One JumpPad per entry of the generator's `jump_pads` mark (MapKit.jump_pads: feet on the pad
+## centre, the landing feet, the apex height above the higher of the two, an optional drop), after
+## the navmesh so each pad's navigation links join it.
+static func _add_jump_pads(parent: Node3D, info: MapInfo) -> void:
+	for m: Dictionary in info.marks.get("jump_pads", []):
+		var pad := JumpPad.new()
+		pad.name = "JumpPad%d" % info.jump_pads.size()
+		pad.setup(m.pos, m.target, float(m.rise), [m.drop_from, m.drop_to] if m.has("drop_from") else [])
+		parent.add_child(pad)
+		info.jump_pads.append(pad)
 
 
 ## A MapInfo mark moved from grid space to world space (see MapInfo.marks).
@@ -74,6 +87,9 @@ static func _offset_mark(mark: Variant, origin: Vector3) -> Variant:
 	if mark is Array:
 		for entry: Dictionary in mark:
 			entry.pos += origin
+			for key: String in ["target", "drop_from", "drop_to"]:
+				if entry.has(key):
+					entry[key] += origin
 	return mark
 
 

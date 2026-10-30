@@ -22,6 +22,13 @@ const ATMOSPHERE := {
 const CENTER := [32, 32, 9, 20]
 const MIDS := [[32, 9, 5, 20], [32, 54, 5, 20], [9, 32, 5, 20], [54, 32, 5, 20]]
 const CORNERS := [[11, 11, 6, 17], [52, 11, 6, 23], [52, 52, 6, 17], [11, 52, 6, 23]]
+## Jump pads (MapKit.jump_pads), across the gaps: the centre island over to the west island, and
+## the east and west islands up to the high corner islands.
+const JUMP_PADS := [
+	[Vector3i(28, 20, 26), Vector3i(20, 20, 32), 2.5],
+	[Vector3i(44, 20, 32), Vector3i(53, 23, 19), 1.5],
+	[Vector3i(14, 20, 32), Vector3i(10, 23, 44), 1.5],
+]
 
 
 static func generate(g: VoxelGrid, info: MapInfo) -> void:
@@ -77,6 +84,7 @@ static func generate(g: VoxelGrid, info: MapInfo) -> void:
 	Kit.pickup(g, hm, info, "health", 51, 10)
 	Kit.pickup(g, hm, info, "ammo", 51, 51)
 	Kit.pickup(g, hm, info, "health", 10, 51)
+	Kit.jump_pads(g, info, JUMP_PADS)
 
 
 ## Floating island: flat grass top at the floor height, ragged rim, and a

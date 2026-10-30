@@ -201,6 +201,14 @@ var _last_visual_pos := Vector3.ZERO
 var _applied_crouch := -1.0
 var _applied_prone := -1.0
 var _fall_speed := 0.0
+## Jump pads (JumpPad): true from a launch until the player lands (or hits a wall or grapples).
+## The launch's horizontal speed holds, with only JumpPad.STEER of air control, so the arc lands
+## where the map designed it.
+var pad_flight := false
+var _pad_horiz := Vector3.ZERO
+var _pad_air := 0.0
+## The pad the feet were on last frame: a launch and its effects happen once per entry.
+var _pad_on: JumpPad = null
 var _stand_query: PhysicsShapeQueryParameters3D
 ## Match mutator effects (see Data.MUTATORS), set once in _ready from Net.config.
 var gravity_scale := 1.0
@@ -475,6 +483,7 @@ func _physics_process(delta: float) -> void:
 		Mode.REMOTE:
 			if alive:
 				_interpolate()
+				_watch_pads()
 			else:
 				_fall_corpse(delta)
 	_update_visuals(delta)
@@ -591,6 +600,16 @@ func _simulate(delta: float) -> void:
 	_crouch_was_held = in_crouch
 	var jump_pressed := in_jump and not _jump_was_held
 	_jump_was_held = in_jump
+	if pad_flight:
+		_pad_air += delta
+		if (on_floor and _pad_air > 0.1) or grappling:
+			pad_flight = false
+	var pad := JumpPad.find(world.map_info.jump_pads, global_position)
+	if pad != null and pad != _pad_on and not grappling:
+		_launch(pad)
+		on_floor = false
+		horiz = _pad_horiz
+	_pad_on = pad
 	_slide_cooldown -= delta
 	grapple_cooldown -= delta
 	if in_grapple:
@@ -647,6 +666,10 @@ func _simulate(delta: float) -> void:
 		horiz = _slide_step(delta, on_floor, wish)
 		velocity.x = horiz.x
 		velocity.z = horiz.z
+	elif pad_flight:
+		horiz = horiz.move_toward(_pad_horiz + wish * JumpPad.STEER, AIR_ACCEL * delta)
+		velocity.x = horiz.x
+		velocity.z = horiz.z
 	else:
 		horiz = horiz.move_toward(wish * speed, (GROUND_ACCEL if on_floor else AIR_ACCEL) * delta)
 		velocity.x = horiz.x
@@ -663,6 +686,8 @@ func _simulate(delta: float) -> void:
 		velocity.y -= GRAVITY * gravity_scale * delta
 	_fall_speed = -velocity.y
 	move_and_slide()
+	if pad_flight and is_on_wall():
+		pad_flight = false
 	_was_sprinting = sprinting
 	var lean_target := float(in_lean) if not sprinting and not sliding and not grappling and not prone else 0.0
 	lean = move_toward(lean, lean_target, delta * LEAN_RATE)
@@ -687,6 +712,32 @@ func _end_slide() -> void:
 		return
 	sliding = false
 	_slide_cooldown = SLIDE_COOLDOWN
+
+
+## A jump pad under the feet (LOCAL and BOT; the simulating peer decides): the player is centred
+## on the pad (the arc each map designed starts there and was checked clear of every block) and
+## gets the arc's velocity for its gravity. The pad's sound and particles play on every peer (see
+## _watch_pads).
+func _launch(pad: JumpPad) -> void:
+	_end_slide()
+	if prone:
+		prone = false
+		crouching = true
+	global_position.x = pad.global_position.x
+	global_position.z = pad.global_position.z
+	velocity = pad.velocity_for(GRAVITY * gravity_scale)
+	_pad_horiz = Vector3(velocity.x, 0.0, velocity.z)
+	pad_flight = true
+	_pad_air = 0.0
+	pad.play_launch(mode == Mode.LOCAL)
+
+
+## REMOTE players: the pad's effects when their feet enter it (their own peer launched them).
+func _watch_pads() -> void:
+	var pad := JumpPad.find(world.map_info.jump_pads, global_position)
+	if pad != null and pad != _pad_on:
+		pad.play_launch(false)
+	_pad_on = pad
 
 
 ## Gets up from prone into a crouch (which stands up on its own once crouch is released and
@@ -1671,6 +1722,8 @@ func _reset_movement_state() -> void:
 	_lean_reach = 1.0
 	grappling = false
 	grapple_cooldown = 0.0
+	pad_flight = false
+	_pad_on = null
 	_crouch_was_held = false
 	_jump_was_held = false
 	_was_sprinting = false

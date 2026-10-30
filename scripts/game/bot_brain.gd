@@ -141,6 +141,8 @@ var _chasing := false
 var _order := {}
 var _order_timer := 0.0
 var _repath_timer := 0.0
+## True while the bot flies off a jump pad (Player.pad_flight); landing replans the route.
+var _pad_flying := false
 var _perceive_timer := 0.0
 
 var _strafe_dir := 1.0
@@ -240,6 +242,18 @@ func think(delta: float) -> void:
 		_roam(delta)
 		_maybe_flush(delta)
 	_dodge_strike()
+	# Mid-air off a jump pad the arc does the travelling (JumpPad: its NavigationLink3D put the pad
+	# on the route): no steering, jumping or crouching; once down, the route is planned again from
+	# where the bot landed.
+	if p.pad_flight:
+		p.in_move = Vector2.ZERO
+		p.in_jump = false
+		p.in_crouch = false
+		_pad_flying = true
+		return
+	if _pad_flying:
+		_pad_flying = false
+		_repath_timer = 0.0
 	_check_stuck(delta)
 
 
@@ -1012,6 +1026,9 @@ func _route_hook_point() -> Vector3:
 			return across
 	var y := p.global_position.y
 	for i in range(_path_index, mini(_path_index + 8, _path.size())):
+		# A jump pad on the way takes the bot up; no hook needed past it.
+		if JumpPad.find(p.world.map_info.jump_pads, _path[i]) != null:
+			break
 		if _path[i].y - y >= GRAPPLE_MIN_RISE:
 			return _hook_point(_path[i])
 	return NO_POS

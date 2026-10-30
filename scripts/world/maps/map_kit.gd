@@ -86,6 +86,29 @@ static func pickup(g: VoxelGrid, hm: PackedInt32Array, info: MapInfo, kind: Stri
 	info.pickups.append({"kind": kind, "pos": Vector3(p.x + 0.5, p.y, p.z + 0.5)})
 
 
+## Jump pads (JumpPad; MapBuilder adds them from the `jump_pads` mark). Each entry is
+## [pad, landing, rise] or [pad, landing, rise, drop from, drop to]: `pad` and `landing` are the
+## cells the feet stand in at the pad's centre and where the arc lands (both on flat 3x3 floor,
+## checked here), `rise` the arc's apex above the higher of the two. A landing spot with no
+## walkable way down gets a drop: a one-way step off its edge (feet positions) bots can route
+## through. Pads and landings were picked by a search over each map (open sky over the pad, an arc
+## clear of every block, a navmesh route back from the landing) and checked by launching players.
+static func jump_pads(g: VoxelGrid, info: MapInfo, pads: Array) -> void:
+	var out: Array = []
+	for j: Array in pads:
+		for c: Vector3i in [j[0], j[1]]:
+			for dz in range(-1, 2):
+				for dx in range(-1, 2):
+					if not g.standable(c.x + dx, c.y, c.z + dz):
+						push_error("MapKit: jump pad floor at %s is not flat around %d,%d" % [c, c.x + dx, c.z + dz])
+		var e := {"pos": Vector3(j[0].x + 0.5, j[0].y, j[0].z + 0.5), "target": Vector3(j[1].x + 0.5, j[1].y, j[1].z + 0.5), "rise": j[2]}
+		if j.size() > 3:
+			e.drop_from = j[3]
+			e.drop_to = j[4]
+		out.append(e)
+	info.marks["jump_pads"] = out
+
+
 static func _find_floor(g: VoxelGrid, hm: PackedInt32Array, x: int, z: int, y: int) -> Vector3i:
 	for r in 6:
 		for dz in range(-r, r + 1):
