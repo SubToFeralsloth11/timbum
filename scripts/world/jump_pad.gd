@@ -98,9 +98,7 @@ func play_launch(local: bool) -> void:
 
 
 func _ready() -> void:
-	var dir := Vector3(target.x - position.x, 0.0, target.z - position.z)
-	var yaw := atan2(-dir.x, -dir.z) if dir.length() > 0.01 else 0.0
-	# Dark metal base, a glowing rim and three chevrons pointing along the arc.
+	# Dark metal base and a glowing rim; the dashed flight line shows the direction.
 	var base := MeshInstance3D.new()
 	var base_mesh := CylinderMesh.new()
 	base_mesh.top_radius = RADIUS - 0.05
@@ -123,21 +121,6 @@ func _ready() -> void:
 	rim.position.y = 0.08
 	rim.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(rim)
-	var arrows := Node3D.new()
-	arrows.rotation.y = yaw
-	add_child(arrows)
-	for i in 3:
-		for side in [-1.0, 1.0]:
-			var bar := MeshInstance3D.new()
-			var bar_mesh := BoxMesh.new()
-			bar_mesh.size = Vector3(0.09, 0.03, 0.42)
-			bar_mesh.material = _material("glow")
-			bar.mesh = bar_mesh
-			bar.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-			# A "^" pointing -Z (towards the target): two bars meeting at the tip.
-			bar.position = Vector3(side * 0.13, 0.095, 0.35 - i * 0.32)
-			bar.rotation.y = side * deg_to_rad(-40.0)
-			arrows.add_child(bar)
 	_light = OmniLight3D.new()
 	_light.light_color = COLOR
 	_light.light_energy = 1.2
@@ -190,7 +173,7 @@ func _build_arc() -> void:
 		_arc_len.append(total)
 	var dot := BoxMesh.new()
 	dot.size = Vector3(0.08, 0.08, 0.3)
-	dot.material = _material("glow")
+	dot.material = _material("path")
 	_arc_dots = MultiMesh.new()
 	_arc_dots.transform_format = MultiMesh.TRANSFORM_3D
 	_arc_dots.mesh = dot
@@ -206,7 +189,7 @@ func _build_arc() -> void:
 	ring_mesh.outer_radius = 0.5
 	ring_mesh.rings = 16
 	ring_mesh.ring_segments = 4
-	ring_mesh.material = _material("glow")
+	ring_mesh.material = _material("path")
 	ring.mesh = ring_mesh
 	ring.position = target - position + Vector3.UP * 0.06
 	ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -285,6 +268,13 @@ static func _material(kind: String) -> StandardMaterial3D:
 		m.emission_enabled = true
 		m.emission = COLOR.darkened(0.6)
 		m.emission_energy_multiplier = 0.5
+	elif kind == "path":
+		# The flight line and landing ring: faint and see-through, so they guide without
+		# blocking the view.
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		m.albedo_color = Color(COLOR, 0.3)
+		m.cull_mode = BaseMaterial3D.CULL_DISABLED
 	else:
 		m.albedo_color = COLOR
 		m.emission_enabled = true
