@@ -377,6 +377,13 @@ func stop_emote() -> void:
 	_apply_pose()
 
 
+## Shop icons: strikes emote `id` as it looks `t` seconds in.
+func pose_emote(id: String, t: float) -> void:
+	play_emote(id)
+	_emote_t = t
+	_apply_emote(t)
+
+
 func _process(delta: float) -> void:
 	if not emote.is_empty():
 		_emote_t += delta

@@ -2,13 +2,19 @@ class_name ShopScreen
 extends MenuScreen
 ## Shop: tabs per catalog category, a grid of item cards with rendered icons, and a
 ## detail panel with a live 3D preview, stats (guns), price and Buy/Equip actions.
+## The ATTACHMENTS tab sells upgrade levels instead of items (Data.ATTACHMENTS): one level at a
+## time, each dearer than the last, applying to every gun.
 
-const TABS: Array = [["weapons", "GUNS"], ["skins", "WEAPON SKINS"], ["hats", "HATS"], ["outfits", "OUTFITS"]]
+const TABS: Array = [["weapons", "GUNS"], ["skins", "SKINS"], ["hats", "HATS"], ["outfits", "OUTFITS"],
+	["charms", "CHARMS"], ["emotes", "WIN EMOTES"], ["draws", "DRAWS"], ["attachments", "ATTACHMENTS"]]
 const CARD_WIDTH := 200.0
 ## Gun pointing right, angled a little towards the camera.
 const GUN_YAW := -PI * 0.5 - 0.3
 ## Characters and hats face -Z; turn them to face the camera, three-quarter view.
 const FRONT_YAW := PI - 0.45
+## Moment of each win emote shown on its card.
+const EMOTE_ICON_TIME := {"wave": 0.15, "flex": 0.3, "dance": 0.2, "salute": 1.0, "dab": 0.5,
+	"spin": 0.0, "jumps": 0.39, "backflip": 0.75, "chicken": 0.1}
 
 var _category := "weapons"
 var _selected := ""
@@ -43,7 +49,9 @@ func _ready() -> void:
 	var left := UIKit.vbox(12)
 	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	body.add_child(left)
-	var tabs := UIKit.hbox(6)
+	var tabs := HFlowContainer.new()
+	tabs.add_theme_constant_override("h_separation", 6)
+	tabs.add_theme_constant_override("v_separation", 6)
 	left.add_child(tabs)
 	var group := ButtonGroup.new()
 	for t: Array in TABS:
@@ -131,6 +139,11 @@ func _fit_columns() -> void:
 	_grid.columns = maxi(2, int((_scroll.size.x - 12.0) / (CARD_WIDTH + 10.0)))
 
 
+## Items listed under `cat`: a Data catalog, or the attachment upgrades.
+static func _items(cat: String) -> Dictionary:
+	return Data.ATTACHMENTS if cat == "attachments" else Data.catalog(cat)
+
+
 # ------------------------------------------------------------------ list
 
 func _show_category(cat: String) -> void:
@@ -141,7 +154,7 @@ func _show_category(cat: String) -> void:
 	_cards.clear()
 	var group := ButtonGroup.new()
 	var first := ""
-	for id: String in Data.catalog(cat):
+	for id: String in _items(cat):
 		_grid.add_child(_make_card(cat, id, group))
 		if first.is_empty():
 			first = id
@@ -151,7 +164,7 @@ func _show_category(cat: String) -> void:
 
 
 func _make_card(cat: String, id: String, group: ButtonGroup) -> Button:
-	var item: Dictionary = Data.catalog(cat)[id]
+	var item: Dictionary = _items(cat)[id]
 	var card := UIKit.button("", &"CardButton")
 	card.toggle_mode = true
 	card.button_group = group
@@ -181,7 +194,8 @@ func _make_card(cat: String, id: String, group: ButtonGroup) -> Button:
 	var builder := _thumb_builder(cat, id)
 	if builder.is_valid():
 		# Bound to the icon itself so the callback is skipped if the card was freed.
-		_thumbs.request("%s/%s" % [cat, id], builder, Callable(icon, &"set_texture"), _yaw_for(cat))
+		var thumb_yaw := FRONT_YAW if cat == "charms" else _yaw_for(cat)
+		_thumbs.request("%s/%s" % [cat, id], builder, Callable(icon, &"set_texture"), thumb_yaw)
 	else:
 		var none := UIKit.label("NONE", &"HeaderLabel", HORIZONTAL_ALIGNMENT_CENTER)
 		none.add_theme_color_override("font_color", Color(UITheme.TEXT_DIM, 0.4))
@@ -196,9 +210,10 @@ func _make_card(cat: String, id: String, group: ButtonGroup) -> Button:
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	title.clip_text = true
 	name_row.add_child(title)
-	var colors := UIKit.item_colors(cat, id)
-	if not colors.is_empty():
-		name_row.add_child(UIKit.swatch(colors, 10))
+	if cat != "attachments":
+		var colors := UIKit.item_colors(cat, id)
+		if not colors.is_empty():
+			name_row.add_child(UIKit.swatch(colors, 10))
 	var foot := UIKit.hbox(6)
 	foot.name = "Foot"
 	foot.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -219,6 +234,19 @@ func _thumb_builder(cat: String, id: String) -> Callable:
 			return func() -> Node3D: return Models.build_hat(id)
 		"outfits":
 			return func() -> Node3D: return Models.build_avatar(id, "none")
+		"charms":
+			if id == "none":
+				return Callable()
+			return func() -> Node3D: return Models.build_charm(id)
+		"emotes":
+			return func() -> Node3D:
+				var a := Models.build_avatar("classic", "none")
+				a.pose_emote(id, float(EMOTE_ICON_TIME.get(id, 0.3)))
+				return a
+		"draws":
+			return func() -> Node3D: return DrawPreview.create(id, "revolver", "default", "none", 0.45)
+		"attachments":
+			return func() -> Node3D: return Models.build_attachment(id)
 	return Callable()
 
 
@@ -227,7 +255,9 @@ func _refresh_cards() -> void:
 		var foot: HBoxContainer = _cards[id].find_child("Foot", true, false)
 		for c in foot.get_children():
 			c.queue_free()
-		if _is_equipped(id):
+		if _category == "attachments":
+			_attachment_foot(foot, id)
+		elif _is_equipped(id):
 			foot.add_child(UIKit.badge("EQUIPPED", &"GoodBadgePanel"))
 		elif Profile.is_owned(_category, id):
 			foot.add_child(UIKit.badge("OWNED"))
@@ -236,6 +266,29 @@ func _refresh_cards() -> void:
 			if Profile.coins < Profile.price_of(_category, id):
 				price.modulate = Color(1, 1, 1, 0.45)
 			foot.add_child(price)
+
+
+## Card footer for an attachment: level pips, then the next level's price or MAX.
+func _attachment_foot(foot: HBoxContainer, id: String) -> void:
+	foot.add_child(_level_pips(id, 12))
+	foot.add_child(UIKit.spacer())
+	if Profile.is_upgrade_maxed(id):
+		foot.add_child(UIKit.badge("MAX", &"GoodBadgePanel"))
+		return
+	var cost := Profile.upgrade_price(id)
+	var price := UIKit.coin_amount(cost, 16)
+	if Profile.coins < cost:
+		price.modulate = Color(1, 1, 1, 0.45)
+	foot.add_child(price)
+
+
+## Row of squares, filled up to the level owned.
+func _level_pips(id: String, block: int) -> HBoxContainer:
+	var lvl := Profile.upgrade_level(id)
+	var colors: Array[Color] = []
+	for i in int(Data.ATTACHMENTS[id].max):
+		colors.append(UITheme.ACCENT if i < lvl else Color(UITheme.TEXT_DIM, 0.25))
+	return UIKit.swatch(colors, block)
 
 
 func _is_equipped(id: String) -> bool:
@@ -251,29 +304,42 @@ func _select(id: String) -> void:
 	if _cards.has(id):
 		_cards[id].set_pressed_no_signal(true)
 	_refresh_detail()
-	var gun := _category in ["weapons", "skins"]
-	_preview.show_model(_preview_model(_category, id), _category == "outfits" or (_category == "hats" and id == "none"),
-		_yaw_for(_category), 1.15 if gun else 0.95)
+	var cat := _category
+	var gun := cat in ["weapons", "skins", "charms", "draws"]
+	var pedestal := cat in ["outfits", "emotes"] or (cat == "hats" and id == "none")
+	_preview.show_model(_preview_model(cat, id), pedestal, _yaw_for(cat), 1.15 if gun else 0.95)
 
 
 func _yaw_for(cat: String) -> float:
-	return GUN_YAW if cat in ["weapons", "skins"] else FRONT_YAW
+	return GUN_YAW if cat in ["weapons", "skins", "charms", "draws", "attachments"] else FRONT_YAW
 
 
 func _preview_model(cat: String, id: String) -> Node3D:
 	match cat:
 		"weapons":
-			return Models.build_gun(id, Profile.equipped.skin)
+			return Models.build_gun(id, Profile.equipped.skin, Profile.equipped.charm)
 		"skins":
-			return Models.build_gun(Profile.loadout.primary, id)
+			return Models.build_gun(Profile.loadout.primary, id, Profile.equipped.charm)
 		"hats":
 			if id == "none":
 				return Models.build_avatar(Profile.equipped.outfit, "none")
 			return Models.build_hat(id)
 		"outfits":
 			var avatar := Models.build_avatar(id, Profile.equipped.hat)
+			avatar.charm_id = Profile.equipped.charm
 			avatar.hold_weapon(Profile.loadout.primary, Profile.equipped.skin)
 			return avatar
+		"charms":
+			# On the equipped primary, so it swings as the preview turns.
+			return Models.build_gun(Profile.loadout.primary, Profile.equipped.skin, id)
+		"emotes":
+			var dancer := Models.build_avatar(Profile.equipped.outfit, Profile.equipped.hat)
+			dancer.play_emote(id)
+			return dancer
+		"draws":
+			return DrawPreview.create(id, Profile.loadout.secondary, Profile.equipped.skin, Profile.equipped.charm)
+		"attachments":
+			return Models.build_attachment(id)
 	return null
 
 
@@ -282,11 +348,17 @@ func _refresh_detail() -> void:
 		return
 	var cat := _category
 	var id := _selected
+	for c in _stats.get_children():
+		c.queue_free()
+	for c in _price_row.get_children():
+		c.queue_free()
+	if cat == "attachments":
+		_refresh_attachment_detail(id)
+		return
 	var item: Dictionary = Data.catalog(cat)[id]
 	_name.text = String(item.name).to_upper()
 	_desc.text = UIKit.item_description(cat, id)
-	for c in _stats.get_children():
-		c.queue_free()
+	_buy.text = "BUY"
 	match cat:
 		"weapons":
 			var slot: String = item.slot
@@ -299,8 +371,12 @@ func _refresh_detail() -> void:
 			_kind.text = "HAT"
 		"outfits":
 			_kind.text = "OUTFIT"
-	for c in _price_row.get_children():
-		c.queue_free()
+		"charms":
+			_kind.text = "WEAPON CHARM · HANGS FROM EVERY GUN"
+		"emotes":
+			_kind.text = "WIN EMOTE · PLAYED WHEN YOU WIN A MATCH"
+		"draws":
+			_kind.text = "DRAW ANIMATION · LOOKS ONLY, NEVER SLOWER"
 	var owned := Profile.is_owned(cat, id)
 	var equipped := _is_equipped(id)
 	var price := Profile.price_of(cat, id)
@@ -323,11 +399,60 @@ func _refresh_detail() -> void:
 		_price_row.add_child(owned_label)
 
 
+## Attachment detail: level pips, the stat now and after the next level, and the upgrade price.
+func _refresh_attachment_detail(id: String) -> void:
+	var a: Dictionary = Data.ATTACHMENTS[id]
+	var lvl := Profile.upgrade_level(id)
+	var top := int(a.max)
+	_name.text = String(a.name).to_upper()
+	_kind.text = "ATTACHMENT · LEVEL %d / %d · EVERY GUN" % [lvl, top]
+	_desc.text = String(a.desc)
+	var pips := UIKit.hbox(10)
+	pips.add_child(UIKit.label("LEVEL", &"SmallLabel"))
+	pips.add_child(_level_pips(id, 18))
+	_stats.add_child(pips)
+	var now := _effect_text(id, lvl)
+	var text := now if lvl >= top else "%s  >  %s" % [now, _effect_text(id, lvl + 1)]
+	_stats.add_child(UIKit.stat_bar(String(a.stat), float(lvl) / top, text))
+	_equip.visible = false
+	_buy.text = "UPGRADE"
+	if lvl >= top:
+		_buy.visible = false
+		_state.visible = true
+		_state.text = "MAXED"
+		_state.add_theme_color_override("font_color", UITheme.GOOD)
+		return
+	_state.visible = false
+	_buy.visible = true
+	var cost := Profile.upgrade_price(id)
+	_price_row.add_child(UIKit.coin_amount(cost, 26))
+	var short := cost - Profile.coins
+	_buy.disabled = short > 0
+	_buy.tooltip_text = "You need %s more coins." % UIKit.format_int(short) if short > 0 else ""
+
+
+## "-21%" style change an attachment makes at `level` ("+0%" at level 0).
+static func _effect_text(id: String, level: int) -> String:
+	var pct := roundi((Data.attachment_mult(id, level) - 1.0) * 100.0)
+	return "%s%d%%" % ["+" if pct >= 0 else "", pct]
+
+
+## Price of the selected item (or next attachment level); -1 if it can't be bought.
+func _selected_price() -> int:
+	if _category == "attachments":
+		return Profile.upgrade_price(_selected)
+	return Profile.price_of(_category, _selected)
+
+
 func _on_buy() -> void:
-	if Profile.buy(_category, _selected):
+	var ok := Profile.buy_upgrade(_selected) if _category == "attachments" else Profile.buy(_category, _selected)
+	if ok:
 		Sfx.play(&"ui_buy")
 		_pop(_cards.get(_selected))
-		_flash_text("PURCHASED!")
+		if _category == "attachments":
+			_flash_text("LEVEL %d!" % Profile.upgrade_level(_selected))
+		else:
+			_flash_text("PURCHASED!")
 	else:
 		_buy_failed()
 
@@ -341,7 +466,7 @@ func _on_buy_input(event: InputEvent) -> void:
 
 func _buy_failed() -> void:
 	Sfx.play(&"ui_error")
-	var short := Profile.price_of(_category, _selected) - Profile.coins
+	var short := _selected_price() - Profile.coins
 	if short > 0:
 		_flash_text("NEED %s MORE COINS" % UIKit.format_int(short), UITheme.BAD)
 	# Repeated clicks mid-shake would capture an offset position and leave the button shifted.

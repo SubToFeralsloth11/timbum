@@ -409,9 +409,11 @@ func update_pose(delta: float, p: Player) -> void:
 	elif _hand_busy:
 		stop_reload()
 	if _draw_t > 0.0:
-		var dpose := _draw_pose(_draw_t / _draw_len)
+		var dpose := draw_pose(_draw_style, _draw_t / _draw_len)
 		pos += dpose[0]
 		rot += dpose[1]
+		if _gun != null:
+			_gun.transform = dpose[2]
 	elif _gun != null and _gun.transform != Transform3D.IDENTITY:
 		_gun.transform = Transform3D.IDENTITY
 	if _melee_t > 0.0:
@@ -450,15 +452,15 @@ func update_pose(delta: float, p: Player) -> void:
 		_flash.visible = false
 
 
-## Draw animation at `d` (1 = just started, 0 = done): [pivot offset, pivot rotation]. Styles
-## that spin the gun in the hand also set the gun's own transform under the mount.
-func _draw_pose(d: float) -> Array:
+## Draw animation `style` at `d` (1 = just started, 0 = done): [pivot offset, pivot rotation,
+## gun transform under the hand]. Styles that spin the gun in the hand use the last one.
+static func draw_pose(style: String, d: float) -> Array:
 	var u := 1.0 - d
 	var ease_out := 1.0 - pow(d, 3.0)
 	var pos := Vector3.ZERO
 	var rot := Vector3.ZERO
 	var gun := Transform3D.IDENTITY
-	match _draw_style:
+	match style:
 		"twirl":
 			# One full turn around the trigger finger while rising.
 			pos.y -= d * d * 0.16
@@ -467,7 +469,7 @@ func _draw_pose(d: float) -> Array:
 		"flip":
 			# Rolled a full turn around the barrel on the way up.
 			pos.y -= d * d * 0.24
-			rot.z += TAU * (1.0 - ease_out)
+			gun = Transform3D(Basis(Vector3.BACK, TAU * (1.0 - ease_out)), Vector3.ZERO)
 		"slam":
 			# Falls in from above and bounces into place.
 			var drop := d * d
@@ -489,9 +491,7 @@ func _draw_pose(d: float) -> Array:
 			pos.y -= d * d * 0.28
 			rot.x -= d * 0.6
 			rot.z += d * d * 0.5
-	if _gun != null:
-		_gun.transform = gun
-	return [pos, rot]
+	return [pos, rot, gun]
 
 
 ## Knife slash at progress `u` (0..1): [pivot offset, pivot rotation]. Eases up to the wind-up
@@ -537,7 +537,7 @@ func _animate_off_hand() -> void:
 	elif _grapple_blend > 0.0:
 		hand = Vector3(-0.2, -0.04, -0.38)
 		w = _grapple_blend
-	elif _draw_t > 0.0 and _draw_style in ["twirl", "toss"]:
+	elif _draw_t > 0.0 and _draw_style in ["twirl", "flip", "toss"]:
 		# The off hand lets go while the gun spins in the right hand.
 		var u := 1.0 - _draw_t / _draw_len
 		hand = Vector3(-0.22, -0.2, -0.25)

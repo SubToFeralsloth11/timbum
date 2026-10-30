@@ -79,13 +79,94 @@ static func build_gun(weapon_id: String, skin_id: String, charm_id := "none") ->
 
 
 ## Where a charm hangs on `weapon_id` (gun space): the left face of the gun, a little below the
-## barrel line and just ahead of the trigger.
+## barrel line, where neither hand covers it in first person: behind the grip on long guns (the
+## off hand is out on the handguard), ahead of it on pistols (the off hand wraps the grip).
 static func charm_anchor(weapon_id: String) -> Vector3:
 	var info := _gun_info(weapon_id)
 	var box: AABB = (info.mesh as ArrayMesh).get_aabb()
 	var muzzle: Vector3 = info.muzzle
-	var z := clampf(-0.07, box.position.z + 0.02, box.end.z - 0.02)
-	return Vector3(box.position.x - 0.003, muzzle.y - 0.012, z)
+	var support: Variant = info.support
+	var two_handed := support != null and (support as Vector3).z < -0.12
+	var z := 0.07 if two_handed else muzzle.z * 0.6
+	z = clampf(z, box.position.z + 0.02, box.end.z - 0.02)
+	return Vector3(box.position.x - 0.003, muzzle.y - 0.015, z)
+
+
+## A charm on its own (shop icon/preview): the trinket and chain, hanging still.
+static func build_charm(charm_id: String) -> Node3D:
+	var root := Node3D.new()
+	root.name = "Charm"
+	var mi := MeshInstance3D.new()
+	mi.mesh = GunCharm.mesh_for(charm_id)
+	root.add_child(mi)
+	return root
+
+
+## Shop model of an attachment upgrade (Data.ATTACHMENTS id), built from a few boxes.
+static func build_attachment(attachment_id: String) -> Node3D:
+	var root := Node3D.new()
+	root.name = "Attachment"
+	var mi := MeshInstance3D.new()
+	mi.mesh = _attachment_mesh(attachment_id)
+	root.add_child(mi)
+	return root
+
+
+static func _attachment_mesh(attachment_id: String) -> ArrayMesh:
+	var key := "attachment/" + attachment_id
+	if _meshes.has(key):
+		return _meshes[key]
+	var k := MeshKit.new()
+	match attachment_id:
+		"laser":
+			k.box(DARK, Vector3.ZERO, Vector3(0.04, 0.03, 0.09))
+			k.box(METAL, Vector3(0, 0.022, 0), Vector3(0.03, 0.014, 0.07))
+			k.box(RED, Vector3(0.008, 0, -0.046), Vector3(0.012, 0.012, 0.004))
+			k.box(LENS, Vector3(-0.009, 0, -0.046), Vector3(0.01, 0.01, 0.004))
+		"grip":
+			k.box(METAL, Vector3(0, 0.03, 0), Vector3(0.03, 0.012, 0.06))
+			k.box(DARK, Vector3(0, -0.02, 0), Vector3(0.028, 0.09, 0.03), Vector3(-0.15, 0, 0))
+			k.box(DARK, Vector3(0, -0.07, 0.006), Vector3(0.034, 0.012, 0.036))
+		"stabilizer":
+			k.box(DARK, Vector3.ZERO, Vector3(0.036, 0.036, 0.09))
+			for i in 3:
+				k.box(METAL, Vector3(0, 0, -0.03 + i * 0.026), Vector3(0.042, 0.012, 0.01))
+		"mag":
+			k.box(DARK, Vector3(0, -0.02, 0), Vector3(0.03, 0.16, 0.05), Vector3(0.2, 0, 0))
+			k.box(BRASS, Vector3(0, 0.062, -0.016), Vector3(0.016, 0.01, 0.03), Vector3(0.2, 0, 0))
+			k.box(METAL, Vector3(0, -0.1, 0.016), Vector3(0.034, 0.012, 0.054), Vector3(0.2, 0, 0))
+		"speed_loader":
+			k.box(METAL, Vector3.ZERO, Vector3(0.06, 0.02, 0.06))
+			for i in 6:
+				var a := i * TAU / 6.0
+				k.box(BRASS, Vector3(cos(a) * 0.018, 0.02, sin(a) * 0.018), Vector3(0.01, 0.03, 0.01))
+			k.box(DARK, Vector3(0, -0.018, 0), Vector3(0.02, 0.02, 0.02))
+		"optic":
+			k.box(DARK, Vector3(0, 0, 0), Vector3(0.04, 0.012, 0.07))
+			k.box(DARK, Vector3(0, 0.03, -0.02), Vector3(0.04, 0.05, 0.008))
+			k.box(DARK, Vector3(0, 0.03, 0.02), Vector3(0.04, 0.05, 0.008))
+			k.box(LENS, Vector3(0, 0.03, -0.02), Vector3(0.03, 0.036, 0.009))
+			k.box(RED, Vector3(0, 0.03, 0.0245), Vector3(0.006, 0.006, 0.002))
+		"barrel":
+			k.box(METAL, Vector3(0, 0, 0), Vector3(0.024, 0.024, 0.3))
+			k.box(DARK, Vector3(0, 0, -0.16), Vector3(0.034, 0.034, 0.04))
+			k.box(DARK, Vector3(0, 0, 0.13), Vector3(0.032, 0.032, 0.04))
+		"stock":
+			k.box(DARK, Vector3(0, 0, -0.06), Vector3(0.024, 0.024, 0.12))
+			k.box(DARK, Vector3(0, -0.01, 0.06), Vector3(0.03, 0.09, 0.024))
+			k.box(METAL, Vector3(0, 0.02, 0.0), Vector3(0.026, 0.012, 0.1))
+		"holster":
+			k.box(DARK, Vector3(0, -0.02, 0), Vector3(0.05, 0.13, 0.03))
+			k.box(DARK, Vector3(0, 0.06, 0.012), Vector3(0.05, 0.04, 0.012))
+			k.box(BRASS, Vector3(0, 0.05, -0.017), Vector3(0.012, 0.012, 0.004))
+		_:
+			k.box(METAL, Vector3.ZERO, Vector3(0.06, 0.06, 0.08))
+			k.box(RED, Vector3(0, 0.035, 0), Vector3(0.03, 0.012, 0.03))
+			k.box(DARK, Vector3(0, 0, -0.05), Vector3(0.02, 0.02, 0.03))
+	var mats := _gun_accent_materials()
+	mats[BODY] = skin_material("default")
+	_meshes[key] = k.build(mats)
+	return _meshes[key]
 
 
 ## Shared weapon-skin material: a 32x32 nearest-filtered pixel pattern generated from the

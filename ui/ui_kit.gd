@@ -210,4 +210,7 @@ static func item_colors(category: String, id: String) -> Array[Color]:
 			return [item.a, item.b]
 		"outfits":
 			return [item.skin, item.shirt, item.pants]
+		"charms":
+			if id != "none":
+				return [item.a, item.b]
 	return []
