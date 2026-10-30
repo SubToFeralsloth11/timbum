@@ -772,7 +772,7 @@ func _server_tally_skip() -> void:
 		if Net.players.has(id):
 			votes += 1
 	var needed := skip_votes_needed(Net.players.size())
-	_broadcast(&"_s_skip_votes", [votes, needed])
+	_broadcast(&"_s_skip_votes", [votes])
 	if votes >= needed:
 		_server_advance()
 
@@ -1344,8 +1344,8 @@ func _update_win_cam(delta: float) -> void:
 
 
 @rpc("authority", "call_remote", "reliable")
-func _s_skip_votes(votes: int, needed: int) -> void:
-	hud.set_skip_votes(votes, needed)
+func _s_skip_votes(votes: int) -> void:
+	hud.set_skip_votes(votes)
 
 
 # ================================================================ helpers

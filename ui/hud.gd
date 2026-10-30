@@ -126,6 +126,8 @@ var _fps_label: Label
 
 var _death_left := 0.0
 var _results_left := 0.0
+## Skip votes the server last reported for the results screen ("N of M ready" for everyone).
+var _skip_votes := 0
 var _vignette_alpha := 0.0
 var _kill_label_t := 0.0
 var _announce_t := 0.0
@@ -654,6 +656,7 @@ func _build_results() -> void:
 		if world.tactical != null:
 			world.tactical.request_new_game()
 		else:
+			_results_skip.text = "Ready - Waiting"
 			world.vote_skip())
 	var leave := Button.new()
 	leave.text = "Leave to Menu"
@@ -685,7 +688,8 @@ func _process(delta: float) -> void:
 	var p := world.local_player
 	_update_damage_numbers(delta)
 	var scoreboard_held := Input.is_action_pressed("scoreboard") and not _chat_input.visible and not _pause.visible
-	_scoreboard.visible = scoreboard_held and not _results.visible
+	# The Tab scoreboard also works over the results screen (show_results draws it on top).
+	_scoreboard.visible = scoreboard_held
 	if _scoreboard.visible and _scores_dirty:
 		_fill_rows(_score_rows, _sorted_rows())
 		_scores_dirty = false
@@ -719,6 +723,10 @@ func _process(delta: float) -> void:
 	if _results.visible and world.tactical == null:
 		_results_left = maxf(0.0, _results_left - delta)
 		_results_timer.text = "Next match in %d" % int(ceil(_results_left))
+		if not Net.offline:
+			# Every player sees how many are ready, voters or not; Net.players follows joins and leaves.
+			var humans := Net.players.size()
+			_results_timer.text += "  ·  %d of %d ready (%d needed)" % [_skip_votes, humans, World.skip_votes_needed(humans)]
 
 	_flash_left = maxf(0.0, _flash_left - delta)
 	# Full white for the first part of the blindness, then it fades.
@@ -1185,6 +1193,8 @@ func show_results(rows: Array, placement: int, rewards: Dictionary, wait: float,
 	_win_banner.visible = false
 	# Above the intro card and controls hint, which a joiner arriving mid-results also gets.
 	_results.move_to_front()
+	_scoreboard.move_to_front()
+	_skip_votes = 0
 	_results_left = wait
 	if world.tactical != null:
 		_tactical_results_title(rows, int(next.get("winner", -1)))
@@ -1267,10 +1277,9 @@ func _on_results_pick(slot: String, idx: int) -> void:
 		Net.update_my_info()
 
 
-## Skip-vote progress from the server: "Waiting (1/2)" once this player has voted.
-func set_skip_votes(votes: int, needed: int) -> void:
-	var label := "Waiting" if _results_skip.disabled else "Start Next Match"
-	_results_skip.text = "%s (%d/%d)" % [label, votes, needed]
+## Skip-vote count from the server, shown on every player's results screen (see _process).
+func set_skip_votes(votes: int) -> void:
+	_skip_votes = votes
 
 
 ## Best streak, most headshots and fewest deaths of the match; ties go to the higher finisher.
