@@ -84,6 +84,8 @@ var _win_t := 0.0
 var _ready_peers := {}
 ## Peers who voted to skip the rest of the results screen.
 var _skip_votes := {}
+## Results screen next-map vote: peer -> index into next_up.map_options.
+var _map_votes := {}
 var _advancing := false
 ## World.now() bookkeeping: total milliseconds spent frozen, and when the current freeze began
 ## (-1 when running). Static because now() is static; frozen time only ever accumulates.
@@ -535,7 +537,9 @@ func _on_peer_disconnected(pid: int) -> void:
 	_balance_bots.call_deferred()
 	# A leaver lowers the majority needed on the results screen (Net already dropped them).
 	_skip_votes.erase(pid)
+	_map_votes.erase(pid)
 	if match_over and not _advancing:
+		_server_tally_maps()
 		_server_tally_skip()
 
 
@@ -781,6 +785,8 @@ func _server_end_match() -> void:
 		_broadcast(&"_s_match_end", [rows, extra, WIN_SHOW + 2.0])
 		return
 	var next := Net.plan_next_match().duplicate()
+	# The next-map vote: the planned map first (kept on a tie or no votes), then two others.
+	next["map_options"] = Net.next_map_options()
 	next.merge(extra)
 	_results_until = now() + RESULTS_TIME
 	_broadcast(&"_s_match_end", [rows, next, RESULTS_TIME])
@@ -788,15 +794,20 @@ func _server_end_match() -> void:
 
 
 ## Moves everyone to the next match, once: when the results delay runs out or a skip vote passes.
+## The next-map vote decides the map first.
 func _server_advance() -> void:
 	if is_inside_tree() and multiplayer.is_server() and not _advancing:
 		_advancing = true
+		var options: Array = next_up.get("map_options", [])
+		var pick := Net.vote_winner(map_vote_counts())
+		if pick > 0:
+			Net.vote_next_map(str(options[pick]))
 		Net.next_match()
 
 
 ## Skip-vote threshold: a majority of the humans in the session.
 static func skip_votes_needed(humans: int) -> int:
-	return humans / 2 + 1
+	return Net.majority(humans)
 
 
 func _server_vote_skip(pid: int) -> void:
@@ -817,6 +828,24 @@ func _server_tally_skip() -> void:
 	_broadcast(&"_s_skip_votes", [votes])
 	if votes >= needed:
 		_server_advance()
+
+
+## Results screen next-map vote: votes per next_up.map_options entry (players still here).
+func map_vote_counts() -> Array:
+	return Net.vote_counts(_map_votes, (next_up.get("map_options", []) as Array).size())
+
+
+func _server_vote_map(pid: int, index: int) -> void:
+	if not match_over or _advancing or not Net.players.has(pid) or index < 0 or index >= (next_up.get("map_options", []) as Array).size():
+		return
+	_map_votes[pid] = index
+	_server_tally_maps()
+
+
+## Tells everyone the live next-map vote counts.
+func _server_tally_maps() -> void:
+	if next_up.has("map_options"):
+		_broadcast(&"_s_map_votes", [map_vote_counts()])
 
 
 func _server_chat_system(text: String) -> void:
@@ -891,6 +920,14 @@ func vote_skip() -> void:
 		_c_vote_skip.rpc_id(1)
 
 
+## Results screen: this player votes for next_up.map_options[index] as the next map.
+func vote_map(index: int) -> void:
+	if multiplayer.is_server():
+		_server_vote_map(my_id(), index)
+	else:
+		_c_vote_map.rpc_id(1, index)
+
+
 func _server_chat(sender: int, text: String) -> void:
 	text = text.strip_edges().replace("[", "(").replace("]", ")").substr(0, MAX_CHAT_LENGTH)
 	if text.is_empty() or not Net.players.has(sender):
@@ -955,6 +992,7 @@ func _c_ready() -> void:
 			_s_pickup_state.rpc_id(pid, i, false, _pickup_ready_at[i] - now())
 	if match_over:
 		_s_match_end.rpc_id(pid, results, next_up, maxf(0.0, _results_until - now()))
+		_server_tally_maps()
 		_server_tally_skip()
 		return
 	streaks.server_sync(pid)
@@ -997,6 +1035,12 @@ func _c_chat(text: String) -> void:
 func _c_vote_skip() -> void:
 	if multiplayer.is_server():
 		_server_vote_skip(multiplayer.get_remote_sender_id())
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _c_vote_map(index: int) -> void:
+	if multiplayer.is_server():
+		_server_vote_map(multiplayer.get_remote_sender_id(), index)
 
 
 # ================================================================ RPC: server -> peers
@@ -1464,6 +1508,11 @@ func _update_win_cam(delta: float) -> void:
 @rpc("authority", "call_remote", "reliable")
 func _s_skip_votes(votes: int) -> void:
 	hud.set_skip_votes(votes)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _s_map_votes(counts: Array) -> void:
+	hud.set_map_votes(counts)
 
 
 # ================================================================ helpers

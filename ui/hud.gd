@@ -145,6 +145,12 @@ var _results_skip: Button
 var _results_leave: Button
 ## Results-screen loadout pickers, keyed by weapon slot ("primary", "secondary").
 var _results_pickers := {}
+var _map_vote_box: HBoxContainer
+var _map_vote_hint: Label
+## One toggle per next-map choice (meta "map": its map id).
+var _map_vote_buttons: Array[Button] = []
+## The last next-map vote counts from the server.
+var _map_counts: Array = []
 var _pause: PauseMenu
 var _fps_label: Label
 ## Kill cam (KillCam) playing: the player's own cards, crosshair and death screen are hidden;
@@ -692,13 +698,38 @@ func _build_results() -> void:
 	next_box.add_theme_constant_override("separation", 2)
 	next_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	prep.add_child(next_box)
-	next_box.add_child(_label("NEXT UP", 16, Color(0.7, 0.75, 0.85)))
+	# NEXT UP, with the next-map vote's rule beside it (keeps the panel short enough for 720p).
+	var next_head := HBoxContainer.new()
+	next_head.add_theme_constant_override("separation", 12)
+	next_box.add_child(next_head)
+	next_head.add_child(_label("NEXT UP", 16, Color(0.7, 0.75, 0.85)))
+	_map_vote_hint = _label("", 14, Color(0.7, 0.75, 0.85))
+	_map_vote_hint.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	next_head.add_child(_map_vote_hint)
 	_results_next = _label("", 22, Color(0.6, 0.9, 1.0))
 	next_box.add_child(_results_next)
 	_results_next_desc = _label("", 16, Color(0.85, 0.85, 0.9))
 	_results_next_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_results_next_desc.custom_minimum_size.x = 300
 	next_box.add_child(_results_next_desc)
+	# Next-map vote: the planned map and two others; everyone sees the live counts.
+	var vote_row := HBoxContainer.new()
+	_map_vote_box = vote_row
+	vote_row.add_theme_constant_override("separation", 6)
+	next_box.add_child(vote_row)
+	var vote_group := ButtonGroup.new()
+	for i in Net.MAP_VOTE_CHOICES:
+		var b := Button.new()
+		b.toggle_mode = true
+		b.button_group = vote_group
+		b.custom_minimum_size = Vector2(0, 36)
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.add_theme_font_size_override("font_size", 14)
+		b.pressed.connect(func() -> void:
+			Sfx.play(&"ui_click")
+			world.vote_map(i))
+		vote_row.add_child(b)
+		_map_vote_buttons.append(b)
 	var loadout := GridContainer.new()
 	loadout.columns = 2
 	loadout.add_theme_constant_override("h_separation", 12)
@@ -1368,6 +1399,7 @@ func show_results(rows: Array, placement: int, rewards: Dictionary, wait: float,
 	_fill_rewards(rewards)
 	_fill_match_stats(rewards)
 	_fill_next(next)
+	_fill_map_vote(next)
 	_fill_results_loadout()
 	_results_skip.disabled = false
 	_results_skip.text = "Start Next Match"
@@ -1419,6 +1451,36 @@ func _on_results_pick(slot: String, idx: int) -> void:
 ## Skip-vote count from the server, shown on every player's results screen (see _process).
 func set_skip_votes(votes: int) -> void:
 	_skip_votes = votes
+
+
+## Next-map vote counts from the server (per next.map_options entry), shown to everyone.
+func set_map_votes(counts: Array) -> void:
+	_map_counts = counts
+	for i in _map_vote_buttons.size():
+		var b: Button = _map_vote_buttons[i]
+		if not b.has_meta(&"map"):
+			continue
+		var n := int(counts[i]) if i < counts.size() else 0
+		b.text = "%s  ·  %d" % [str(Data.MAPS[b.get_meta(&"map")].name).to_upper(), n]
+
+
+## The results screen's next-map vote (hidden when there is no next match, e.g. Tactical).
+func _fill_map_vote(next: Dictionary) -> void:
+	var options: Array = next.get("map_options", [])
+	_map_vote_box.visible = options.size() > 1 and world.tactical == null
+	_map_vote_hint.visible = _map_vote_box.visible
+	for i in _map_vote_buttons.size():
+		var b: Button = _map_vote_buttons[i]
+		b.visible = i < options.size()
+		b.set_pressed_no_signal(false)
+		if i < options.size():
+			b.set_meta(&"map", str(options[i]))
+		else:
+			b.remove_meta(&"map")
+	if not options.is_empty():
+		_map_vote_hint.text = "VOTE THE MAP: most votes wins, a tie keeps %s" % str(Data.MAPS[str(options[0])].name)
+	# Counts may have arrived while the winner's emote played, before this screen opened.
+	set_map_votes(_map_counts)
 
 
 ## The mode's match highlights (MatchMode.highlights); this player's (their medals) in gold.

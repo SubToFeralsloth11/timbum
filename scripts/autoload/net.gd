@@ -13,6 +13,10 @@ signal status(text: String)
 signal players_changed
 ## room_code / how friends can join changed (host side).
 signal invite_changed
+## The pre-match lobby's state (`lobby`) changed: who is ready, map votes, the countdown.
+signal lobby_changed
+## A lobby chat line ("" sender: a system message).
+signal lobby_chat(sender: String, text: String)
 
 enum Link { DIRECT, STEAM, WEBRTC }
 
@@ -30,7 +34,8 @@ const GAME_ID := "timbum"
 ## 12: quick pings (Pings RPCs).
 ## 13: prestige rank and mastery camos in peer_info, the weapon id in World._s_hit_confirm, the
 ##     dropper's gun skin on Tactical weapon spots.
-const PROTOCOL_VERSION := 13
+## 14: the pre-match lobby (Net lobby RPCs) and the results screen's next-map vote.
+const PROTOCOL_VERSION := 14
 const CONNECT_TIMEOUT := 8.0
 ## A room-code join first tries a direct (NAT punch-through) link this long, then the relay.
 const NAT_CONNECT_TIMEOUT := 6.0
@@ -38,6 +43,12 @@ const NAT_CONNECT_TIMEOUT := 6.0
 const RELAYED_CONNECT_TIMEOUT := 20.0
 const WORLD_SCENE := "res://scenes/world.tscn"
 const MENU_SCENE := "res://scenes/main_menu.tscn"
+const LOBBY_SCENE := "res://scenes/lobby.tscn"
+## Once a majority of the lobby is ready (not everyone), the match starts this many seconds later.
+const LOBBY_COUNTDOWN := 10.0
+## Maps offered in a map vote (the lobby adds RANDOM_MAP).
+const MAP_VOTE_CHOICES := 3
+const RANDOM_MAP := "random"
 
 const DEFAULT_CONFIG := {
 	## A Data.MODES id: "ffa" (deathmatch), "tdm", "gungame", "koth", "infected" or "tactical"
@@ -94,6 +105,15 @@ var _attempt := 0
 var room_code_error := ""
 ## Joining by typed address (so a failure hints at address/port/firewall).
 var _joined_by_address := false
+## True on every peer while the session waits in the pre-match lobby (hosting online opens it
+## before the first match; a peer joining later goes straight into the running match).
+var in_lobby := false
+## The lobby as every peer sees it: {options: map ids offered for the first match then
+## RANDOM_MAP (empty in Tactical: no vote), ready: {peer id: true}, votes: {peer id: option index},
+## countdown: seconds left until the countdown starts the match, -1 when none is running}.
+var lobby := {}
+## Server: Time.get_ticks_msec() when the lobby countdown starts the match (-1: none).
+var _lobby_start_ms := -1
 
 
 func _ready() -> void:
@@ -116,9 +136,10 @@ func _ready() -> void:
 	noray.failed.connect(_on_link_failed)
 	webrtc.failed.connect(_on_link_failed)
 	steam.invite_accepted.connect(func(lobby_id: int) -> void: join_steam_lobby(lobby_id))
-	var lobby := steam.lobby_from_command_line()
-	if lobby != 0:
-		join_steam_lobby.call_deferred(lobby)
+	var steam_lobby := steam.lobby_from_command_line()
+	if steam_lobby != 0:
+		join_steam_lobby.call_deferred(steam_lobby)
+	set_process(false)
 
 
 # ---------------------------------------------------------------- entry points
@@ -175,7 +196,8 @@ func host(port: int, cfg: Dictionary, p_link := Link.DIRECT) -> Error:
 	if p_link == Link.DIRECT:
 		lan.advertise(_lan_info)
 		noray.start_host(peer as ENetMultiplayerPeer)
-	_start_server(cfg)
+	# Everyone gathers in the lobby before the first match (offline play starts straight away).
+	_start_server(cfg, true)
 	invite_changed.emit()
 	return OK
 
@@ -309,18 +331,257 @@ func _close_peer() -> void:
 	host_port = 0
 	room_code_error = ""
 	_joined_by_address = false
+	_leave_lobby()
 	if not room_code.is_empty():
 		room_code = ""
 		invite_changed.emit()
 
 
-func _start_server(cfg: Dictionary) -> void:
+func _start_server(cfg: Dictionary, with_lobby := false) -> void:
 	config = sanitize_config(cfg)
 	players = {1: Profile.peer_info()}
 	players_changed.emit()
 	_rotation.clear()
 	_next_match = {}
-	load_map(_pick_next_map())
+	if with_lobby:
+		open_lobby()
+	else:
+		load_map(_pick_next_map())
+
+
+# ---------------------------------------------------------------- pre-match lobby
+
+## Server only: everyone waits in the lobby (scenes/lobby.tscn) until the first match starts:
+## when every human is ready, when the host presses Start, or LOBBY_COUNTDOWN seconds after a
+## majority got ready. Peers registering meanwhile join the lobby.
+func open_lobby() -> void:
+	assert(multiplayer.is_server())
+	in_lobby = true
+	_lobby_start_ms = -1
+	lobby = {"options": _map_vote_options("", true), "ready": {}, "votes": {}, "countdown": -1.0}
+	set_process(true)
+	lobby_changed.emit()
+	get_tree().change_scene_to_file.call_deferred(LOBBY_SCENE)
+
+
+## The maps of a vote: MAP_VOTE_CHOICES maps of the mode's pool, with `first` (if any) as the
+## first option and without `exclude`; plus RANDOM_MAP when `with_random`. Empty in Tactical (one map).
+func _map_vote_options(first: String, with_random: bool, exclude := "") -> Array:
+	if config.mode == "tactical":
+		return []
+	var pool: Array = Data.MAP_ROTATION.duplicate()
+	pool.shuffle()
+	if exclude != first:
+		pool.erase(exclude)
+	if first.is_empty() and config.map != "rotation":
+		# The host's own map pick is always one of the choices (and wins a tie).
+		first = config.map
+	if not first.is_empty():
+		pool.erase(first)
+		pool.push_front(first)
+	var out := pool.slice(0, MAP_VOTE_CHOICES)
+	if with_random:
+		out.append(RANDOM_MAP)
+	return out
+
+
+## The option a vote picked: the one with the most votes, or -1 on no votes or a tie at the top.
+static func vote_winner(counts: Array) -> int:
+	var best := -1
+	var top := 0
+	for i in counts.size():
+		if int(counts[i]) > top:
+			top = int(counts[i])
+			best = i
+		elif int(counts[i]) == top and top > 0:
+			best = -1
+	return best
+
+
+## Votes per option from {peer id: option index}, counting only peers still in the session.
+func vote_counts(votes: Dictionary, options: int) -> Array:
+	var counts: Array = []
+	counts.resize(options)
+	counts.fill(0)
+	for pid: int in votes:
+		if players.has(pid) and int(votes[pid]) >= 0 and int(votes[pid]) < options:
+			counts[int(votes[pid])] += 1
+	return counts
+
+
+## Humans in the lobby who are ready.
+func lobby_ready_count() -> int:
+	var n := 0
+	for pid: int in (lobby.get("ready", {}) as Dictionary):
+		if players.has(pid):
+			n += 1
+	return n
+
+
+## Ready check majority: more than half the humans (the results screen's skip vote uses the same).
+static func majority(humans: int) -> int:
+	return humans / 2 + 1
+
+
+## This player is (not) ready.
+func lobby_set_ready(on: bool) -> void:
+	if multiplayer.is_server():
+		_server_lobby_ready(1, on)
+	else:
+		_rpc_lobby_ready.rpc_id(1, on)
+
+
+## This player votes for lobby.options[index].
+func lobby_vote(index: int) -> void:
+	if multiplayer.is_server():
+		_server_lobby_vote(1, index)
+	else:
+		_rpc_lobby_vote.rpc_id(1, index)
+
+
+func lobby_say(text: String) -> void:
+	if multiplayer.is_server():
+		_server_lobby_chat(1, text)
+	else:
+		_rpc_lobby_chat.rpc_id(1, text)
+
+
+## Host: starts the first match now, ready or not.
+func lobby_start() -> void:
+	if multiplayer.is_server() and in_lobby:
+		_lobby_begin()
+
+
+func _server_lobby_ready(pid: int, on: bool) -> void:
+	if not in_lobby or not players.has(pid):
+		return
+	if on:
+		lobby.ready[pid] = true
+	else:
+		lobby.ready.erase(pid)
+	_server_lobby_update()
+
+
+func _server_lobby_vote(pid: int, index: int) -> void:
+	if not in_lobby or not players.has(pid) or index < 0 or index >= (lobby.options as Array).size():
+		return
+	lobby.votes[pid] = index
+	_server_lobby_update()
+
+
+func _server_lobby_chat(pid: int, text: String) -> void:
+	text = text.strip_edges().replace("[", "(").replace("]", ")").substr(0, World.MAX_CHAT_LENGTH)
+	if not in_lobby or text.is_empty() or not players.has(pid):
+		return
+	_server_lobby_said(str(players[pid].name), text)
+
+
+func _server_lobby_said(sender: String, text: String) -> void:
+	for id: int in players:
+		if id != 1:
+			_rpc_lobby_said.rpc_id(id, sender, text)
+	lobby_chat.emit(sender, text)
+
+
+## Server: starts the match once everyone is ready, runs the countdown while a majority (but
+## not everyone) is, and sends every peer the lobby.
+func _server_lobby_update() -> void:
+	if not in_lobby:
+		return
+	for pid: int in (lobby.ready as Dictionary).keys():
+		if not players.has(pid):
+			lobby.ready.erase(pid)
+	for pid: int in (lobby.votes as Dictionary).keys():
+		if not players.has(pid):
+			lobby.votes.erase(pid)
+	var n_ready := lobby_ready_count()
+	if n_ready >= players.size():
+		_lobby_begin()
+		return
+	if n_ready >= majority(players.size()):
+		if _lobby_start_ms < 0:
+			_lobby_start_ms = Time.get_ticks_msec() + int(LOBBY_COUNTDOWN * 1000.0)
+	else:
+		_lobby_start_ms = -1
+	lobby.countdown = maxf(0.0, (_lobby_start_ms - Time.get_ticks_msec()) / 1000.0) if _lobby_start_ms >= 0 else -1.0
+	for id: int in players:
+		if id != 1:
+			_rpc_lobby_state.rpc_id(id, lobby)
+	lobby_changed.emit()
+
+
+func _process(_delta: float) -> void:
+	if in_lobby and multiplayer.is_server() and _lobby_start_ms >= 0 and Time.get_ticks_msec() >= _lobby_start_ms:
+		_lobby_begin()
+
+
+## Server: leaves the lobby for the first match on the voted map (RANDOM_MAP: any of the mode's
+## pool; no votes or a tie: the host's pick, or the rotation's first map).
+func _lobby_begin() -> void:
+	var options: Array = lobby.options
+	var pick := vote_winner(vote_counts(lobby.votes, options.size()))
+	var map_id := ""
+	if pick >= 0:
+		map_id = str(options[pick])
+		if map_id == RANDOM_MAP:
+			map_id = Data.MAP_ROTATION.pick_random()
+	_leave_lobby()
+	if map_id.is_empty():
+		map_id = _pick_next_map()
+	elif config.map == "rotation":
+		# The voted map counts as this round of the rotation's pick.
+		if _rotation.is_empty():
+			_rotation = Data.MAP_ROTATION.duplicate()
+			_rotation.shuffle()
+		_rotation.erase(map_id)
+	load_map(map_id)
+
+
+func _leave_lobby() -> void:
+	in_lobby = false
+	lobby = {}
+	_lobby_start_ms = -1
+	set_process(false)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _rpc_enter_lobby(cfg: Dictionary, state: Dictionary) -> void:
+	config = sanitize_config(cfg)
+	in_lobby = true
+	lobby = state
+	status.emit("Joined the lobby.")
+	lobby_changed.emit()
+	get_tree().change_scene_to_file.call_deferred(LOBBY_SCENE)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _rpc_lobby_state(state: Dictionary) -> void:
+	if in_lobby:
+		lobby = state
+		lobby_changed.emit()
+
+
+@rpc("authority", "call_remote", "reliable")
+func _rpc_lobby_said(sender: String, text: String) -> void:
+	lobby_chat.emit(sender, text)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_lobby_ready(on: bool) -> void:
+	if multiplayer.is_server():
+		_server_lobby_ready(multiplayer.get_remote_sender_id(), on)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_lobby_vote(index: int) -> void:
+	if multiplayer.is_server():
+		_server_lobby_vote(multiplayer.get_remote_sender_id(), index)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_lobby_chat(text: String) -> void:
+	if multiplayer.is_server():
+		_server_lobby_chat(multiplayer.get_remote_sender_id(), text)
 
 
 static func sanitize_config(cfg: Dictionary) -> Dictionary:
@@ -413,6 +674,24 @@ func plan_next_match() -> Dictionary:
 	return _next_match
 
 
+## Server only: the results screen's map choices: the planned next map first (it also wins a tie
+## or no votes), then other maps of the mode's pool, never the map just played. Empty in Tactical.
+func next_map_options() -> Array:
+	return _map_vote_options(str(plan_next_match().map), false, current_map)
+
+
+## Server only: the results screen's map vote picked `map_id` over the planned map. In a rotation
+## the picked map leaves the rotation and the planned one goes to its end, so neither is lost.
+func vote_next_map(map_id: String) -> void:
+	var plan := plan_next_match()
+	if not Data.MAP_ROTATION.has(map_id) or map_id == plan.map:
+		return
+	if config.map == "rotation":
+		_rotation.erase(map_id)
+		_rotation.append(plan.map)
+	plan.map = map_id
+
+
 ## Server only: called by the World when a match has ended and the results delay is over (or
 ## the players voted to skip it).
 func next_match() -> void:
@@ -453,6 +732,7 @@ func _apply_info(id: int, info: Dictionary) -> void:
 func _rpc_load_match(map_id: String, cfg: Dictionary) -> void:
 	if not Data.MAPS.has(map_id):
 		return
+	_leave_lobby()
 	current_map = map_id
 	config = sanitize_config(cfg)
 	status.emit("Loading %s..." % Data.MAPS[map_id].name)
@@ -486,6 +766,11 @@ func _rpc_register(info: Dictionary, version: int) -> void:
 	players[id] = clean
 	_rpc_sync_players.rpc(players)
 	players_changed.emit()
+	if in_lobby:
+		_rpc_enter_lobby.rpc_id(id, config, lobby)
+		_server_lobby_said("", "%s joined the lobby" % clean.name)
+		_server_lobby_update()
+		return
 	_rpc_load_match.rpc_id(id, current_map, config)
 
 
@@ -575,9 +860,13 @@ func _on_peer_connected(_id: int) -> void:
 func _on_peer_disconnected(id: int) -> void:
 	if not multiplayer.is_server():
 		return
+	var who: String = str(players[id].name) if players.has(id) else ""
 	if players.erase(id):
 		_rpc_sync_players.rpc(players)
 		players_changed.emit()
+		if in_lobby:
+			_server_lobby_said("", "%s left the lobby" % who)
+			_server_lobby_update()
 
 
 func _on_connection_failed() -> void:

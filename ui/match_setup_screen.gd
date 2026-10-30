@@ -25,8 +25,8 @@ const MODE_HINTS := {
 
 const LINK_HINTS := {
 	Net.Link.DIRECT: "Wi-Fi friends see it under Join; others use the room code.",
-	Net.Link.STEAM: "Both players need Steam open. Invite from the pause menu.",
-	Net.Link.WEBRTC: "Fallback if room codes fail. Code is in the pause menu.",
+	Net.Link.STEAM: "Both players need Steam open. Invite from the lobby or the pause menu.",
+	Net.Link.WEBRTC: "Fallback if room codes fail. The code is in the lobby and the pause menu.",
 }
 
 var hosting := false

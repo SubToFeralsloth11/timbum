@@ -17,7 +17,7 @@ var _resume_button: Button
 var _settings_button: Button
 var _hint: Label
 ## Host of an online match: how friends can join (room code, Wi-Fi, Steam invite).
-var _invite: VBoxContainer
+var _invite: InviteBox
 
 
 func _ready() -> void:
@@ -44,9 +44,8 @@ func _ready() -> void:
 	_hint = UIKit.label("", &"DimLabel", HORIZONTAL_ALIGNMENT_CENTER)
 	v.add_child(_hint)
 	v.add_child(HSeparator.new())
-	_invite = UIKit.vbox(6)
+	_invite = InviteBox.new()
 	v.add_child(_invite)
-	Net.invite_changed.connect(_refresh_invite)
 	_resume_button = UIKit.button("RESUME", &"PrimaryButton")
 	_resume_button.pressed.connect(func() -> void: resume_requested.emit())
 	v.add_child(_resume_button)
@@ -79,7 +78,7 @@ func _on_visibility_changed() -> void:
 		return
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	_hint.text = "The match is paused." if Net.offline else "The match keeps running."
-	_refresh_invite()
+	_invite.refresh()
 	_settings.visible = false
 	_menu.visible = true
 	_animate_in(_menu)
@@ -114,51 +113,6 @@ func _close_settings() -> void:
 	_menu.visible = true
 	_animate_in(_menu)
 	_settings_button.grab_focus.call_deferred()
-
-
-func _refresh_invite() -> void:
-	for c in _invite.get_children():
-		c.queue_free()
-	_invite.visible = not Net.offline and multiplayer.is_server() and multiplayer.multiplayer_peer is not OfflineMultiplayerPeer
-	if not _invite.visible:
-		return
-	_invite.add_child(UIKit.label("INVITE FRIENDS", &"SubheaderLabel"))
-	if not Net.room_code.is_empty():
-		var row := UIKit.hbox(8)
-		var code := UIKit.label(Net.room_code, &"ValueLabel")
-		code.add_theme_font_size_override("font_size", 18)
-		code.add_theme_color_override("font_color", UITheme.ACCENT_2)
-		code.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		code.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		row.add_child(code)
-		var copy := UIKit.button("COPY", &"IconButton")
-		copy.pressed.connect(func() -> void:
-			DisplayServer.clipboard_set(Net.room_code)
-			copy.text = "COPIED")
-		row.add_child(copy)
-		_invite.add_child(row)
-		_invite_line("Friends paste this under Join > Room code.")
-	elif not Net.room_code_error.is_empty():
-		_invite_line(Net.room_code_error)
-	elif Net.link == Net.Link.DIRECT:
-		_invite_line("Getting a room code...")
-	match Net.link:
-		Net.Link.DIRECT:
-			_invite_line("Same Wi-Fi: they'll see your game under Join.")
-			for entry in NetLinkAddresses.local_addresses():
-				_invite_line("%s  %s:%d" % [entry.kind, entry.address, Net.host_port])
-		Net.Link.STEAM:
-			var invite := UIKit.button("INVITE STEAM FRIENDS")
-			invite.pressed.connect(func() -> void:
-				if not Net.invite_steam_friends():
-					invite.text = "STEAM OVERLAY UNAVAILABLE: SHARE THE CODE")
-			_invite.add_child(invite)
-
-
-func _invite_line(text: String) -> void:
-	var l := UIKit.label(text, &"SmallLabel")
-	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_invite.add_child(l)
 
 
 func _animate_in(c: Control) -> void:
