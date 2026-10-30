@@ -922,7 +922,7 @@ func _sorted_rows() -> Array:
 	var rows: Array = []
 	for eid: int in world.scores:
 		var s: Dictionary = world.scores[eid]
-		rows.append({"id": eid, "name": s.name, "level": s.get("level", 1), "kills": s.kills, "deaths": s.deaths, "headshots": s.headshots, "bot": s.bot})
+		rows.append({"id": eid, "name": s.name, "level": s.get("level", 1), "prestige": s.get("prestige", 0), "kills": s.kills, "deaths": s.deaths, "headshots": s.headshots, "bot": s.bot})
 	world.rules.annotate_rows(rows)
 	world.rules.sort_rows(rows)
 	return rows
@@ -940,7 +940,7 @@ func _fill_rows(container: VBoxContainer, rows: Array) -> void:
 		if team >= 0 and team != group:
 			group = team
 			container.add_child(_group_row(world.rules.group_header(team, rows), Teams.color(team)))
-		var player_name := "%s  Lv %d%s" % [r.name, int(r.get("level", 1)), "  [BOT]" if r.bot else ""]
+		var player_name := "%s  Lv %d%s" % [Data.badged_name(str(r.name), int(r.get("prestige", 0))), int(r.get("level", 1)), "  [BOT]" if r.bot else ""]
 		var tag := world.rules.row_tag(r)
 		if not tag.is_empty():
 			player_name += "  " + tag
@@ -1144,7 +1144,7 @@ func add_killfeed(killer: String, weapon: String, victim: String, head: bool, su
 	var panel := _panel(0.5)
 	var h := HBoxContainer.new()
 	panel.add_child(h)
-	var me: String = Net.players.get(world.my_id(), {}).get("name", "")
+	var me := world.tagged_name(world.my_id())
 	var killer_color := Teams.color(killer_team) if killer_team >= 0 else Color(1, 0.55, 0.5)
 	var victim_color := Teams.color(victim_team) if victim_team >= 0 else Color(0.6, 0.8, 1.0)
 	if suicide:

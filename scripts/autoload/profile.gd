@@ -77,6 +77,8 @@ var weapon_stats := {}
 var mastery_paid := {}
 ## Weapon ids whose mastery camo the player switched on (only Gold guns; see set_camo).
 var camos: Array = []
+## Prestige rank 0..Data.PRESTIGE_MAX.
+var prestige := 0
 
 ## Set to false by tests so they never touch the real save file.
 var persist := true
@@ -197,6 +199,7 @@ func peer_info() -> Dictionary:
 		"secondary": loadout.secondary,
 		"tactical": loadout.tactical,
 		"level": level,
+		"prestige": prestige,
 		"camos": camos.duplicate(),
 	}
 
@@ -260,6 +263,7 @@ func claim_daily() -> int:
 ## breakdown is [[label, coins, xp], ...], one row per source, in the order the results screen
 ## lists them. accuracy is hits / shots of the match (-1 without shots), most_used the weapon
 ## fired most ("" if none), mastery the [weapon id, tier] pairs reached this match.
+## At Data.LEVEL_CAP XP stops: the match pays no XP until the player prestiges.
 func record_match(result: Dictionary) -> Dictionary:
 	var kills := int(result.get("kills", 0))
 	var heads := int(result.get("headshots", 0))
@@ -283,6 +287,11 @@ func record_match(result: Dictionary) -> Dictionary:
 	var summary := match_summary(match_weapons)
 	_add_weapon_stats(match_weapons)
 	var reached := _pay_mastery(match_weapons.keys(), breakdown)
+	var capped := level >= Data.LEVEL_CAP
+	if capped:
+		for row: Array in breakdown:
+			row[2] = 0
+		breakdown.append(["Max level: prestige for more XP", 0, 0])
 	var earned := 0
 	var gained_xp := 0
 	for row: Array in breakdown:
@@ -290,10 +299,12 @@ func record_match(result: Dictionary) -> Dictionary:
 		gained_xp += int(row[2])
 	xp += gained_xp
 	var levels := 0
-	while xp >= xp_for_level(level):
+	while level < Data.LEVEL_CAP and xp >= xp_for_level(level):
 		xp -= xp_for_level(level)
 		level += 1
 		levels += 1
+	if level >= Data.LEVEL_CAP:
+		xp = 0
 	if levels > 0:
 		breakdown.append(["Level up! Level %d" % level, levels * Data.COINS_PER_LEVEL, 0])
 		earned += levels * Data.COINS_PER_LEVEL
@@ -437,6 +448,34 @@ func gun_skin(wid: String) -> String:
 	return Data.gun_skin_for(peer_info(), wid)
 
 
+# ---------------------------------------------------------------- prestige
+
+func can_prestige() -> bool:
+	return level >= Data.LEVEL_CAP and prestige < Data.PRESTIGE_MAX
+
+
+## Coins the next prestige pays.
+func prestige_bonus() -> int:
+	return Data.PRESTIGE_COINS * (prestige + 1)
+
+
+## At the level cap: level back to 1 (XP 0), prestige rank +1 and its coin bonus; coins, items,
+## upgrades and stats stay. Returns the coins paid, or -1 when not allowed (below the cap or at
+## the top rank).
+func do_prestige() -> int:
+	if not can_prestige():
+		return -1
+	var bonus := prestige_bonus()
+	prestige += 1
+	level = 1
+	xp = 0
+	coins += bonus
+	stats.coins_earned += bonus
+	save()
+	changed.emit()
+	return bonus
+
+
 # ---------------------------------------------------------------- settings
 
 func get_setting(key: String) -> Variant:
@@ -507,7 +546,7 @@ func _payload() -> Dictionary:
 		"player_name": player_name, "coins": coins, "xp": xp, "level": level,
 		"owned": owned, "loadout": loadout, "equipped": equipped, "upgrades": upgrades,
 		"settings": settings, "stats": stats, "last_daily": last_daily, "bindings": bindings,
-		"weapon_stats": weapon_stats, "mastery_paid": mastery_paid, "camos": camos,
+		"weapon_stats": weapon_stats, "mastery_paid": mastery_paid, "camos": camos, "prestige": prestige,
 	}
 
 
@@ -642,7 +681,7 @@ func load_from_dict(d: Dictionary) -> void:
 			var lvl := clampi(_num(saved_up.get(id), 0), 0, int(Data.ATTACHMENTS[id].max))
 			if lvl > 0:
 				upgrades[id] = lvl
-	# Per-weapon stats and mastery (saves from before them start empty).
+	# Per-weapon stats, mastery and prestige (saves from before them start empty / at rank 0).
 	weapon_stats = _clean_weapon_stats(d.get("weapon_stats", {}))
 	mastery_paid = {}
 	var saved_paid: Variant = d.get("mastery_paid", {})
@@ -657,6 +696,7 @@ func load_from_dict(d: Dictionary) -> void:
 		for id: Variant in saved_camos:
 			if has_camo(str(id)) and not camos.has(str(id)):
 				camos.append(str(id))
+	prestige = clampi(_num(d.get("prestige"), 0), 0, Data.PRESTIGE_MAX)
 	_load_bindings(d.get("bindings", {}))
 
 

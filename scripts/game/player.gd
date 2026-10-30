@@ -407,7 +407,7 @@ func _ready() -> void:
 		camera.add_child(viewmodel)
 	else:
 		nametag = Label3D.new()
-		nametag.text = "%s  Lv %d" % [info.name, int(info.get("level", 1))]
+		nametag.text = "%s  Lv %d" % [Data.badged_name(str(info.name), int(info.get("prestige", 0))), int(info.get("level", 1))]
 		# Clears the tallest hat tip (2.27 m, or 2.99 m when Big Heads scales head and hat 1.8x).
 		nametag.position.y = 2.45 + (0.72 if Net.config.mutator == "big_heads" else 0.0)
 		nametag.billboard = BaseMaterial3D.BILLBOARD_ENABLED

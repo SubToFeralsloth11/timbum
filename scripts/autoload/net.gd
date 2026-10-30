@@ -28,8 +28,8 @@ const GAME_ID := "timbum"
 ## 10: Gun Game and King of the Block (their controllers' RPCs, `ladder` / `no_grenades` in info).
 ## 11: killstreak rewards (config `streaks`, Streaks RPCs, the shield in World._s_damaged).
 ## 12: quick pings (Pings RPCs).
-## 13: mastery camos in peer_info, the weapon id in World._s_hit_confirm, the dropper's gun skin
-##     on Tactical weapon spots.
+## 13: prestige rank and mastery camos in peer_info, the weapon id in World._s_hit_confirm, the
+##     dropper's gun skin on Tactical weapon spots.
 const PROTOCOL_VERSION := 13
 const CONNECT_TIMEOUT := 8.0
 ## A room-code join first tries a direct (NAT punch-through) link this long, then the relay.
@@ -504,6 +504,7 @@ static func sanitize_info(info: Dictionary) -> Dictionary:
 		"draw": str(info.get("draw", "standard")),
 		"mods": {},
 		"level": clampi(int(info.get("level", 1)), 1, 9999),
+		"prestige": clampi(int(info.get("prestige", 0)) if typeof(info.get("prestige", 0)) in [TYPE_INT, TYPE_FLOAT] else 0, 0, Data.PRESTIGE_MAX),
 		"camos": [],
 	}
 	var mods: Variant = info.get("mods", {})

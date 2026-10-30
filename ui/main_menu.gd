@@ -400,13 +400,17 @@ func _commit_name() -> void:
 
 func _refresh_profile() -> void:
 	_coins_label.text = UIKit.format_int(Profile.coins)
-	_level_label.text = "LVL %d" % Profile.level
+	_level_label.text = Data.badged_name("LVL %d" % Profile.level, Profile.prestige)
 	if not _name_edit.has_focus():
 		_name_edit.text = Profile.player_name
 	var need := Profile.xp_for_level(Profile.level)
 	_xp_bar.max_value = need
-	_xp_bar.value = Profile.xp
-	_xp_label.text = "LVL %d  ·  %s / %s XP" % [Profile.level, UIKit.format_int(Profile.xp), UIKit.format_int(need)]
+	if Profile.level >= Data.LEVEL_CAP:
+		_xp_bar.value = need
+		_xp_label.text = "LVL %d  ·  MAX LEVEL%s" % [Profile.level, "  ·  PRESTIGE IN STATS" if Profile.can_prestige() else ""]
+	else:
+		_xp_bar.value = Profile.xp
+		_xp_label.text = "LVL %d  ·  %s / %s XP" % [Profile.level, UIKit.format_int(Profile.xp), UIKit.format_int(need)]
 	_refresh_daily()
 
 

@@ -26,6 +26,8 @@ var _export_dialog: FileDialog
 var _import_dialog: FileDialog
 var _confirm: ConfirmationDialog
 var _import_path := ""
+var _prestige_btn: Button
+var _prestige_confirm: ConfirmationDialog
 var _weapon_table: GridContainer
 ## Per-weapon table columns: [header, minimum width].
 const WEAPON_COLUMNS: Array = [["WEAPON", 190], ["KILLS", 70], ["ACCURACY", 100], ["HEADSHOT %", 100],
@@ -72,6 +74,18 @@ func _ready() -> void:
 	var backup := UIKit.vbox(6)
 	backup.alignment = BoxContainer.ALIGNMENT_CENTER
 	lh.add_child(backup)
+	_prestige_btn = UIKit.button("PRESTIGE", &"GoldButton")
+	_prestige_btn.pressed.connect(func() -> void:
+		_prestige_confirm.dialog_text = ("Prestige to rank %d?\nYour level goes back to 1 and you get %s coins and the %s badge.\n"
+			+ "Coins, items, upgrades and stats stay.") % [Profile.prestige + 1, UIKit.format_int(Profile.prestige_bonus()),
+			Data.prestige_badge(Profile.prestige + 1)]
+		_prestige_confirm.popup_centered())
+	backup.add_child(_prestige_btn)
+	_prestige_confirm = ConfirmationDialog.new()
+	_prestige_confirm.title = "Prestige"
+	_prestige_confirm.ok_button_text = "Prestige"
+	_prestige_confirm.confirmed.connect(_do_prestige)
+	add_child(_prestige_confirm)
 	var export_btn := UIKit.button("EXPORT PROGRESS", &"IconButton")
 	export_btn.tooltip_text = "Save your coins, items, upgrades, stats and settings to a file."
 	export_btn.pressed.connect(func() -> void:
@@ -234,11 +248,21 @@ func on_shown() -> void:
 	var deaths := int(s.deaths)
 	var matches := int(s.matches)
 	var kd := float(kills) / maxf(1.0, float(deaths))
-	_level.text = "LVL %d" % Profile.level
+	_level.text = Data.badged_name("LVL %d" % Profile.level, Profile.prestige)
 	var need := Profile.xp_for_level(Profile.level)
 	_xp_bar.max_value = need
-	_xp_bar.value = Profile.xp
-	_xp_text.text = "%s  ·  %s / %s XP TO LEVEL %d" % [Profile.player_name.to_upper(), UIKit.format_int(Profile.xp), UIKit.format_int(need), Profile.level + 1]
+	_xp_bar.value = need if Profile.level >= Data.LEVEL_CAP else Profile.xp
+	if Profile.level >= Data.LEVEL_CAP:
+		_xp_text.text = "%s  ·  MAX LEVEL  ·  PRESTIGE %d / %d" % [Profile.player_name.to_upper(), Profile.prestige, Data.PRESTIGE_MAX]
+	else:
+		_xp_text.text = "%s  ·  %s / %s XP TO LEVEL %d" % [Profile.player_name.to_upper(), UIKit.format_int(Profile.xp), UIKit.format_int(need), Profile.level + 1]
+	_prestige_btn.disabled = not Profile.can_prestige()
+	if Profile.prestige >= Data.PRESTIGE_MAX:
+		_prestige_btn.tooltip_text = "Top prestige rank reached."
+	elif Profile.level < Data.LEVEL_CAP:
+		_prestige_btn.tooltip_text = "Reach level %d to prestige." % Data.LEVEL_CAP
+	else:
+		_prestige_btn.tooltip_text = "Back to level 1 for prestige rank %d and %s coins." % [Profile.prestige + 1, UIKit.format_int(Profile.prestige_bonus())]
 	for c in _grid.get_children():
 		c.queue_free()
 	_tile("KILLS", UIKit.format_int(kills), UITheme.TEXT)
@@ -254,6 +278,16 @@ func on_shown() -> void:
 	_dev_text = ""
 	_fill_weapon_table()
 	_refresh_dev()
+
+
+func _do_prestige() -> void:
+	var bonus := Profile.do_prestige()
+	if bonus < 0:
+		Sfx.play(&"ui_error")
+		return
+	Sfx.play(&"level_up")
+	on_shown()
+	_say("Prestige %d! +%s coins" % [Profile.prestige, UIKit.format_int(bonus)], UITheme.GOOD)
 
 
 ## One row per weapon (and grenade / Block Bomber) the player has used: kills, accuracy,

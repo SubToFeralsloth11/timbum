@@ -192,6 +192,6 @@ func _rebuild_models() -> void:
 	_preview.show_model(avatar, true, PI - 1.1, 0.95)
 	_gun_preview.show_model(DrawPreview.create(Profile.equipped.draw, Profile.loadout.secondary, Profile.gun_skin(Profile.loadout.secondary),
 		Profile.equipped.charm), false, ShopScreen.GUN_YAW, 1.0)
-	_name_tag.text = Profile.player_name.to_upper()
+	_name_tag.text = Data.badged_name(Profile.player_name.to_upper(), Profile.prestige)
 	_summary.text = "Secondary: %s  ·  %s  ·  Knife always carried" % [Data.WEAPONS[Profile.loadout.secondary].name,
 		Data.TACTICALS[Profile.loadout.tactical].name]

@@ -408,6 +408,22 @@ const MASTERY_TIERS: Array[Dictionary] = [
 ## Bomber (Streaks.WEAPON). They have kills, headshots and damage but no shots.
 const STAT_EXTRA_SOURCES: Array[String] = ["grenade", "bomber"]
 
+## Prestige: XP stops at LEVEL_CAP; prestiging there resets the level to 1, raises the rank (up to
+## PRESTIGE_MAX) and pays PRESTIGE_COINS times the new rank.
+const LEVEL_CAP := 50
+const PRESTIGE_MAX := 10
+const PRESTIGE_COINS := 500
+
+
+## Badge shown before a prestiged player's name (scoreboard, kill feed, nametags); "" at rank 0.
+static func prestige_badge(rank: int) -> String:
+	return "★%d" % rank if rank > 0 else ""
+
+
+## `player_name` with the prestige badge in front when `rank` > 0.
+static func badged_name(player_name: String, rank: int) -> String:
+	return player_name if rank <= 0 else "%s %s" % [prestige_badge(rank), player_name]
+
 
 ## Mastery tier reached with `kills` (0 none, 1 Bronze, 2 Silver, 3 Gold).
 static func mastery_tier_for(kills: int) -> int:

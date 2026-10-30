@@ -935,12 +935,12 @@ func _build_barrier(team: int) -> void:
 	_barriers.append(body)
 
 
-## Team look (MatchMode/Teams); Tactical nametags show just the name (no level), since 50
-## players crowd the building.
+## Team look (MatchMode/Teams); Tactical nametags show just the name and prestige badge (no
+## level), since 50 players crowd the building.
 func on_player_added(p: Player) -> void:
 	super(p)
 	if p.nametag != null:
-		p.nametag.text = str(p.info.name)
+		p.nametag.text = Data.badged_name(str(p.info.name), int(p.info.get("prestige", 0)))
 
 
 ## Client: the local player died; after a short death cam the camera follows teammates.
