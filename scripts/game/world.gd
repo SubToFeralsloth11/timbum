@@ -47,6 +47,8 @@ var smokes: Array = []
 var rules: MatchMode
 ## Tactical's controller when the mode is Tactical (the same node as `rules`), else null.
 var tactical: Tactical
+## Killstreak rewards (child "Streaks"; idle when `Net.config.streaks` is off).
+var streaks: Streaks
 
 var _entities_root: Node3D
 var _shake := 0.0
@@ -129,6 +131,9 @@ func _ready() -> void:
 	hud.setup(self)
 	add_child(hud)
 	add_child(rules)
+	streaks = Streaks.new()
+	streaks.world = self
+	add_child(streaks)
 	time_left = float(Net.config.time_limit)
 	Sfx.play_music(&"match")
 	Sfx.play(&"match_start")
@@ -567,10 +572,13 @@ func _server_damage(target: Player, amount: float, attacker_id: int, wid: String
 		return
 	if Net.config.mutator == "glass_cannon":
 		amount *= 2.0
-	var hp := maxf(0.0, target.health - amount)
-	var dealt := target.health - hp
+	# An Overshield (Streaks) soaks up damage first; health takes the rest.
+	var absorbed := minf(target.shield, amount)
+	var shield_left := target.shield - absorbed
+	var hp := maxf(0.0, target.health - (amount - absorbed))
+	var dealt := absorbed + target.health - hp
 	_last_damage[target.id] = now()
-	_broadcast(&"_s_damaged", [target.id, hp, attacker_id, from_pos])
+	_broadcast(&"_s_damaged", [target.id, hp, attacker_id, from_pos, shield_left])
 	var killed := hp <= 0.0
 	if attacker_id != target.id:
 		var label_pos := target.global_position + Vector3.UP * 2.0
@@ -583,7 +591,7 @@ func _server_damage(target: Player, amount: float, attacker_id: int, wid: String
 
 
 func _server_force_kill(p: Player) -> void:
-	_broadcast(&"_s_damaged", [p.id, 0.0, p.id, p.global_position])
+	_broadcast(&"_s_damaged", [p.id, 0.0, p.id, p.global_position, 0.0])
 	_server_kill(p.id, p.id, "fall", false)
 
 
@@ -603,8 +611,10 @@ func _server_kill(victim_id: int, killer_id: int, wid: String, head: bool) -> vo
 	if killer_id != victim_id and scores.has(killer_id):
 		var k: Dictionary = scores[killer_id]
 		k.kills += 1
-		k.streak += 1
-		k.best_streak = maxi(int(k.best_streak), int(k.streak))
+		# A kill by a killstreak reward counts as a kill but doesn't extend the streak.
+		if wid != Streaks.WEAPON:
+			k.streak += 1
+			k.best_streak = maxi(int(k.best_streak), int(k.streak))
 		if head:
 			k.headshots += 1
 		if Net.config.mutator == "vampire" and entities.has(killer_id) and entities[killer_id].alive:
@@ -614,6 +624,7 @@ func _server_kill(victim_id: int, killer_id: int, wid: String, head: bool) -> vo
 	_broadcast(&"_s_killed", [victim_id, killer_id, wid, head, killer_hp, killer_dist])
 	_broadcast(&"_s_scores", [scores])
 	rules.server_on_kill(victim_id, killer_id, wid)
+	streaks.server_on_kill(victim_id, killer_id, wid)
 
 
 func _server_projectile(owner_id: int, kind: String, origin: Vector3, vel: Vector3) -> void:
@@ -653,14 +664,18 @@ func server_explode(proj: Projectile, pos: Vector3) -> void:
 	# Smoke and flash do no damage; every peer applies them in _s_explode.
 	if match_over or Data.TACTICALS.has(proj.kind):
 		return
-	var radius: float
-	var max_dmg: float
 	if proj.kind == "rocket":
-		radius = float(Data.WEAPONS.rocket.splash_radius)
-		max_dmg = float(Data.WEAPONS.rocket.damage)
+		server_blast(pos, float(Data.WEAPONS.rocket.splash_radius), float(Data.WEAPONS.rocket.damage), proj.owner_id, proj.kind)
 	else:
-		radius = float(Data.GRENADE.radius)
-		max_dmg = float(Data.GRENADE.damage)
+		server_blast(pos, float(Data.GRENADE.radius), float(Data.GRENADE.damage), proj.owner_id, proj.kind)
+
+
+## Server: an explosion at `pos` (a rocket, a frag, a Block Bomber blast) hurts every living player
+## within `radius` that a wall doesn't shield, `max_dmg` falling off with distance, credited to
+## `owner_id` with weapon `wid`. The owner takes `self_scale` of it (rockets and frags: half).
+func server_blast(pos: Vector3, radius: float, max_dmg: float, owner_id: int, wid: String, self_scale := 0.5) -> void:
+	if match_over:
+		return
 	var space := get_world_3d().direct_space_state
 	for eid: int in entities.keys():
 		var p: Player = entities.get(eid)
@@ -675,9 +690,9 @@ func server_explode(proj: Projectile, pos: Vector3) -> void:
 		if not r.is_empty() and (r.position as Vector3).distance_to(center) > 0.6:
 			continue
 		var dmg := max_dmg * pow(1.0 - clampf((d - 0.5) / radius, 0.0, 1.0), 0.8)
-		if eid == proj.owner_id:
-			dmg *= 0.5
-		_server_damage(p, dmg, proj.owner_id, proj.kind, false, pos)
+		if eid == owner_id:
+			dmg *= self_scale
+		_server_damage(p, dmg, owner_id, wid, false, pos)
 
 
 func _server_pickups(t: float) -> void:
@@ -877,6 +892,7 @@ func _c_ready() -> void:
 		_s_match_end.rpc_id(pid, results, next_up, maxf(0.0, _results_until - now()))
 		_server_tally_skip()
 		return
+	streaks.server_sync(pid)
 	rules.server_human_joined(pid)
 	_server_chat_system("%s joined the game" % Net.players[pid].name)
 	_balance_bots()
@@ -949,6 +965,7 @@ func _s_despawn(eid: int) -> void:
 	if p == null:
 		return
 	entities.erase(eid)
+	streaks.on_death(eid)
 	if p == local_player:
 		local_player = null
 	p.queue_free()
@@ -985,19 +1002,26 @@ func _s_shot_fx(shooter_id: int, wid: String, ends: PackedVector3Array, normals:
 		_play_shot_fx(p, wid, ends, normals)
 
 
+## `shield` is the target's Overshield left after the hit (Streaks); health and shield together
+## make up what a hit took, for the death screen.
 @rpc("authority", "call_remote", "reliable")
-func _s_damaged(eid: int, hp: float, attacker_id: int, from_pos: Vector3) -> void:
+func _s_damaged(eid: int, hp: float, attacker_id: int, from_pos: Vector3, shield: float) -> void:
 	var p: Player = entities.get(eid)
 	if p == null:
 		return
-	var before := p.health
+	var before := p.health + p.shield
+	var had_shield := p.shield
+	p.shield = shield
 	p.on_damaged(hp, attacker_id)
 	if attacker_id != eid:
 		fx.blood(p.global_position + Vector3.UP * (p.body_center_height() - 0.15))
+	if had_shield > shield:
+		var sound := &"shield_break" if shield <= 0.0 else &"shield_hit"
+		Sfx.play(sound, null if p == local_player else p.global_position, -2.0 if p == local_player else -6.0)
 	if p == local_player:
 		if p.alive:
 			var taken: Array = _my_damage_taken.get(attacker_id, [0, 0.0])
-			_my_damage_taken[attacker_id] = [int(taken[0]) + 1, float(taken[1]) + maxf(0.0, before - hp)]
+			_my_damage_taken[attacker_id] = [int(taken[0]) + 1, float(taken[1]) + maxf(0.0, before - hp - shield)]
 		hud.show_damage(from_pos)
 		Sfx.play(&"hurt", null, -3.0)
 		shake(0.25)
@@ -1024,15 +1048,18 @@ func _s_killed(victim_id: int, killer_id: int, wid: String, head: bool, killer_h
 		fx.death_burst(victim.global_position + Vector3.UP * 0.9, Color(info_color(victim)))
 		Sfx.play(&"death", victim.global_position)
 		victim.die(entities.get(killer_id) if victim == local_player else null)
+	streaks.on_death(victim_id)
 	var teams := [Teams.of(entities.get(killer_id)), Teams.of(victim)]
-	hud.add_killfeed(display_name(killer_id), weapon_label(wid), display_name(victim_id), head, killer_id == victim_id, teams[0], teams[1])
+	hud.add_killfeed(display_name(killer_id), weapon_label(wid), display_name(victim_id), head, killer_id == victim_id, teams[0], teams[1], wid)
 	var me := my_id()
 	if killer_id == me and victim_id != me:
 		Sfx.play(&"kill_confirm", null, -1.0)
 		var t := now()
 		_my_multi = _my_multi + 1 if t - _my_last_kill < MULTI_KILL_WINDOW else 1
 		_my_last_kill = t
-		_my_streak += 1
+		# Like the server's streak: a killstreak reward's kills don't extend it.
+		if wid != Streaks.WEAPON:
+			_my_streak += 1
 		hud.show_kill(display_name(victim_id), head)
 		var announce := ""
 		match _my_streak:
@@ -1066,7 +1093,10 @@ func _death_detail(killer_id: int, killer_hp: float, killer_dist: float) -> Stri
 	if int(taken[0]) > 0:
 		parts.append("%d hit%s, %d damage" % [int(taken[0]), "" if int(taken[0]) == 1 else "s", roundi(float(taken[1]))])
 	if killer_hp > 0.0:
-		parts.append("they had %d HP left" % ceili(killer_hp))
+		# The killer's Overshield (Streaks) at the kill, as this peer has it from the server.
+		var killer: Player = entities.get(killer_id)
+		var shield := killer.shield if killer != null and killer.alive else 0.0
+		parts.append("they had %d HP%s left" % [ceili(killer_hp), " + %d shield" % ceili(shield) if shield > 0.0 else ""])
 	return "  ·  ".join(parts)
 
 
@@ -1256,6 +1286,7 @@ func _s_match_end(rows: Array, next: Dictionary, wait: float) -> void:
 	if next.has("winner"):
 		reward_place = 1 if won else (2 if int(next.winner) < 0 else 0)
 	rules.on_match_over()
+	streaks.on_match_over()
 	var rewards := {}
 	if not mine.is_empty():
 		rewards = Profile.record_match({
@@ -1379,6 +1410,7 @@ static func weapon_label(wid: String) -> String:
 	match wid:
 		"grenade": return "Grenade"
 		"fall": return "Gravity"
+		Streaks.WEAPON: return "Block Bomber"
 	return str(Data.WEAPONS[wid].name) if Data.WEAPONS.has(wid) else wid
 
 

@@ -71,6 +71,10 @@ const GRAPPLE_CHANCE := [0.25, 0.5, 0.75]
 const GRAPPLE_MIN_RISE := 2.5
 ## Seconds the bot may spend turning onto a grapple point before giving up on it.
 const GRAPPLE_AIM_TIME := 1.2
+## Block Bomber warnings (Streaks): the chance a bot under one runs from it, per difficulty, and
+## how long after the call it reacts (seconds of the 2 s warning).
+const DODGE_CHANCE := [0.3, 0.55, 0.8]
+const DODGE_REACTION := [1.1, 0.8, 0.5]
 
 const PERCEIVE_INTERVAL := 0.15
 const REPATH_INTERVAL := 0.9
@@ -162,6 +166,8 @@ var _prone_cooldown := 0.0
 var _grapple_aim := NO_POS
 var _grapple_aim_left := 0.0
 var _grapple_timer := 2.0
+## The last strike this bot rolled to dodge: {strike id: dodges}.
+var _dodges := {}
 
 
 func _ready() -> void:
@@ -222,6 +228,8 @@ func think(delta: float) -> void:
 	if target != null and _target_visible:
 		_tracking_time += delta
 		_reaction_left -= delta
+		# A held Block Bomber goes on a target far enough away (Streaks decides when).
+		p.world.streaks.bot_consider(p, target)
 		_fight(delta)
 	else:
 		_tracking_time = 0.0
@@ -231,7 +239,30 @@ func think(delta: float) -> void:
 			_press_prone()
 		_roam(delta)
 		_maybe_flush(delta)
+	_dodge_strike()
 	_check_stuck(delta)
+
+
+## A Block Bomber's ground warning under the bot: once it notices (DODGE_REACTION after the call,
+## and only with DODGE_CHANCE per strike, decided once) it sprints out, whatever else it was doing.
+func _dodge_strike() -> void:
+	var danger := p.world.streaks.danger_near(p.global_position)
+	if danger.is_empty():
+		return
+	var id := int(danger.id)
+	if not _dodges.has(id):
+		_dodges = {id: randf() < DODGE_CHANCE[difficulty]}
+	if not _dodges[id] or float(danger.since) < DODGE_REACTION[difficulty]:
+		return
+	var away := p.global_position - (danger.pos as Vector3)
+	away.y = 0.0
+	if away.length() < 0.3:
+		away = -Basis(Vector3.UP, p.yaw).z
+	if p.prone:
+		_press_prone()
+	_set_move_world(away.normalized())
+	p.in_sprint = true
+	p.in_aim = false
 
 
 func _reset_intent() -> void:
@@ -680,6 +711,9 @@ func _roam(delta: float) -> void:
 		# The mode can send the bot somewhere (Infected hunt the nearest survivor); a goal that
 		# moved more than a few metres is re-routed.
 		var push: Variant = p.world.rules.bot_roam_goal(p)
+		# A Radar Sweep (Streaks) shows where the nearest enemy is: hunt them.
+		if push == null:
+			push = p.world.streaks.bot_radar_goal(p)
 		if push != null:
 			if not _has_goal or _goal.distance_to(push) > 4.0:
 				_goal_pickup = null

@@ -11,6 +11,8 @@ const CHAT_MAX := 8
 ## next-match strip would push the panel off a 720p screen).
 const RESULTS_VISIBLE_ROWS := 6
 const HEALTH_SEGMENTS := 10
+## Overshield (Streaks) on the health card.
+const SHIELD_COLOR := Color(0.45, 0.85, 1.0)
 
 
 ## Heading strip across the top of the screen: N/E/S/W letters and ticks every 15 degrees,
@@ -52,6 +54,20 @@ class Compass extends Control:
 			var c: Color = pip[1]
 			draw_colored_polygon(PackedVector2Array([Vector2(px, 9), Vector2(px + 6, 16), Vector2(px, 23), Vector2(px - 6, 16)]), c)
 
+## Kill-feed icon for a Block Bomber kill (Streaks): a little falling bomb with tail fins.
+class BomberIcon extends Control:
+	func _ready() -> void:
+		custom_minimum_size = Vector2(22, 20)
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	func _draw() -> void:
+		var c := Vector2(11, 12)
+		var col := Color(1.0, 0.55, 0.2)
+		draw_colored_polygon(PackedVector2Array([c + Vector2(-3, -6), c + Vector2(-6, -10), c + Vector2(6, -10), c + Vector2(3, -6)]), col.darkened(0.3))
+		draw_circle(c, 6.0, col)
+		draw_circle(c + Vector2(-2, -2), 1.8, Color(1, 0.9, 0.7))
+		draw_line(c + Vector2(0, 7), c + Vector2(0, 9), Color(1, 0.9, 0.5), 2.0)
+
 var world: World
 
 var _root: Control
@@ -60,6 +76,10 @@ var _damage_ring: DamageRing
 var _scope: ScopeOverlay
 var _vignette: TextureRect
 var _health_label: Label
+## Overshield (Streaks) beside the health: "+50" and one cyan segment per 10 points, after the
+## health segments; hidden without a shield.
+var _shield_label: Label
+var _shield_segments: Array[ColorRect] = []
 var _hp_segments: Array[ColorRect] = []
 var _status_label: Label
 var _ammo_label: Label
@@ -365,6 +385,10 @@ func _build_bottom() -> void:
 	row.add_child(cross)
 	_health_label = _label("100", 44)
 	row.add_child(_health_label)
+	_shield_label = _label("", 30, SHIELD_COLOR)
+	_shield_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_shield_label.visible = false
+	row.add_child(_shield_label)
 	_status_label = _label("", 15, Color(0.6, 0.9, 1.0))
 	_status_label.size_flags_vertical = Control.SIZE_SHRINK_END
 	row.add_child(_status_label)
@@ -377,6 +401,13 @@ func _build_bottom() -> void:
 		s.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		segs.add_child(s)
 		_hp_segments.append(s)
+	for i in roundi(Streaks.SHIELD / 10.0):
+		var s := ColorRect.new()
+		s.custom_minimum_size = Vector2(24, 12)
+		s.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		s.visible = false
+		segs.add_child(s)
+		_shield_segments.append(s)
 
 	# Weapon card, bottom right: weapon and fire mode, ammo, magazine bar, the three slots and
 	# the equipment row (frags, tactical, grapple) with their keys.
@@ -746,6 +777,13 @@ func _process(delta: float) -> void:
 		# Each segment fills in proportion to its share of health.
 		var fill := clampf(hp_frac * HEALTH_SEGMENTS - i, 0.0, 1.0)
 		_hp_segments[i].color = Color(0, 0, 0, 0.45).lerp(hp_color, fill)
+	var overshield := p.shield if p.alive else 0.0
+	_shield_label.visible = overshield > 0.0
+	_shield_label.text = "+%d" % ceili(overshield)
+	for i in _shield_segments.size():
+		var fill := clampf(overshield / 10.0 - i, 0.0, 1.0)
+		_shield_segments[i].visible = overshield > 0.0
+		_shield_segments[i].color = Color(0, 0, 0, 0.45).lerp(SHIELD_COLOR, fill)
 	var low := 0.0
 	if p.alive and hp_frac < 0.35:
 		low = (0.35 - hp_frac) * 1.6 * (0.75 + 0.25 * sin(Time.get_ticks_msec() * 0.008))
@@ -1009,10 +1047,10 @@ func _show_match_intro() -> void:
 
 
 ## The mode's top-panel bars and lines (team modes) and its compass pips (Tactical's team
-## markers, King of the Block's zone).
+## markers, King of the Block's zone) plus the killstreak ones (Radar Sweep, Block Bomber strikes).
 func _update_mode_hud() -> void:
 	var cam := get_viewport().get_camera_3d()
-	_compass.pips = world.rules.compass_pips(cam) if cam != null else []
+	_compass.pips = world.rules.compass_pips(cam) + world.streaks.compass_pips(cam) if cam != null else []
 	if not Teams.is_team_mode():
 		return
 	var bars := world.rules.hud_bars()
@@ -1074,15 +1112,18 @@ func _show_controls_hint() -> void:
 	panel.add_child(v)
 	v.add_child(_label("CONTROLS", 18, Color(1, 0.85, 0.4)))
 	var k := func(action: String) -> String: return Profile.key_text(action)
-	for line: String in [
+	var lines: Array[String] = [
 			"%s%s%s%s  move" % [k.call("move_forward"), k.call("move_left"), k.call("move_back"), k.call("move_right")],
 			"%s  sprint   %s  crouch (slide while sprinting)   %s  prone" % [k.call("sprint"), k.call("crouch"), k.call("prone")],
 			"%s / %s  peek left / right" % [k.call("lean_left"), k.call("lean_right")],
 			"%s  aim   %s  reload" % [k.call("aim"), k.call("reload")],
 			("%s  frag   %s  tactical   %s  swap weapon   %s  floor plan" % [k.call("grenade"), k.call("tactical"), k.call("interact"), k.call("tactical_map")]) if Tactical.is_active() \
 				else "%s  frag   %s  tactical   %s  grapple hook" % [k.call("grenade"), k.call("tactical"), k.call("grapple")],
-			"%s  quick melee   %s/%s/%s  weapons" % [k.call("melee"), k.call("weapon_1"), k.call("weapon_2"), k.call("weapon_3")],
-			"%s  scores   %s  chat   Esc  menu (rebind keys in Settings)" % [k.call("scoreboard"), k.call("chat")]]:
+			"%s  quick melee   %s/%s/%s  weapons" % [k.call("melee"), k.call("weapon_1"), k.call("weapon_2"), k.call("weapon_3")]]
+	if Streaks.enabled():
+		lines.append("%s  call in your Block Bomber (%d-kill streak)" % [k.call("streak_reward"), Streaks.BOMBER_AT])
+	lines.append("%s  scores   %s  chat   Esc  menu (rebind keys in Settings)" % [k.call("scoreboard"), k.call("chat")])
+	for line: String in lines:
 		v.add_child(_label(line, 15))
 	var tw := create_tween()
 	tw.tween_interval(10.0)
@@ -1094,8 +1135,9 @@ func show_hitmarker(head: bool, killed: bool) -> void:
 	_crosshair.hit(head, killed)
 
 
-## `killer_team` / `victim_team` (team modes, 0 or 1) colour the names by team instead.
-func add_killfeed(killer: String, weapon: String, victim: String, head: bool, suicide: bool, killer_team := -1, victim_team := -1) -> void:
+## `killer_team` / `victim_team` (team modes, 0 or 1) colour the names by team instead. `wid` is
+## the killing weapon id: a Block Bomber kill gets its icon.
+func add_killfeed(killer: String, weapon: String, victim: String, head: bool, suicide: bool, killer_team := -1, victim_team := -1, wid := "") -> void:
 	var panel := _panel(0.5)
 	var h := HBoxContainer.new()
 	panel.add_child(h)
@@ -1107,7 +1149,9 @@ func add_killfeed(killer: String, weapon: String, victim: String, head: bool, su
 		h.add_child(_label(" [%s] " % weapon, 16, Color(0.7, 0.7, 0.75)))
 	else:
 		h.add_child(_label(killer, 18, Color(1, 0.9, 0.4) if killer == me else killer_color))
-		h.add_child(_label(" [%s%s] " % [weapon, " HS" if head else ""], 16, Color(0.75, 0.75, 0.8)))
+		if wid == Streaks.WEAPON:
+			h.add_child(BomberIcon.new())
+		h.add_child(_label(" [%s%s] " % [weapon, " HS" if head else ""], 16, Color(1, 0.7, 0.4) if wid == Streaks.WEAPON else Color(0.75, 0.75, 0.8)))
 		h.add_child(_label(victim, 18, Color(1, 0.9, 0.4) if victim == me else victim_color))
 	panel.set_meta("age", 0.0)
 	_killfeed.add_child(panel)

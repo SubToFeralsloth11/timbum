@@ -14,6 +14,7 @@ const NAMES: Array[StringName] = [
 	&"bullet_impact", &"whizz", &"shot_pistol", &"shot_revolver", &"shot_smg", &"shot_rifle",
 	&"shot_shotgun", &"shot_sniper", &"shot_lmg", &"shot_rocket", &"explosion",
 	&"shot_suppressed", &"shot_dmr", &"slide", &"grapple_fire", &"smoke_pop", &"flashbang",
+	&"streak_reward", &"radar_sweep", &"shield_hit", &"shield_break", &"bomber_warning",
 ]
 
 ## Sounds rendered in several takes; one is picked at random per play.
@@ -32,6 +33,8 @@ const GAIN_DB := {
 	&"shot_shotgun": -1.0, &"shot_sniper": 0.0, &"shot_lmg": -2.0, &"shot_rocket": -2.0, &"explosion": 0.0,
 	&"shot_suppressed": -6.0, &"shot_dmr": -1.0, &"slide": -9.0, &"grapple_fire": -6.0,
 	&"smoke_pop": -5.0, &"flashbang": 0.0,
+	&"streak_reward": -4.0, &"radar_sweep": -6.0, &"shield_hit": -7.0, &"shield_break": -4.0,
+	&"bomber_warning": -3.0,
 }
 
 ## Reference distance (m) for positional playback: loud sounds carry across a ~60 m map,
@@ -42,7 +45,8 @@ const UNIT_SIZE := {
 	&"explosion": 26.0, &"footstep": 4.0, &"jump": 4.0, &"land": 5.0, &"bullet_impact": 5.0,
 	&"whizz": 3.0, &"grenade_bounce": 6.0, &"reload": 4.0, &"dry_fire": 3.0, &"weapon_switch": 3.0,
 	&"shot_suppressed": 5.0, &"shot_dmr": 20.0, &"slide": 5.0, &"grapple_fire": 6.0,
-	&"smoke_pop": 10.0, &"flashbang": 24.0,
+	&"smoke_pop": 10.0, &"flashbang": 24.0, &"shield_hit": 6.0, &"shield_break": 8.0,
+	&"bomber_warning": 30.0,
 }
 const DEFAULT_UNIT_SIZE := 7.0
 
@@ -55,6 +59,7 @@ const JITTER := {
 	&"whizz": true, &"shot_pistol": true, &"shot_revolver": true, &"shot_smg": true, &"shot_rifle": true,
 	&"shot_shotgun": true, &"shot_sniper": true, &"shot_lmg": true, &"shot_rocket": true, &"explosion": true,
 	&"shot_suppressed": true, &"shot_dmr": true, &"slide": true, &"grapple_fire": true,
+	&"shield_hit": true,
 }
 
 
@@ -366,6 +371,51 @@ static func _render_one(sound: StringName, v: int, rng: RandomNumberGenerator) -
 			for k in notes.size():
 				Synth.bell(b, 0.12 + k * 0.06, 0.3, notes[k], 0.25, 0.08)
 			Synth.echo(b, 0.09, 0.35, 0.3, 5000.0)
+			return b
+		&"streak_reward":
+			# Killstreak reward: a rising brass fanfare over a snare roll.
+			var b := Synth.make(1.2)
+			var notes := [392.0, 523.25, 659.25, 784.0]
+			for k in notes.size():
+				Synth.tone(b, k * 0.09, 0.16, notes[k], notes[k], 0.3, W.SAW, 0.004, 0.1)
+			for f in [523.25, 659.25, 784.0, 1046.5]:
+				Synth.tone(b, 0.36, 0.8, f, f, 0.18, W.SAW, 0.01, 0.4)
+			for k in 8:
+				Synth.noise(b, rng, k * 0.045, 0.04, 0.25, 5000.0, 3000.0, 800.0, 0.001, 0.015)
+			Synth.lowpass(b, 3800.0)
+			Synth.echo(b, 0.12, 0.3, 0.25, 3000.0)
+			return b
+		&"radar_sweep":
+			# Sonar: a pinging sine with a long, bright tail, then a fainter second ping.
+			var b := Synth.make(1.6)
+			Synth.tone(b, 0.0, 1.2, 1320.0, 1180.0, 0.6, W.SINE, 0.003, 0.35)
+			Synth.tone(b, 0.0, 0.6, 2640.0, 2360.0, 0.12, W.SINE, 0.003, 0.15)
+			Synth.tone(b, 0.45, 0.9, 1320.0, 1180.0, 0.25, W.SINE, 0.003, 0.3)
+			Synth.echo(b, 0.18, 0.45, 0.35, 4000.0)
+			return b
+		&"shield_hit":
+			# A glassy shimmer where a hit lands on the Overshield.
+			var b := Synth.make(0.28)
+			Synth.tone(b, 0.0, 0.22, 1900.0, 1500.0, 0.4, W.TRIANGLE, 0.001, 0.06)
+			Synth.bell(b, 0.0, 0.25, 2700.0, 0.3, 0.05)
+			Synth.noise(b, rng, 0.0, 0.05, 0.3, 9000.0, 6000.0, 2500.0, 0.0005, 0.012)
+			return b
+		&"shield_break":
+			# The Overshield shattering: a falling glassy sweep and tinkling shards.
+			var b := Synth.make(0.8)
+			Synth.tone(b, 0.0, 0.45, 2200.0, 500.0, 0.5, W.TRIANGLE, 0.001, 0.15)
+			Synth.noise(b, rng, 0.0, 0.3, 0.5, 9000.0, 2500.0, 1500.0, 0.001, 0.08)
+			for k in 6:
+				Synth.bell(b, 0.05 + k * 0.06 + rng.randf_range(0.0, 0.03), 0.25, rng.randf_range(2500.0, 4200.0), 0.18, 0.05)
+			return b
+		&"bomber_warning":
+			# Incoming airstrike: two siren wails and the whistle of falling bombs.
+			var b := Synth.make(2.0)
+			for k in 2:
+				Synth.tone(b, k * 0.6, 0.6, 520.0, 880.0, 0.35, W.SQUARE, 0.03, 0.0, 0.35)
+			Synth.tone(b, 1.2, 0.8, 2400.0, 700.0, 0.3, W.SINE, 0.05, 0.0)
+			Synth.lowpass(b, 3000.0)
+			Synth.echo(b, 0.2, 0.3, 0.3, 2500.0)
 			return b
 	return Synth.make(0.01)
 

@@ -8,7 +8,8 @@ const IMPACT_POOL := 20
 const DECAL_POOL := 64
 const BLOOD_POOL := 12
 const FLASH_POOL := 8
-const EXPLOSION_POOL := 4
+## A Block Bomber (Streaks) sets off five explosions within a second.
+const EXPLOSION_POOL := 8
 const BURST_POOL := 6
 const TRACER_LIFE := 0.07
 const SMOKE_POOL := 4

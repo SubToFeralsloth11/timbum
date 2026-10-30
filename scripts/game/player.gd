@@ -94,6 +94,9 @@ var mode := Mode.REMOTE
 var is_bot := false
 var world: World
 var health := Data.MAX_HEALTH
+## Overshield (killstreak reward, see Streaks): absorbs damage before health. The server sets it;
+## every peer keeps it for the HUD and the death screen. Gone on death.
+var shield := 0.0
 var alive := true
 var grenades: int = Data.GRENADE.per_life
 ## Who last damaged us and when (World.now() seconds); bots use it to turn and fight back.
@@ -507,7 +510,9 @@ func _read_input() -> void:
 	var captured := Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
 	var fire_held := Input.is_action_pressed("fire")
 	var aim_held := Input.is_action_pressed("aim")
-	_fire_gated = (_fire_gated or not captured) and fire_held
+	# Aiming a Block Bomber (Streaks.targeting) takes the fire button: no shot goes off with it,
+	# and holding fire afterwards needs a fresh press.
+	_fire_gated = (_fire_gated or not captured or world.streaks.targeting) and fire_held
 	_aim_gated = (_aim_gated or not captured) and aim_held
 	if world.input_blocked() or not alive:
 		in_move = Vector2.ZERO
@@ -1527,6 +1532,7 @@ func protection_left() -> float:
 func die(killer: Player = null) -> void:
 	alive = false
 	health = 0.0
+	shield = 0.0
 	set_protection(0.0)
 	_cancel_reload()
 	_clear_intent()
@@ -1583,6 +1589,7 @@ func respawn(pos: Vector3, p_yaw: float) -> void:
 	recoil = 0.0
 	bloom = 0.0
 	health = max_health()
+	shield = 0.0
 	alive = true
 	_refill_equipment()
 	_reset_movement_state()

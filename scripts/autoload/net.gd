@@ -26,7 +26,8 @@ const GAME_ID := "timbum"
 ## 8: Tactical mode (config `mode`, team/weapon-pickup/marker RPCs).
 ## 9: Team Deathmatch and Infected (mode controllers' RPCs, role fields in entity info).
 ## 10: Gun Game and King of the Block (their controllers' RPCs, `ladder` / `no_grenades` in info).
-const PROTOCOL_VERSION := 10
+## 11: killstreak rewards (config `streaks`, Streaks RPCs, the shield in World._s_damaged).
+const PROTOCOL_VERSION := 11
 const CONNECT_TIMEOUT := 8.0
 ## A room-code join first tries a direct (NAT punch-through) link this long, then the relay.
 const NAT_CONNECT_TIMEOUT := 6.0
@@ -46,6 +47,8 @@ const DEFAULT_CONFIG := {
 	"time_limit": 480,
 	## Roll a random mutator each match.
 	"mutators": true,
+	## Killstreak rewards (Streaks). Missing from a config: the mode's default (Streaks.default_for).
+	"streaks": true,
 	## Rolled per match by the server and sent to clients with the config.
 	"mutator": "none",
 	"time_of_day": "day",
@@ -334,6 +337,7 @@ static func sanitize_config(cfg: Dictionary) -> Dictionary:
 		out.kill_limit = clampi(out.kill_limit, 2, GunGame.max_length())
 	out.time_limit = clampi(int(cfg.get("time_limit", out.time_limit)), 60, 3600)
 	out.mutators = bool(cfg.get("mutators", out.mutators))
+	out.streaks = bool(cfg.get("streaks", Streaks.default_for(out.mode)))
 	var mut := str(cfg.get("mutator", out.mutator))
 	out.mutator = mut if Data.MUTATORS.has(mut) else "none"
 	var tod := str(cfg.get("time_of_day", out.time_of_day))

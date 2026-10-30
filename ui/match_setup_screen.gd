@@ -10,9 +10,12 @@ const ROTATION := "rotation"
 
 ## Last choices this session, shared by both modes. Each mode with its own limit keeps it apart
 ## (sent as `kill_limit`): the team score, the Gun Game ladder length, King of the Block's points.
+## `streaks`: mode -> killstreaks on, once picked for that mode (until then the mode's default,
+## Streaks.default_for).
 static var _choice := {"mode": "ffa", "map": ROTATION, "bots_fill": 8, "difficulty": 1, "kill_limit": 20,
 	"team_kill_limit": TeamDeathmatch.DEFAULT_KILL_LIMIT, "ladder": GunGame.max_length(),
-	"koth_limit": KingOfTheBlock.DEFAULT_SCORE_LIMIT, "time_minutes": 8, "mutators": true, "link": Net.Link.DIRECT}
+	"koth_limit": KingOfTheBlock.DEFAULT_SCORE_LIMIT, "time_minutes": 8, "mutators": true, "link": Net.Link.DIRECT,
+	"streaks": {}}
 const MODE_IDS: Array[String] = ["ffa", "tdm", "gungame", "koth", "infected", "tactical"]
 const MODE_HINTS := {
 	"ffa": "Bots fill every empty slot up to the player count.",
@@ -49,6 +52,7 @@ var _ladder_row: HBoxContainer
 var _koth_row: HBoxContainer
 var _time_row: HBoxContainer
 var _mutator_row: HBoxContainer
+var _streak_row: HBoxContainer
 ## Map preview rects still waiting for their texture.
 var _preview_queue: Array[TextureRect] = []
 var _mode_row: Container
@@ -194,6 +198,9 @@ func _ready() -> void:
 		func(i: int) -> void: _choice.mutators = i == 0)
 	_rule(rules, "MUTATORS", _mutator_row)
 	_mode_rule(rules, ["ffa", "tdm", "gungame", "koth", "infected"])
+	_streak_row = _segmented(["ON", "OFF"] as Array[String], 0 if _streaks_on() else 1,
+		func(i: int) -> void: _choice.streaks[_choice.mode] = i == 0)
+	_rule(rules, "KILLSTREAKS", _streak_row)
 	_rules_hint = UIKit.label(MODE_HINTS.ffa, &"DimLabel")
 	_rules_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	sv.add_child(_rules_hint)
@@ -245,6 +252,7 @@ func _apply_mode() -> void:
 		for c: Control in entry[0]:
 			c.visible = (entry[1] as Array).has(_choice.mode)
 	_rules_hint.text = MODE_HINTS[_choice.mode]
+	_pick_segment(_streak_row, 0 if _streaks_on() else 1)
 	for b in _map_group.get_buttons():
 		b.visible = (b.name == Data.TACTICAL_MAP) == tactical
 	if tactical:
@@ -455,7 +463,12 @@ func _config() -> Dictionary:
 		"kill_limit": {"tdm": _choice.team_kill_limit, "gungame": _choice.ladder, "koth": _choice.koth_limit}.get(_choice.mode, _choice.kill_limit),
 		"time_limit": int(_choice.time_minutes) * 60,
 		"mutators": _choice.mutators,
+		"streaks": _streaks_on(),
 	}
+
+
+func _streaks_on() -> bool:
+	return bool(_choice.streaks.get(_choice.mode, Streaks.default_for(_choice.mode)))
 
 
 func _on_start() -> void:
