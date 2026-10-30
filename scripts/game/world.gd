@@ -1024,7 +1024,8 @@ func _s_killed(victim_id: int, killer_id: int, wid: String, head: bool, killer_h
 		fx.death_burst(victim.global_position + Vector3.UP * 0.9, Color(info_color(victim)))
 		Sfx.play(&"death", victim.global_position)
 		victim.die(entities.get(killer_id) if victim == local_player else null)
-	hud.add_killfeed(display_name(killer_id), weapon_label(wid), display_name(victim_id), head, killer_id == victim_id)
+	var teams := [tactical.team_of(killer_id), tactical.team_of(victim_id)] if tactical != null else [-1, -1]
+	hud.add_killfeed(display_name(killer_id), weapon_label(wid), display_name(victim_id), head, killer_id == victim_id, teams[0], teams[1])
 	var me := my_id()
 	if killer_id == me and victim_id != me:
 		Sfx.play(&"kill_confirm", null, -1.0)

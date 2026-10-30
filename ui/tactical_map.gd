@@ -25,7 +25,7 @@ func setup(p_tactical: Tactical) -> void:
 
 
 func _ready() -> void:
-	set_anchors_preset(Control.PRESET_FULL_RECT)
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	if _floor_textures.is_empty():
 		_build_textures()

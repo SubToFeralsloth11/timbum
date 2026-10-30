@@ -77,6 +77,9 @@ var _team_bars: Array[ProgressBar] = []
 var _team_counts: Array[Label] = []
 var _hook_box: Control
 var _results_prep: Array[Control] = []
+## Health and weapon cards (hidden while spectating in Tactical).
+var _health_card: Control
+var _weapon_card: Control
 var _you_bar: ProgressBar
 var _lead_bar: ProgressBar
 var _compass: Compass
@@ -192,7 +195,9 @@ func _ready() -> void:
 
 	if int(Profile.stats.matches) < 3:
 		_show_controls_hint()
-	_show_match_intro()
+	# Tactical opens on its planning banner and floor plan instead.
+	if not Tactical.is_active():
+		_show_match_intro()
 	_refresh_crosshair_color()
 	Profile.changed.connect(_refresh_crosshair_color)
 
@@ -330,6 +335,7 @@ func _bar(color: Color, min_size: Vector2) -> ProgressBar:
 func _build_bottom() -> void:
 	# Health card, bottom left: big number, segmented bar and a movement status line.
 	var hp := _panel()
+	_health_card = hp
 	hp.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
 	hp.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	hp.position = Vector2(18, -18)
@@ -360,6 +366,7 @@ func _build_bottom() -> void:
 	# Weapon card, bottom right: weapon and fire mode, ammo, magazine bar, the three slots and
 	# the equipment row (frags, tactical, grapple) with their keys.
 	var ammo := _panel()
+	_weapon_card = ammo
 	ammo.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
 	ammo.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	ammo.grow_vertical = Control.GROW_DIRECTION_BEGIN
@@ -725,6 +732,10 @@ func _process(delta: float) -> void:
 	_compass.heading = -p.yaw
 	_compass.queue_redraw()
 	_update_team_hud()
+	# Spectating in Tactical: the dead player's own cards would sit under the spectator bar.
+	var cards := p.alive or world.tactical == null
+	_health_card.visible = cards
+	_weapon_card.visible = cards
 
 	var wid := p.weapon_id()
 	var w := p.weapon_data()
@@ -931,12 +942,9 @@ func _update_damage_numbers(delta: float) -> void:
 		l.modulate.a = clampf((DAMAGE_NUMBER_LIFE - entry[2]) / 0.3, 0.0, 1.0)
 
 
-## Big centred card announcing the map, mutator (or Tactical's rules) and time of day; fades
-## after a few seconds.
+## Big centred card announcing the map, mutator and time of day; fades after a few seconds.
 func _show_match_intro() -> void:
 	var mut: Dictionary = Data.MUTATORS[str(Net.config.mutator)]
-	if Tactical.is_active():
-		mut = {"name": "%s  ·  25 v 25  ·  one life" % Data.MODES.tactical.name, "desc": Data.MODES.tactical.desc}
 	var box := VBoxContainer.new()
 	box.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
 	box.grow_horizontal = Control.GROW_DIRECTION_BOTH
@@ -947,7 +955,7 @@ func _show_match_intro() -> void:
 	map_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(map_label)
 	var sub := "%s  ·  %s" % [str(mut.name).to_upper(), str(Net.config.time_of_day).to_upper()]
-	var sub_label := _label(sub, 24, Color(0.6, 0.9, 1.0) if Net.config.mutator != "none" or Tactical.is_active() else Color.WHITE)
+	var sub_label := _label(sub, 24, Color(0.6, 0.9, 1.0) if Net.config.mutator != "none" else Color.WHITE)
 	sub_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(sub_label)
 	var desc := _label(str(mut.desc), 18, Color(0.85, 0.85, 0.9))
@@ -1048,18 +1056,21 @@ func show_hitmarker(head: bool, killed: bool) -> void:
 	_crosshair.hit(head, killed)
 
 
-func add_killfeed(killer: String, weapon: String, victim: String, head: bool, suicide: bool) -> void:
+## `killer_team` / `victim_team` (Tactical, 0 or 1) colour the names by team instead.
+func add_killfeed(killer: String, weapon: String, victim: String, head: bool, suicide: bool, killer_team := -1, victim_team := -1) -> void:
 	var panel := _panel(0.5)
 	var h := HBoxContainer.new()
 	panel.add_child(h)
 	var me: String = Net.players.get(world.my_id(), {}).get("name", "")
+	var killer_color := Tactical.team_color(killer_team) if killer_team >= 0 else Color(1, 0.55, 0.5)
+	var victim_color := Tactical.team_color(victim_team) if victim_team >= 0 else Color(0.6, 0.8, 1.0)
 	if suicide:
-		h.add_child(_label(victim, 18, Color(1, 0.9, 0.6) if victim == me else Color.WHITE))
+		h.add_child(_label(victim, 18, Color(1, 0.9, 0.6) if victim == me else (victim_color if victim_team >= 0 else Color.WHITE)))
 		h.add_child(_label(" [%s] " % weapon, 16, Color(0.7, 0.7, 0.75)))
 	else:
-		h.add_child(_label(killer, 18, Color(1, 0.9, 0.4) if killer == me else Color(1, 0.55, 0.5)))
+		h.add_child(_label(killer, 18, Color(1, 0.9, 0.4) if killer == me else killer_color))
 		h.add_child(_label(" [%s%s] " % [weapon, " HS" if head else ""], 16, Color(0.75, 0.75, 0.8)))
-		h.add_child(_label(victim, 18, Color(1, 0.9, 0.4) if victim == me else Color(0.6, 0.8, 1.0)))
+		h.add_child(_label(victim, 18, Color(1, 0.9, 0.4) if victim == me else victim_color))
 	panel.set_meta("age", 0.0)
 	_killfeed.add_child(panel)
 	while _killfeed.get_child_count() > KILLFEED_MAX:
