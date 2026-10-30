@@ -954,6 +954,15 @@ func hud_goal() -> String:
 	return "" if team < 0 else "Your team: %s  ·  last team standing wins" % Teams.name_of(team)
 
 
+## The team's attack/hold markers.
+func compass_pips(cam: Camera3D) -> Array:
+	var out: Array = []
+	for m: Dictionary in team_markers:
+		var to: Vector3 = m.pos - cam.global_position
+		out.append([rad_to_deg(-atan2(-to.x, -to.z)), TacticalMap.MARKER_COLORS.get(str(m.kind), Color.WHITE)])
+	return out
+
+
 func row_tag(r: Dictionary) -> String:
 	return "" if bool(r.get("alive", true)) else "KIA"
 

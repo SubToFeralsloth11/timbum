@@ -120,12 +120,14 @@ func _ready() -> void:
 		add_child(node)
 		pickup_nodes.append(node)
 		_pickup_ready_at.append(0.0)
+	# The rules exist before the Hud builds (its scoreboard asks them for columns); they join the
+	# tree after it.
+	rules = MatchMode.create(self)
+	tactical = rules as Tactical
 	hud = Hud.new()
 	hud.name = "Hud"
 	hud.setup(self)
 	add_child(hud)
-	rules = MatchMode.create(self)
-	tactical = rules as Tactical
 	add_child(rules)
 	time_left = float(Net.config.time_limit)
 	Sfx.play_music(&"match")
@@ -301,11 +303,11 @@ func _server_add_entity(eid: int, info: Dictionary, is_bot: bool, team := -1, is
 	_broadcast(&"_s_scores", [scores])
 
 
-## Grenades and tacticals for a new life; a knife-only player (Infected) gets none.
+## Grenades and tacticals for a new life; none for a knife-only player (Infected) or in Gun Game.
 func _refill_equipment(eid: int, info: Dictionary) -> void:
-	var knife_only := bool(info.get("knife_only", false))
-	_grenades[eid] = 0 if knife_only else int(Data.GRENADE.per_life)
-	_tacticals[eid] = 0 if knife_only else Data.TACTICAL_PER_LIFE
+	var armed := Player.carries_grenades(info)
+	_grenades[eid] = int(Data.GRENADE.per_life) if armed else 0
+	_tacticals[eid] = Data.TACTICAL_PER_LIFE if armed else 0
 
 
 ## A bot joins `team` (-1 in free-for-all); returns its entity id.
@@ -499,7 +501,7 @@ func _server_shot(shooter_id: int, wid: String, ends: PackedVector3Array, normal
 	var shooter: Player = entities.get(shooter_id)
 	if shooter == null or not shooter.alive or match_over or not Data.WEAPONS.has(wid) or attacks_blocked():
 		return
-	if wid != "knife" and not shooter.slots.has(wid):
+	if not rules.weapon_allowed(shooter, wid):
 		return
 	# Projectile weapons only fire through _server_projectile; a hitscan report for one is forged.
 	if Data.WEAPONS[wid].get("projectile", false):
@@ -622,7 +624,7 @@ func _server_projectile(owner_id: int, kind: String, origin: Vector3, vel: Vecto
 		return
 	if kind == "rocket":
 		var w: Dictionary = Data.WEAPONS.rocket
-		if not shooter.slots.has("rocket") or not _take_fire_token(owner_id, "rocket"):
+		if not rules.weapon_allowed(shooter, "rocket") or not _take_fire_token(owner_id, "rocket"):
 			return
 		vel = vel.limit_length(float(w.speed))
 	elif kind == "grenade":
@@ -701,7 +703,7 @@ func _server_pickups(t: float) -> void:
 					if not p.needs_ammo():
 						continue
 				"grenade":
-					if p.knife_only() or int(_grenades.get(eid, 0)) >= int(Data.GRENADE.per_life):
+					if not Player.carries_grenades(p.info) or int(_grenades.get(eid, 0)) >= int(Data.GRENADE.per_life):
 						continue
 					_grenades[eid] += 1
 			_pickup_ready_at[i] = t + PICKUP_RESPAWN

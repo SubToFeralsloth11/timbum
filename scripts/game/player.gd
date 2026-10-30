@@ -249,23 +249,26 @@ func max_health() -> float:
 	return float(info.get("max_hp", Data.MAX_HEALTH))
 
 
-## `info.knife_only` (Infected): only the knife, no grenades or tactical.
-func knife_only() -> bool:
-	return bool(info.get("knife_only", false))
+## Whether a player with `p_info` carries frags and a tactical: not when knife only (Infected)
+## or `no_grenades` (Gun Game).
+static func carries_grenades(p_info: Dictionary) -> bool:
+	return not bool(p_info.get("knife_only", false)) and not bool(p_info.get("no_grenades", false))
 
 
 func _refill_equipment() -> void:
-	grenades = 0 if knife_only() else int(Data.GRENADE.per_life)
-	tacticals = 0 if knife_only() else int(Data.TACTICAL_PER_LIFE)
+	var armed := carries_grenades(info)
+	grenades = int(Data.GRENADE.per_life) if armed else 0
+	tacticals = int(Data.TACTICAL_PER_LIFE) if armed else 0
 
 
 ## Every peer, from the server: this player's info changed mid-match (a survivor turned
-## Infected). Rebuilds the weapon slots, equipment and speed from it; health stays the
-## server's to set.
+## Infected, a Gun Game step). Rebuilds the weapon slots, equipment and speed from it; health
+## stays the server's to set. A reload or burst of the old gun ends.
 func apply_info(p_info: Dictionary) -> void:
 	info = p_info
 	slots = [str(info.primary), str(info.secondary), "knife"]
 	_cancel_reload()
+	_burst_left = 0
 	refill_ammo()
 	if slots[current_slot].is_empty():
 		current_slot = _first_armed_slot()

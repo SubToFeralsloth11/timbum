@@ -8,13 +8,17 @@ const TEAM_KILL_LIMITS: Array[int] = [25, 40, 50, 75, 100]
 const TIME_LIMITS: Array[int] = [5, 8, 10, 15]
 const ROTATION := "rotation"
 
-## Last choices this session, shared by both modes.
+## Last choices this session, shared by both modes. Each mode with its own limit keeps it apart
+## (sent as `kill_limit`): the team score, the Gun Game ladder length, King of the Block's points.
 static var _choice := {"mode": "ffa", "map": ROTATION, "bots_fill": 8, "difficulty": 1, "kill_limit": 20,
-	"team_kill_limit": TeamDeathmatch.DEFAULT_KILL_LIMIT, "time_minutes": 8, "mutators": true, "link": Net.Link.DIRECT}
-const MODE_IDS: Array[String] = ["ffa", "tdm", "infected", "tactical"]
+	"team_kill_limit": TeamDeathmatch.DEFAULT_KILL_LIMIT, "ladder": GunGame.max_length(),
+	"koth_limit": KingOfTheBlock.DEFAULT_SCORE_LIMIT, "time_minutes": 8, "mutators": true, "link": Net.Link.DIRECT}
+const MODE_IDS: Array[String] = ["ffa", "tdm", "gungame", "koth", "infected", "tactical"]
 const MODE_HINTS := {
 	"ffa": "Bots fill every empty slot up to the player count.",
 	"tdm": "Two teams, bots fill both evenly. The kill limit is the team score; friendly fire is off.",
+	"gungame": "Everyone climbs the same ladder of guns, one step per kill, and finishes on the knife. A knife kill also knocks the victim down a step. No grenades; Rocket Party and Snipers Only are off.",
+	"koth": "A glowing zone moves every minute (10 s warning). Stand in it alone for a point a second; two or more contest it. First to the score limit wins.",
 	"infected": "10 s in, one player turns Infected: knife only, faster, tougher. Everyone they kill turns too. Survivors win if any are left at the end. Rocket Party and Snipers Only are off.",
 	"tactical": "25 v 25 in Block HQ, bots fill every slot. 30 s of planning behind barriers, then find your weapons: everyone starts with a knife. One life; the last team standing wins.",
 }
@@ -41,11 +45,13 @@ var _direct_rows: Array[Control] = []
 var _host_pending := false
 var _kill_row: HBoxContainer
 var _team_kill_row: HBoxContainer
+var _ladder_row: HBoxContainer
+var _koth_row: HBoxContainer
 var _time_row: HBoxContainer
 var _mutator_row: HBoxContainer
 ## Map preview rects still waiting for their texture.
 var _preview_queue: Array[TextureRect] = []
-var _mode_row: HBoxContainer
+var _mode_row: Container
 ## Rule rows (name label and control) and the modes that show them.
 var _mode_rules: Array = []
 var _rules_hint: Label
@@ -96,18 +102,28 @@ func _ready() -> void:
 	var rv := UIKit.vbox(12)
 	rules_panel.add_child(rv)
 	rv.add_child(UIKit.label("MATCH RULES", &"SubheaderLabel"))
+	# The rules (and the host's connection rows) scroll when a mode's rows outgrow a 720p window,
+	# so the status line and the start button always stay on screen below them.
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	rv.add_child(scroll)
+	var sv := UIKit.vbox(12)
+	sv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(sv)
 	var rules := GridContainer.new()
 	rules.columns = 2
 	rules.add_theme_constant_override("h_separation", 14)
 	rules.add_theme_constant_override("v_separation", 12)
-	rv.add_child(rules)
+	sv.add_child(rules)
 
 	var mode_names: Array[String] = []
 	for id in MODE_IDS:
 		mode_names.append(str(Data.MODES[id].short))
+	# Six modes: two rows of three buttons.
 	_mode_row = _segmented(mode_names, MODE_IDS.find(_choice.mode), func(i: int) -> void:
 		_choice.mode = MODE_IDS[i]
-		_apply_mode())
+		_apply_mode(), 3)
 	_rule(rules, "MODE", _mode_row)
 
 	var players_row := UIKit.hbox(10)
@@ -131,7 +147,7 @@ func _ready() -> void:
 	_players_label.custom_minimum_size.x = 104
 	players_row.add_child(_players_label)
 	_rule(rules, "PLAYERS", players_row)
-	_mode_rule(rules, ["ffa", "tdm", "infected"])
+	_mode_rule(rules, ["ffa", "tdm", "gungame", "koth", "infected"])
 	_update_players_label()
 
 	var difficulty_names: Array[String] = []
@@ -153,6 +169,20 @@ func _ready() -> void:
 		func(i: int) -> void: _choice.team_kill_limit = TEAM_KILL_LIMITS[i])
 	_rule(rules, "TEAM KILLS", _team_kill_row)
 	_mode_rule(rules, ["tdm"])
+	var ladder_names: Array[String] = []
+	for n in GunGame.LENGTHS:
+		ladder_names.append("%d GUNS" % (n - 1) if n < GunGame.max_length() else "ALL %d" % (n - 1))
+	_ladder_row = _segmented(ladder_names, GunGame.LENGTHS.find(_choice.ladder),
+		func(i: int) -> void: _choice.ladder = GunGame.LENGTHS[i])
+	_rule(rules, "LADDER", _ladder_row)
+	_mode_rule(rules, ["gungame"])
+	var koth_names: Array[String] = []
+	for k in KingOfTheBlock.LIMITS:
+		koth_names.append(str(k))
+	_koth_row = _segmented(koth_names, KingOfTheBlock.LIMITS.find(_choice.koth_limit),
+		func(i: int) -> void: _choice.koth_limit = KingOfTheBlock.LIMITS[i])
+	_rule(rules, "POINTS", _koth_row)
+	_mode_rule(rules, ["koth"])
 	var time_names: Array[String] = []
 	for t in TIME_LIMITS:
 		time_names.append("%d MIN" % t)
@@ -163,16 +193,15 @@ func _ready() -> void:
 	_mutator_row = _segmented(mutator_names, 0 if _choice.mutators else 1,
 		func(i: int) -> void: _choice.mutators = i == 0)
 	_rule(rules, "MUTATORS", _mutator_row)
-	_mode_rule(rules, ["ffa", "tdm", "infected"])
+	_mode_rule(rules, ["ffa", "tdm", "gungame", "koth", "infected"])
 	_rules_hint = UIKit.label(MODE_HINTS.ffa, &"DimLabel")
 	_rules_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	rv.add_child(_rules_hint)
+	sv.add_child(_rules_hint)
 
 	if hosting:
-		rv.add_child(HSeparator.new())
-		_build_host_section(rv)
+		sv.add_child(HSeparator.new())
+		_build_host_section(sv)
 
-	rv.add_child(UIKit.spacer(false))
 	_status = UIKit.label("", &"DimLabel")
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	rv.add_child(_status)
@@ -199,6 +228,8 @@ func on_shown() -> void:
 	_pick_segment(_difficulty_row, _choice.difficulty)
 	_pick_segment(_kill_row, KILL_LIMITS.find(_choice.kill_limit))
 	_pick_segment(_team_kill_row, TEAM_KILL_LIMITS.find(_choice.team_kill_limit))
+	_pick_segment(_ladder_row, GunGame.LENGTHS.find(_choice.ladder))
+	_pick_segment(_koth_row, KingOfTheBlock.LIMITS.find(_choice.koth_limit))
 	_pick_segment(_time_row, TIME_LIMITS.find(_choice.time_minutes))
 	_pick_segment(_mutator_row, 0 if _choice.mutators else 1)
 	_select_map(_choice.map)
@@ -224,7 +255,7 @@ func _apply_mode() -> void:
 		_select_map(_choice.map)
 
 
-func _pick_segment(row: HBoxContainer, selected: int) -> void:
+func _pick_segment(row: Container, selected: int) -> void:
 	for i in row.get_child_count():
 		(row.get_child(i) as Button).set_pressed_no_signal(i == selected)
 
@@ -253,9 +284,15 @@ func _update_players_label() -> void:
 	_players_label.text = "%d  ·  %d BOT%s" % [_choice.bots_fill, bots, "" if bots == 1 else "S"]
 
 
-## Row of toggle buttons acting as a radio group.
-func _segmented(names: Array[String], selected: int, on_pick: Callable) -> HBoxContainer:
-	var h := UIKit.hbox(6)
+## Row of toggle buttons acting as a radio group (`columns` > 0: a grid of that many columns).
+func _segmented(names: Array[String], selected: int, on_pick: Callable, columns := 0) -> Container:
+	var h: Container = UIKit.hbox(6)
+	if columns > 0:
+		var grid := GridContainer.new()
+		grid.columns = columns
+		grid.add_theme_constant_override("h_separation", 6)
+		grid.add_theme_constant_override("v_separation", 6)
+		h = grid
 	var group := ButtonGroup.new()
 	for i in names.size():
 		var b := UIKit.button(names[i], &"TabButton")
@@ -415,7 +452,7 @@ func _config() -> Dictionary:
 		"map": _choice.map,
 		"bots_fill": _choice.bots_fill,
 		"difficulty": _choice.difficulty,
-		"kill_limit": _choice.team_kill_limit if _choice.mode == "tdm" else _choice.kill_limit,
+		"kill_limit": {"tdm": _choice.team_kill_limit, "gungame": _choice.ladder, "koth": _choice.koth_limit}.get(_choice.mode, _choice.kill_limit),
 		"time_limit": int(_choice.time_minutes) * 60,
 		"mutators": _choice.mutators,
 	}

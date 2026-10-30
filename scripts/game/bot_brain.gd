@@ -444,7 +444,16 @@ func _fight(delta: float) -> void:
 		_strafe_timer = randf_range(0.5, 1.4)
 		_strafe_dir = -_strafe_dir if randf() < 0.7 else _strafe_dir
 	var move := right * _strafe_dir * (0.4 if difficulty == 0 else 0.85)
-	if dist > range_pref.y:
+	# A mode area to hold (King of the Block's zone): fight on the way into it, and once inside
+	# only close in on targets that are in it too.
+	var hold := p.world.rules.bot_hold_area(p)
+	var outside := not hold.is_empty() and _flat_dist(p.global_position, hold[0]) > float(hold[1]) * 0.8
+	var may_chase := hold.is_empty() or _flat_dist(target.global_position, hold[0]) <= float(hold[1])
+	if outside:
+		_go_toward(hold[0], delta)
+		move = Vector3.ZERO
+		p.in_sprint = difficulty > 0 and dist > range_pref.y + 6.0 and not p.prone
+	elif dist > range_pref.y and may_chase:
 		_go_toward(target.global_position, delta)
 		move = Vector3.ZERO
 		p.in_sprint = difficulty > 0 and dist > range_pref.y + 6.0 and not p.prone
@@ -657,8 +666,13 @@ func _roam(delta: float) -> void:
 		_goal_pickup = null
 		_has_goal = false
 	# Search where the target was last seen, once per sighting: after reaching it (or the nearest
-	# reachable point) carry on roaming instead of re-pathing to the same spot every frame.
-	if now - _last_seen_time < MEMORY_TIME and _last_seen_pos.distance_to(_chase_pos) > 3.0:
+	# reachable point) carry on roaming instead of re-pathing to the same spot every frame. A bot
+	# holding an area (King of the Block's zone) only searches inside it.
+	var hold := p.world.rules.bot_hold_area(p)
+	var search := now - _last_seen_time < MEMORY_TIME and _last_seen_pos.distance_to(_chase_pos) > 3.0
+	if search and not hold.is_empty() and _flat_dist(_last_seen_pos, hold[0]) > float(hold[1]):
+		search = false
+	if search:
 		_chase_pos = _last_seen_pos
 		_goal_pickup = null
 		_set_goal(_last_seen_pos)
@@ -680,6 +694,10 @@ func _roam(delta: float) -> void:
 	# A goal still being hooked toward is kept until the grapple is done.
 	if _path_index >= _path.size() and not hooking and not p.grappling:
 		_has_goal = false
+
+
+static func _flat_dist(a: Vector3, b: Vector3) -> float:
+	return Vector2(a.x - b.x, a.z - b.z).length()
 
 
 func _pick_roam_goal() -> Vector3:

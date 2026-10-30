@@ -15,7 +15,7 @@ const HEALTH_SEGMENTS := 10
 
 ## Heading strip across the top of the screen: N/E/S/W letters and ticks every 15 degrees,
 ## centred on where the player is looking. `pips` ([heading degrees, Color]) mark directions to
-## points of interest (Tactical team markers).
+## points of interest (MatchMode.compass_pips: Tactical team markers, King of the Block's zone).
 class Compass extends Control:
 	const SPAN := 120.0
 	var heading := 0.0
@@ -541,7 +541,7 @@ func _build_scoreboard() -> void:
 		str(mut.name).to_upper(), str(Net.config.time_of_day).to_upper()], 24, Color(1, 0.85, 0.4))
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(title)
-	v.add_child(_score_row(["#", "PLAYER", "KILLS", "DEATHS", "HS"], Color(0.7, 0.75, 0.85), false))
+	v.add_child(_score_row(["#", "PLAYER"] + world.rules.score_columns(), Color(0.7, 0.75, 0.85), false))
 	_score_rows = VBoxContainer.new()
 	v.add_child(_score_rows)
 
@@ -556,7 +556,8 @@ func _score_row(cells: Array, color: Color, highlight: bool) -> Control:
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var h := HBoxContainer.new()
 	panel.add_child(h)
-	var widths := [40, 300, 80, 80, 60]
+	# #, PLAYER, then the mode's three stat columns (MatchMode.score_columns).
+	var widths := [40, 300, 80, 80, 80]
 	for i in cells.size():
 		var l := _label(str(cells[i]), 18, color)
 		l.custom_minimum_size.x = widths[i]
@@ -588,7 +589,7 @@ func _build_results() -> void:
 	_results_title = _label("", 46, Color(1, 0.82, 0.25))
 	_results_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(_results_title)
-	v.add_child(_score_row(["#", "PLAYER", "KILLS", "DEATHS", "HS"], Color(0.7, 0.75, 0.85), false))
+	v.add_child(_score_row(["#", "PLAYER"] + world.rules.score_columns(), Color(0.7, 0.75, 0.85), false))
 	# A full 12-player lobby plus the highlights would overflow 720 px, so the table scrolls
 	# past RESULTS_VISIBLE_ROWS rows (show_results sizes it).
 	_results_scroll = ScrollContainer.new()
@@ -753,7 +754,7 @@ func _process(delta: float) -> void:
 	_status_label.text = _movement_status(p)
 	_compass.heading = -p.yaw
 	_compass.queue_redraw()
-	_update_team_hud()
+	_update_mode_hud()
 	# Spectating in Tactical: the dead player's own cards would sit under the spectator bar.
 	var cards := p.alive or world.tactical == null
 	_health_card.visible = cards
@@ -849,24 +850,25 @@ func refresh_scores() -> void:
 	for i in rows.size():
 		if int(rows[i].id) == me:
 			my_rank = i + 1
-	var limit := int(Net.config.kill_limit)
+	# The race to the mode's limit: kills, Gun Game's ladder level or King of the Block's points.
+	var rules := world.rules
+	var limit := rules.race_limit()
 	if rows.is_empty():
-		_goal_label.text = "First to %d kills" % limit
+		_goal_label.text = "First to %s" % rules.race_text(limit)
 		return
-	_goal_label.text = "Leader: %s  %d / %d" % [rows[0].name, rows[0].kills, limit]
-	_lead_bar.value = float(rows[0].kills) / maxf(1.0, limit)
+	var top := rules.race_value(rows[0])
+	var runner_up := rules.race_value(rows[1]) if rows.size() > 1 else 0
+	_goal_label.text = "Leader: %s  %d / %d" % [rows[0].name, top, limit]
+	_lead_bar.value = float(top) / maxf(1.0, limit)
 	if my_rank > 0:
-		_you_bar.value = float(rows[my_rank - 1].kills) / maxf(1.0, limit)
-	var top := int(rows[0].kills)
-	var runner_up := int(rows[1].kills) if rows.size() > 1 else 0
-	if my_rank > 0:
-		var mine := int(rows[my_rank - 1].kills)
+		var mine := rules.race_value(rows[my_rank - 1])
+		_you_bar.value = float(mine) / maxf(1.0, limit)
 		var gap := "  -  %d behind the leader" % (top - mine)
 		if top == 0:
 			gap = ""
 		elif mine == top:
 			gap = "  -  leading by %d" % (top - runner_up) if top > runner_up else "  -  tied for the lead"
-		_rank_label.text = "You: %d kills  -  #%d of %d%s" % [mine, my_rank, rows.size(), gap]
+		_rank_label.text = "You: %s  -  #%d of %d%s" % [rules.race_text(mine), my_rank, rows.size(), gap]
 	# Only an outright lead counts, so ties don't flicker the callout.
 	if top > runner_up:
 		var leader := int(rows[0].id)
@@ -910,7 +912,7 @@ func _fill_rows(container: VBoxContainer, rows: Array) -> void:
 			color = Teams.color(team).lightened(0.35 if mine else 0.15)
 			if world.rules.row_dimmed(r):
 				color = color.darkened(0.45)
-		container.add_child(_score_row([i + 1, player_name, r.kills, r.deaths, r.headshots], color, mine))
+		container.add_child(_score_row([i + 1, player_name] + world.rules.row_cells(r), color, mine))
 
 
 ## A team's header line in the scoreboard and results table.
@@ -1006,8 +1008,11 @@ func _show_match_intro() -> void:
 	tw.tween_callback(box.queue_free)
 
 
-## Team modes: the mode's two bars and lines in the top panel; Tactical's markers on the compass.
-func _update_team_hud() -> void:
+## The mode's top-panel bars and lines (team modes) and its compass pips (Tactical's team
+## markers, King of the Block's zone).
+func _update_mode_hud() -> void:
+	var cam := get_viewport().get_camera_3d()
+	_compass.pips = world.rules.compass_pips(cam) if cam != null else []
 	if not Teams.is_team_mode():
 		return
 	var bars := world.rules.hud_bars()
@@ -1017,17 +1022,6 @@ func _update_team_hud() -> void:
 	# Mode lines can count down (Infected's start), so they follow every frame; same text is a no-op.
 	_goal_label.text = world.rules.hud_goal()
 	_rank_label.text = world.rules.hud_rank()
-	var t := world.tactical
-	if t == null:
-		return
-	var cam := get_viewport().get_camera_3d()
-	_compass.pips.clear()
-	if cam == null:
-		return
-	for m: Dictionary in t.team_markers:
-		var to: Vector3 = m.pos - cam.global_position
-		var heading := rad_to_deg(-atan2(-to.x, -to.z))
-		_compass.pips.append([heading, TacticalMap.MARKER_COLORS.get(str(m.kind), Color.WHITE)])
 
 
 ## Short state line under the health number: what the player's movement is doing.

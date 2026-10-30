@@ -7,6 +7,8 @@ extends Node
 ## plain free-for-all Deathmatch; each other mode is a subclass with its own node name (so its
 ## RPCs reach the same node on every peer):
 ##   - `TeamDeathmatch` (scripts/game/team_deathmatch.gd, "tdm")
+##   - `GunGame` (scripts/game/gun_game.gd, "gungame")
+##   - `KingOfTheBlock` (scripts/game/king_of_the_block.gd, "koth")
 ##   - `Infected` (scripts/game/infected.gd, "infected")
 ##   - `Tactical` (scripts/game/tactical.gd, "tactical")
 ## Team rules every team mode shares (teams on `Player.info.team`, names, colours, picking a side,
@@ -25,6 +27,8 @@ static func create(p_world: World) -> MatchMode:
 	var m: MatchMode
 	match str(Net.config.get("mode", "ffa")):
 		"tdm": m = TeamDeathmatch.new()
+		"gungame": m = GunGame.new()
+		"koth": m = KingOfTheBlock.new()
 		"infected": m = Infected.new()
 		"tactical": m = Tactical.new()
 		_: m = MatchMode.new()
@@ -144,6 +148,12 @@ func has_next_match() -> bool:
 	return true
 
 
+## Whether the server accepts a hit or rocket from `shooter` with `wid`: the knife, or a gun in
+## the shooter's current slots (Gun Game also takes the gun just replaced, for shots in flight).
+func weapon_allowed(shooter: Player, wid: String) -> bool:
+	return wid == "knife" or shooter.slots.has(wid)
+
+
 # ================================================================ HUD, scoreboard, results
 
 ## Adds what this mode's scoreboard shows to rows built from World.scores: `team` and `alive`
@@ -166,6 +176,31 @@ func sort_rows(rows: Array) -> void:
 		if teams and int(a.get("team", -1)) != int(b.get("team", -1)):
 			return int(a.get("team", -1)) < int(b.get("team", -1))
 		return a.kills > b.kills if a.kills != b.kills else a.deaths < b.deaths)
+
+
+
+## Headers of the scoreboard's three stat columns (after # and PLAYER).
+func score_columns() -> Array:
+	return ["KILLS", "DEATHS", "HS"]
+
+
+## A row's values for `score_columns()`.
+func row_cells(r: Dictionary) -> Array:
+	return [r.kills, r.deaths, r.headshots]
+
+
+## Free-for-all race in the HUD's top panel: what a row has toward the limit (kills; Gun Game:
+## ladder level; King of the Block: points), the limit, and how the value reads.
+func race_value(r: Dictionary) -> int:
+	return int(r.kills)
+
+
+func race_limit() -> int:
+	return int(Net.config.kill_limit)
+
+
+func race_text(value: int) -> String:
+	return "%d kill%s" % [value, "" if value == 1 else "s"]
 
 
 ## Extra word after a name on the scoreboard ("KIA", a role).
@@ -203,6 +238,12 @@ func hud_goal() -> String:
 ## The HUD's line under the goal ("": the free-for-all rank line).
 func hud_rank() -> String:
 	return ""
+
+
+## Compass pips [[heading degrees, Color], ...] seen from `cam` (Tactical's team markers, King of
+## the Block's zone).
+func compass_pips(_cam: Camera3D) -> Array:
+	return []
 
 
 ## Results title [text, colour] for `next` from the server ("" text: the placement title).
@@ -252,3 +293,9 @@ func bot_roam_goal(_p: Player) -> Variant:
 ## Closest a bot lets `target` come before backing off (0: its weapon's range decides).
 func bot_min_range(_p: Player, _target: Player) -> float:
 	return 0.0
+
+
+## An area a bot should stay in and fight from, [centre, radius] (King of the Block's zone), or
+## [] to roam and chase freely.
+func bot_hold_area(_p: Player) -> Array:
+	return []
