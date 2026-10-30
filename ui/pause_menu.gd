@@ -8,7 +8,9 @@ extends Control
 ## child of the HUD, so it sees Esc first): Esc closes the settings sub-panel, or
 ## requests resume. `configure(world)` (before showing) sets the match buttons: SPECTATE / PLAY
 ## (offline SPECTATE BOTS / PLAY; `spectate_requested`) and PHOTO MODE (offline only, not during
-## a kill cam replay or the results; `photo_requested`).
+## a kill cam replay or the results; `photo_requested`). In a practice session (Firing Range,
+## tutorial) there is no spectating, the mode's own buttons (`MatchMode.pause_actions`, e.g. RESET
+## READOUT, SKIP STEP) sit above SETTINGS, and LEAVE MATCH reads LEAVE.
 
 signal resume_requested
 ## SPECTATE (`on`) or PLAY.
@@ -27,6 +29,9 @@ var _spectate_on := true
 var _hint: Label
 ## Host of an online match: how friends can join (room code, Wi-Fi, Steam invite).
 var _invite: InviteBox
+## The mode's own buttons (MatchMode.pause_actions), rebuilt by configure().
+var _actions: VBoxContainer
+var _leave_button: Button
 
 
 func _ready() -> void:
@@ -64,12 +69,14 @@ func _ready() -> void:
 	_photo_button = UIKit.button("PHOTO MODE")
 	_photo_button.pressed.connect(func() -> void: photo_requested.emit())
 	v.add_child(_photo_button)
+	_actions = UIKit.vbox(12)
+	v.add_child(_actions)
 	_settings_button = UIKit.button("SETTINGS")
 	_settings_button.pressed.connect(_open_settings)
 	v.add_child(_settings_button)
-	var leave := UIKit.button("LEAVE MATCH", &"DangerButton")
-	leave.pressed.connect(func() -> void: Net.leave())
-	v.add_child(leave)
+	_leave_button = UIKit.button("LEAVE MATCH", &"DangerButton")
+	_leave_button.pressed.connect(func() -> void: Net.leave())
+	v.add_child(_leave_button)
 
 	_settings = SettingsPanel.new()
 	_settings.visible = false
@@ -90,9 +97,20 @@ func configure(world: World) -> void:
 		_spectate_button.text = "SPECTATE BOTS" if _spectate_on else "PLAY"
 	else:
 		_spectate_button.text = "SPECTATE" if _spectate_on else "PLAY"
-	_spectate_button.visible = not world.match_over
+	_spectate_button.visible = not world.match_over and not world.rules.is_practice()
 	_photo_button.text = "PHOTO MODE  [%s]" % key
 	_photo_button.visible = world.photo.can_open()
+	_leave_button.text = "LEAVE" if world.rules.is_practice() else "LEAVE MATCH"
+	for c in _actions.get_children():
+		c.queue_free()
+	for a: Array in world.rules.pause_actions():
+		var b := UIKit.button(str(a[0]))
+		var action: Callable = a[1]
+		b.pressed.connect(func() -> void:
+			resume_requested.emit()
+			action.call())
+		_actions.add_child(b)
+	_actions.visible = not world.rules.pause_actions().is_empty()
 
 
 func close() -> void:

@@ -342,6 +342,13 @@ func _build_home() -> MenuScreen:
 	buttons.add_child(row4)
 	_challenges_button = _add_grid_button(row4, "CHALLENGES", "challenges")
 	_add_grid_button(row4, "ACHIEVEMENTS", "achievements")
+	var row5 := UIKit.hbox(10)
+	buttons.add_child(row5)
+	var range_button := UIKit.button("FIRING RANGE")
+	range_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	range_button.custom_minimum_size.y = 50
+	range_button.pressed.connect(func() -> void: Net.play_range())
+	row5.add_child(range_button)
 	var quit := UIKit.button("QUIT", &"DangerButton")
 	quit.pressed.connect(func() -> void: get_tree().quit())
 	buttons.add_child(quit)

@@ -369,11 +369,23 @@ func _refill_equipment(eid: int, info: Dictionary) -> void:
 	_tacticals[eid] = Data.TACTICAL_PER_LIFE if armed else 0
 
 
-## A bot joins `team` (-1 in free-for-all); returns its entity id.
-func server_add_bot(team: int) -> int:
+## Offline practice (FiringRange): a full set of frags and the tactical again for `eid`, on the
+## server's count and the player's own (one process offline).
+func refill_equipment(eid: int) -> void:
+	var p: Player = entities.get(eid)
+	if p == null:
+		return
+	_refill_equipment(eid, p.info)
+	p.grenades = int(_grenades[eid])
+	p.tacticals = int(_tacticals[eid])
+
+
+## A bot joins `team` (-1 in free-for-all); returns its entity id. `info` replaces the random bot
+## look and loadout (FiringRange's dummies).
+func server_add_bot(team: int, info := {}) -> int:
 	var eid := _next_bot_id
 	_next_bot_id -= 1
-	_server_add_entity(eid, _make_bot_info(), true, team)
+	_server_add_entity(eid, _make_bot_info() if info.is_empty() else info, true, team)
 	return eid
 
 
@@ -929,6 +941,7 @@ func report_shot(p: Player, wid: String, ends: PackedVector3Array, normals: Pack
 		hit_enemy = hit_enemy or not Teams.same(p, entities.get(tid))
 	if p == local_player:
 		_count_my_shot(wid, hit_enemy)
+		rules.on_local_shot(p, wid, ends, hits)
 	if multiplayer.is_server():
 		_server_shot(p.id, wid, ends, normals, hit_list)
 	else:
@@ -958,6 +971,7 @@ func request_projectile(p: Player, kind: String, origin: Vector3, vel: Vector3) 
 		Sfx.play(&"shot_rocket" if kind == "rocket" else &"grenade_throw", null, -2.0)
 		if kind == "rocket":
 			_count_my_shot("rocket", false)
+		rules.on_local_shot(p, kind, PackedVector3Array(), {})
 	if multiplayer.is_server():
 		_server_projectile(p.id, kind, origin, vel)
 	else:
@@ -1169,7 +1183,8 @@ func _s_scores(all: Dictionary) -> void:
 	_welcomed = true
 	hud.refresh_scores()
 	# Every kill ends with a scores update (after its _s_killed): see whether it completed anything.
-	if not match_over and scores.has(my_id()):
+	# Practice sessions count nothing, so they have nothing to toast.
+	if not match_over and scores.has(my_id()) and not rules.is_practice():
 		_toast_feats(Profile.preview_feats(my_facts.result(scores[my_id()], my_weapon_stats, 0, scores.size(), false)))
 
 
@@ -1229,6 +1244,7 @@ func _s_hit_confirm(head: bool, killed: bool, amount: float, pos: Vector3, wid: 
 	hud.show_hitmarker(head, killed)
 	hud.damage_number(pos, amount, head)
 	Sfx.play(&"headshot" if head else &"hit_marker", null, -2.0)
+	rules.on_local_hit(head, killed, amount, pos, wid)
 	if match_over or not (Data.WEAPONS.has(wid) or Data.STAT_EXTRA_SOURCES.has(wid)):
 		return
 	var s := _my_stats(wid)

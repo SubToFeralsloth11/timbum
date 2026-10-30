@@ -429,7 +429,8 @@ func _ready() -> void:
 		nametag.modulate = Color(1.0, 0.92, 0.85)
 		add_child(nametag)
 
-	if mode == Mode.BOT:
+	# FiringRange drives its dummies itself (their in_* inputs); they never think or shoot.
+	if mode == Mode.BOT and not bool(info.get("dummy", false)):
 		brain = BotBrain.new()
 		brain.name = "Brain"
 		add_child(brain)
@@ -873,6 +874,15 @@ func refill_ammo() -> void:
 	for wid in slots:
 		if not wid.is_empty():
 			ammo[wid] = Vector2i(mag_size(wid), _reserve(wid))
+
+
+## Offline practice (FiringRange): every gun's reserve back to its starting amount, magazines kept.
+func top_up_reserves() -> void:
+	for wid in slots:
+		if not wid.is_empty() and ammo.has(wid):
+			var a: Vector2i = ammo[wid]
+			a.y = maxi(a.y, _reserve(wid))
+			ammo[wid] = a
 
 
 func add_ammo_pickup() -> void:

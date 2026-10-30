@@ -340,6 +340,7 @@ const MAPS := {
 	"temple": {"name": "Jungle Temple", "desc": "A stepped pyramid, vine-choked ruins and a river gorge."},
 	"rooftops": {"name": "City Rooftops", "desc": "High-rise roofs linked by bridges. Mind the drop."},
 	"building": {"name": "Block HQ", "desc": "A three-storey office block: room lattice, stairwells, an atrium and flanking alleys."},
+	"range": {"name": "Firing Range", "desc": "Practice lanes at 10, 25, 50 and 75 m with target dummies and a weapon console."},
 }
 ## Match modifiers. When mutators are on, each match rolls one (or none) so matches feel different.
 const MUTATORS := {
@@ -374,6 +375,13 @@ const MODES := {
 		"desc": "25 v 25 in an office block. Plan, find your weapons, one life each."},
 }
 const TACTICAL_MAP := "building"
+## The Firing Range and the tutorial's map (in MAPS, never in a rotation or match setup).
+const RANGE_MAP := "range"
+## `Net.config.session`: a normal match, or an offline practice session on RANGE_MAP (FiringRange,
+## Tutorial) where no coins, XP, stats, challenges or achievements count.
+const SESSIONS: Array[String] = ["match", "range", "tutorial"]
+## Coins paid once, the first time the tutorial is finished.
+const TUTORIAL_REWARD := 200
 
 const BOT_NAMES: Array[String] = [
 	"Blocky", "Cubert", "Pixel Pete", "Voxelina", "Sir Squares", "Brickle",

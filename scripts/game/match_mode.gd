@@ -11,6 +11,8 @@ extends Node
 ##   - `KingOfTheBlock` (scripts/game/king_of_the_block.gd, "koth")
 ##   - `Infected` (scripts/game/infected.gd, "infected")
 ##   - `Tactical` (scripts/game/tactical.gd, "tactical")
+## and, for the offline practice sessions (`Net.config.session`), `FiringRange`
+## (scripts/game/firing_range.gd, "range") and its subclass `Tutorial` (scripts/game/tutorial.gd).
 ## Team rules every team mode shares (teams on `Player.info.team`, names, colours, picking a side,
 ## armbands and nametags) live in `Teams`.
 ## Naming as in World: `server_*` runs on the server only, `_s_*` RPCs go server -> peers.
@@ -22,16 +24,21 @@ func _init() -> void:
 	name = "Deathmatch"
 
 
-## The controller for `Net.config.mode` (plain Deathmatch for "ffa" and anything unknown).
+## The controller for `Net.config` (plain Deathmatch for "ffa" and anything unknown; a practice
+## session's own controller whatever the mode).
 static func create(p_world: World) -> MatchMode:
 	var m: MatchMode
-	match str(Net.config.get("mode", "ffa")):
-		"tdm": m = TeamDeathmatch.new()
-		"gungame": m = GunGame.new()
-		"koth": m = KingOfTheBlock.new()
-		"infected": m = Infected.new()
-		"tactical": m = Tactical.new()
-		_: m = MatchMode.new()
+	match str(Net.config.get("session", "match")):
+		"range": m = FiringRange.new()
+		"tutorial": m = FiringRange.new()
+		_:
+			match str(Net.config.get("mode", "ffa")):
+				"tdm": m = TeamDeathmatch.new()
+				"gungame": m = GunGame.new()
+				"koth": m = KingOfTheBlock.new()
+				"infected": m = Infected.new()
+				"tactical": m = Tactical.new()
+				_: m = MatchMode.new()
 	m.world = p_world
 	return m
 
@@ -89,6 +96,47 @@ func spectate_candidates() -> Array[Player]:
 			out.append(p)
 	out.sort_custom(func(a: Player, b: Player) -> bool: return a.id < b.id)
 	return out
+
+
+# ================================================================ practice sessions (every peer)
+
+## True in an offline practice session (FiringRange, Tutorial): no match clock, race, scoreboard,
+## results or spectating, and nothing the player does there counts (no live challenge or
+## achievement toasts; the session never reaches Profile.record_match).
+func is_practice() -> bool:
+	return false
+
+
+## A practice session's intro card instead of the map / mutator one: [title, subtitle].
+func practice_intro() -> Array:
+	return []
+
+
+## Whether the Hud shows its controls card to a new player (the tutorial teaches them instead).
+func shows_controls_hint() -> bool:
+	return true
+
+
+## Extra pause-menu buttons: [[label, Callable], ...]; the menu closes, then the callable runs.
+func pause_actions() -> Array:
+	return []
+
+
+## True while the mode's own screen takes the input (FiringRange's weapon console).
+func ui_blocking() -> bool:
+	return false
+
+
+## The local player fired: a hitscan shot or knife swing (`ends`: where each pellet stopped; `hits`
+## {target id: [damage, head]}), or a rocket / grenade / tactical throw (no ends or hits).
+## Practice sessions read it.
+func on_local_shot(_p: Player, _wid: String, _ends: PackedVector3Array, _hits: Dictionary) -> void:
+	pass
+
+
+## The server confirmed a hit by the local player (World._s_hit_confirm; `pos` is over the target).
+func on_local_hit(_head: bool, _killed: bool, _amount: float, _pos: Vector3, _wid: String) -> void:
+	pass
 
 
 # ================================================================ server hooks

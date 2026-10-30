@@ -19,6 +19,7 @@ const GENERATORS := {
 	"temple": preload("res://scripts/world/maps/temple_map.gd"),
 	"rooftops": preload("res://scripts/world/maps/rooftops_map.gd"),
 	"building": preload("res://scripts/world/maps/building_map.gd"),
+	"range": preload("res://scripts/world/maps/range_map.gd"),
 }
 
 const NAV_CELL := 0.25
@@ -48,6 +49,8 @@ static func build(map_id: String, root: Node3D, quality: int) -> MapInfo:
 		info.spawns[i] += origin
 	for p: Dictionary in info.pickups:
 		p.pos += origin
+	for key: String in info.marks:
+		info.marks[key] = _offset_mark(info.marks[key], origin)
 	info.bounds = AABB(origin, Vector3(grid.size))
 
 	var map_root := Node3D.new()
@@ -60,6 +63,18 @@ static func build(map_id: String, root: Node3D, quality: int) -> MapInfo:
 	_add_environment(map_root, gen.ATMOSPHERE, quality)
 	info.nav_map = _add_navigation(map_root, source, info.bounds)
 	return info
+
+
+## A MapInfo mark moved from grid space to world space (see MapInfo.marks).
+static func _offset_mark(mark: Variant, origin: Vector3) -> Variant:
+	if mark is Vector3:
+		return mark + origin
+	if mark is AABB:
+		return AABB((mark as AABB).position + origin, (mark as AABB).size)
+	if mark is Array:
+		for entry: Dictionary in mark:
+			entry.pos += origin
+	return mark
 
 
 ## Top-down colour map of the top blocks, scaled up with nearest filtering.

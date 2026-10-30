@@ -73,6 +73,9 @@ const DEFAULT_CONFIG := {
 	## Rolled per match by the server and sent to clients with the config.
 	"mutator": "none",
 	"time_of_day": "day",
+	## A Data.SESSIONS id: "match", or an offline practice session ("range": FiringRange,
+	## "tutorial": Tutorial) on Data.RANGE_MAP.
+	"session": "match",
 }
 
 ## peer id -> peer_info dictionary (see Profile.peer_info()). Kept in sync on every peer.
@@ -158,6 +161,11 @@ func play_offline(cfg: Dictionary) -> void:
 	offline = true
 	multiplayer.multiplayer_peer = OfflineMultiplayerPeer.new()
 	_start_server(cfg)
+
+
+## Opens the Firing Range (or, with `tutorial`, the tutorial in it): an offline practice session.
+func play_range(tutorial := false) -> void:
+	play_offline({"session": "tutorial" if tutorial else "range"})
 
 
 ## Starts a match others can join. DIRECT hosts an ENet server on `port`; STEAM and WEBRTC
@@ -348,6 +356,9 @@ func _close_peer() -> void:
 
 func _start_server(cfg: Dictionary, with_lobby := false) -> void:
 	config = sanitize_config(cfg)
+	# Practice sessions are offline only; a hosted game is always a match.
+	if with_lobby:
+		config.session = "match"
 	players = {1: Profile.peer_info()}
 	players_changed.emit()
 	_rotation.clear()
@@ -666,7 +677,7 @@ static func sanitize_config(cfg: Dictionary) -> Dictionary:
 	var mode := str(cfg.get("mode", out.mode))
 	out.mode = mode if Data.MODES.has(mode) else "ffa"
 	var map_id := str(cfg.get("map", out.map))
-	out.map = map_id if (map_id == "rotation" or Data.MAP_ROTATION.has(map_id)) else "rotation"
+	out.map = map_id if (map_id == "rotation" or Data.MAP_ROTATION.has(map_id) or map_id == Data.RANGE_MAP) else "rotation"
 	out.bots_fill = clampi(int(cfg.get("bots_fill", out.bots_fill)), 1, Data.MAX_PLAYERS)
 	out.difficulty = clampi(int(cfg.get("difficulty", out.difficulty)), 0, 2)
 	# `kill_limit` is each mode's limit: kills (Deathmatch), the team score (Team Deathmatch), the
@@ -683,6 +694,18 @@ static func sanitize_config(cfg: Dictionary) -> Dictionary:
 	out.mutator = mut if Data.MUTATORS.has(mut) else "none"
 	var tod := str(cfg.get("time_of_day", out.time_of_day))
 	out.time_of_day = tod if tod in Data.TIMES_OF_DAY else "day"
+	var session := str(cfg.get("session", out.session))
+	out.session = session if session in Data.SESSIONS else "match"
+	if out.session != "match":
+		# The Firing Range and the tutorial: the range map in daylight, no mutators or rewards.
+		out.mode = "ffa"
+		out.map = Data.RANGE_MAP
+		out.bots_fill = 1
+		out.mutators = false
+		out.mutator = "none"
+		out.streaks = false
+		out.time_of_day = "day"
+		return out
 	if out.mode == "tactical":
 		# Tactical is always 25 v 25 in the building, with no mutators.
 		out.map = Data.TACTICAL_MAP
@@ -711,6 +734,8 @@ func _pick_next_map() -> String:
 ## Picks a match's mutator (roughly half the matches are classic; never the same mutator twice
 ## in a row) and lighting: {mutator, time_of_day}.
 func _roll_match_variety(previous: String) -> Dictionary:
+	if config.session != "match":
+		return {"mutator": "none", "time_of_day": "day"}
 	var mutator := "none"
 	if config.mutators and (previous != "none" or randf() < 0.6):
 		var options: Array = Data.MUTATORS.keys()

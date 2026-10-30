@@ -267,7 +267,7 @@ func _ready() -> void:
 	_fps_label.position = Vector2(10, 8)
 	_root.add_child(_fps_label)
 
-	if int(Profile.stats.matches) < 3:
+	if int(Profile.stats.matches) < 3 and world.rules.shows_controls_hint():
 		_show_controls_hint()
 	# Tactical opens on its planning banner and floor plan instead.
 	if not Tactical.is_active():
@@ -352,6 +352,8 @@ func _build_top() -> void:
 	col.add_child(_compass)
 	var top := _panel()
 	top.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	# Practice sessions (Firing Range, tutorial) have no clock or race.
+	top.visible = not world.rules.is_practice()
 	col.add_child(top)
 	var v := VBoxContainer.new()
 	v.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -898,7 +900,8 @@ func _make_vignette() -> Texture2D:
 func _process(delta: float) -> void:
 	var p := world.local_player
 	_update_damage_numbers(delta)
-	var scoreboard_held := Input.is_action_pressed("scoreboard") and not _chat_input.visible and not _pause.visible
+	var scoreboard_held := Input.is_action_pressed("scoreboard") and not _chat_input.visible and not _pause.visible \
+		and not world.rules.is_practice()
 	# The Tab scoreboard also works over the results screen (show_results draws it on top).
 	_scoreboard.visible = scoreboard_held
 	if _scoreboard.visible and _scores_dirty:
@@ -1066,11 +1069,14 @@ func _age_list(list: Container, delta: float, life: float) -> void:
 func is_blocking() -> bool:
 	return _pause.visible or _chat_input.visible or _results.visible \
 		or (world.tactical != null and world.tactical.overlay.is_blocking()) \
-		or (world.photo != null and world.photo.is_open())
+		or (world.photo != null and world.photo.is_open()) or world.rules.ui_blocking()
 
 
 func refresh_scores() -> void:
 	_scores_dirty = true
+	# Practice sessions have no race (and no lead to call out).
+	if world.rules.is_practice():
+		return
 	if Teams.is_team_mode():
 		_goal_label.text = world.rules.hud_goal()
 		_rank_label.text = world.rules.hud_rank()
@@ -1214,6 +1220,7 @@ func _update_damage_numbers(delta: float) -> void:
 
 ## Big centred card announcing the map, mutator and time of day; fades after a few seconds.
 func _show_match_intro() -> void:
+	var practice := world.rules.practice_intro()
 	var mut: Dictionary = Data.MUTATORS[str(Net.config.mutator)]
 	var box := VBoxContainer.new()
 	box.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
@@ -1221,9 +1228,15 @@ func _show_match_intro() -> void:
 	box.position.y = 200
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_root.add_child(box)
-	var map_label := _label(Data.MAPS[Net.current_map].name.to_upper(), 46, Color(1, 0.85, 0.35))
+	var map_label := _label(Data.MAPS[Net.current_map].name.to_upper() if practice.is_empty() else str(practice[0]), 46, Color(1, 0.85, 0.35))
 	map_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(map_label)
+	if not practice.is_empty():
+		var line := _label(str(practice[1]), 20, Color(0.85, 0.9, 1.0))
+		line.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		box.add_child(line)
+		_fade_intro(box)
+		return
 	# Modes other than Deathmatch say which mode this is and its rule in one line.
 	if str(Net.config.mode) != "ffa" and Data.MODES.has(str(Net.config.mode)):
 		var mode: Dictionary = Data.MODES[str(Net.config.mode)]
@@ -1237,6 +1250,10 @@ func _show_match_intro() -> void:
 	var desc := _label(str(mut.desc), 18, Color(0.85, 0.85, 0.9))
 	desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(desc)
+	_fade_intro(box)
+
+
+func _fade_intro(box: Control) -> void:
 	var tw := create_tween()
 	tw.tween_interval(4.0)
 	tw.tween_property(box, "modulate:a", 0.0, 0.8)

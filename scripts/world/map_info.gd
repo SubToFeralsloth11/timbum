@@ -13,3 +13,6 @@ var kill_y := -20.0
 var bounds := AABB()
 ## Navigation map of the baked NavigationRegion3D.
 var nav_map := RID()
+## Named spots a map's own controller reads (the Firing Range's line, dummy posts, signs, console
+## and grapple ledge), world space: a Vector3, an AABB, or an Array of Dictionaries with a `pos`.
+var marks := {}
