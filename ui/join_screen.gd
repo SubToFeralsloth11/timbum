@@ -39,7 +39,7 @@ func _ready() -> void:
 	var nv := UIKit.vbox(10)
 	near_panel.add_child(nv)
 	nv.add_child(UIKit.label("NEARBY GAMES", &"SubheaderLabel"))
-	var scroll := ScrollContainer.new()
+	var scroll := UIKit.pad_friendly(ScrollContainer.new())
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	nv.add_child(scroll)

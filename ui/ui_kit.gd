@@ -61,6 +61,14 @@ static func spacer(horizontal := true) -> Control:
 	return c
 
 
+## A menu ScrollContainer for controller players: it scrolls to whatever gets the focus, and the
+## right stick scrolls it (PadScroll).
+static func pad_friendly(scroll: ScrollContainer) -> ScrollContainer:
+	scroll.follow_focus = true
+	scroll.add_child(PadScroll.new())
+	return scroll
+
+
 ## Pill-shaped tag ("OWNED", "EQUIPPED", ...).
 static func badge(text: String, variation: StringName = &"BadgePanel") -> PanelContainer:
 	var p := panel(variation)

@@ -39,7 +39,7 @@ func _ready() -> void:
 	left.custom_minimum_size.x = 400
 	body.add_child(left)
 	# Scrolls on short windows (loadout, mastery and style rows plus the gun preview).
-	var scroll := ScrollContainer.new()
+	var scroll := UIKit.pad_friendly(ScrollContainer.new())
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	left.add_child(scroll)
 	var v := UIKit.vbox(10)

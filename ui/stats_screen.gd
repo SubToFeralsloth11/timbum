@@ -38,7 +38,7 @@ func _ready() -> void:
 	var page := make_page()
 	page.add_child(make_header("STATS", "Your career across every match."))
 	# Scrolls when the per-weapon table and the dev card don't fit the window.
-	var scroll := ScrollContainer.new()
+	var scroll := UIKit.pad_friendly(ScrollContainer.new())
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	page.add_child(scroll)

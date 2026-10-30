@@ -43,6 +43,10 @@ const INTERP_DELAY := 0.1
 const SEND_INTERVAL := 1.0 / 30.0
 const MOUSE_SCALE := 0.0022
 const MAX_PITCH := deg_to_rad(88.0)
+## Right-stick turn speed at full push and pad sensitivity 1 (rad/s); looking up and down is a
+## bit slower.
+const PAD_LOOK_SPEED := 3.4
+const PAD_PITCH_SCALE := 0.75
 
 const FLAG_CROUCH := 1
 const FLAG_FLOOR := 2
@@ -162,6 +166,8 @@ var avatar: Avatar
 var head: Node3D
 var camera: Camera3D
 var viewmodel: Viewmodel
+## Controller aim assist (local player only; inert online, see AimAssist).
+var aim_assist: AimAssist
 var nametag: Label3D
 var brain: BotBrain
 ## Laser Sight attachment beam (null without the upgrade).
@@ -400,6 +406,7 @@ func _ready() -> void:
 		camera.current = true
 		head.add_child(camera)
 		avatar.set_first_person(true)
+		aim_assist = AimAssist.new()
 		viewmodel = Viewmodel.new()
 		var camos: Variant = info.get("camos", [])
 		viewmodel.setup(str(info.outfit), str(info.skin), str(info.get("charm", "none")), str(info.get("draw", "standard")),
@@ -449,6 +456,7 @@ func _physics_process(delta: float) -> void:
 	match mode:
 		Mode.LOCAL:
 			_read_input()
+			_pad_look(delta)
 			_simulate(delta)
 			_send_timer -= delta
 			if _send_timer <= 0.0 and alive:
@@ -508,8 +516,9 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _read_input() -> void:
 	# Input polling sees the click the HUD uses to recapture the mouse (and clicks on menus) even
-	# though the GUI handles it, so fire/aim need a fresh press once the mouse is captured.
-	var captured := Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
+	# though the GUI handles it, so fire/aim need a fresh press once the mouse is captured. A pad
+	# trigger is never that click.
+	var captured := Input.mouse_mode == Input.MOUSE_MODE_CAPTURED or Profile.using_pad
 	var fire_held := Input.is_action_pressed("fire")
 	var aim_held := Input.is_action_pressed("aim")
 	# Aiming a Block Bomber (Streaks.targeting) takes the fire button: no shot goes off with it,
@@ -525,13 +534,32 @@ func _read_input() -> void:
 		in_crouch = false
 		in_lean = 0
 		return
-	in_move = Input.get_vector("move_left", "move_right", "move_back", "move_forward")
+	in_move = Input.get_vector("move_left", "move_right", "move_back", "move_forward", float(Profile.get_setting("pad_deadzone")))
 	in_jump = Input.is_action_pressed("jump")
 	in_crouch = Input.is_action_pressed("crouch")
 	in_sprint = Input.is_action_pressed("sprint")
 	in_lean = int(Input.is_action_pressed("lean_right")) - int(Input.is_action_pressed("lean_left"))
 	in_fire = fire_held and not _fire_gated
 	in_aim = aim_held and not _aim_gated
+
+
+## Right stick (the look_* actions): turns the view at PAD_LOOK_SPEED x pad sensitivity, scaled
+## down while aiming like the mouse, through the deadzone and response curve (Profile.pad_stick)
+## and AimAssist (offline only).
+func _pad_look(delta: float) -> void:
+	if world.input_blocked() or not alive:
+		return
+	var stick := Profile.pad_stick(&"look_left", &"look_right", &"look_up", &"look_down")
+	var rate := PAD_LOOK_SPEED * float(Profile.get_setting("pad_sens")) * delta
+	rate *= lerpf(1.0, float(Profile.get_setting("ads_sens_mult")) * (camera.fov / float(Profile.get_setting("fov"))), aim_blend)
+	var invert := -1.0 if Profile.get_setting("pad_invert_y") else 1.0
+	var turn := Vector2(stick.x * rate, stick.y * rate * PAD_PITCH_SCALE * invert)
+	turn = aim_assist.apply(self, turn, stick != Vector2.ZERO or in_move != Vector2.ZERO)
+	if turn == Vector2.ZERO:
+		return
+	yaw = wrapf(yaw - turn.x, -PI, PI)
+	pitch = clampf(pitch - turn.y, -MAX_PITCH, MAX_PITCH)
+	viewmodel.add_sway(turn / MOUSE_SCALE * 0.5)
 
 
 # ---------------------------------------------------------------- simulation (LOCAL and BOT)

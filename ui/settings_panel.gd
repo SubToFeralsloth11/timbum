@@ -9,7 +9,8 @@ const QUALITY_NAMES: Array[String] = ["Low", "Medium", "High"]
 ## Rebindable actions in display order with friendly names; bindings come from Profile.
 const CONTROLS: Array = [
 	["move_forward", "Move forward"], ["move_back", "Move back"], ["move_left", "Strafe left"],
-	["move_right", "Strafe right"], ["jump", "Jump"], ["sprint", "Sprint"],
+	["move_right", "Strafe right"], ["look_up", "Look up"], ["look_down", "Look down"],
+	["look_left", "Look left"], ["look_right", "Look right"], ["jump", "Jump"], ["sprint", "Sprint"],
 	["crouch", "Crouch / slide (while sprinting)"], ["prone", "Go prone / get up"],
 	["lean_left", "Peek left"], ["lean_right", "Peek right"],
 	["fire", "Fire"], ["aim", "Aim down sights"], ["reload", "Reload"], ["weapon_1", "Primary"],
@@ -20,6 +21,8 @@ const CONTROLS: Array = [
 	["interact", "Swap weapon (Tactical)"], ["tactical_map", "Floor plan (Tactical)"],
 	["scoreboard", "Scoreboard"], ["chat", "Chat"],
 ]
+## The `index` meta of a binding button in the controller column (key columns are 0 and 1).
+const PAD_SLOT := -1
 const SAVE_DELAY := 0.35
 
 var _pages: Array[Control] = []
@@ -125,6 +128,13 @@ func refresh() -> void:
 		(_refreshers[key] as Callable).call()
 
 
+## Puts the keyboard/controller focus on the open page's tab (when the panel is shown).
+func focus_first() -> void:
+	for t in _tabs:
+		if t.button_pressed:
+			t.grab_focus()
+
+
 func close() -> void:
 	_capture = {}
 	_flush()
@@ -137,32 +147,48 @@ func _unhandled_input(event: InputEvent) -> void:
 		close()
 
 
-## While a binding button is listening, the next key or mouse press becomes the binding before
-## anything else (menus, the pause toggle) sees it. Esc cancels; Backspace or Delete clears.
+## While a binding button is listening, the next press becomes the binding before anything else
+## (menus, the pause toggle) sees it: a key or mouse button in the two key columns, a pad button,
+## stick direction or trigger in the controller column. Esc or Start cancels; Backspace or Delete
+## clears.
 func _input(event: InputEvent) -> void:
 	if _capture.is_empty() or not is_visible_in_tree():
 		return
 	var key := event as InputEventKey
 	var mouse := event as InputEventMouseButton
-	if not ((key != null and key.pressed and not key.echo) or (mouse != null and mouse.pressed)):
+	var button := event as InputEventJoypadButton
+	var motion := event as InputEventJoypadMotion
+	if motion != null:
+		# A stick on its way to a direction must not move the menu focus meanwhile.
+		get_viewport().set_input_as_handled()
+	var code := Profile.code_from_event(event)
+	var pressed := (key != null and key.pressed and not key.echo) or (mouse != null and mouse.pressed) \
+		or (button != null and button.pressed) or (motion != null and not code.is_empty())
+	if not pressed:
 		return
 	get_viewport().set_input_as_handled()
 	var action: String = _capture.action
 	var index: int = _capture.index
+	var focus: Button = _capture.button
 	_capture = {}
-	if key != null and key.physical_keycode == KEY_ESCAPE:
+	if (key != null and key.physical_keycode == KEY_ESCAPE) or code == Profile.PAD_PAUSE:
 		Sfx.play(&"ui_error", null, -6.0)
 	elif key != null and key.physical_keycode in [KEY_BACKSPACE, KEY_DELETE]:
-		Profile.set_binding(action, index, "")
+		if index == PAD_SLOT:
+			Profile.set_pad_binding(action, "")
+		else:
+			Profile.set_binding(action, index, "")
+		Sfx.play(&"ui_click")
+	elif Profile.is_bindable(code) and Profile.is_pad_code(code) == (index == PAD_SLOT):
+		if index == PAD_SLOT:
+			Profile.set_pad_binding(action, code)
+		else:
+			Profile.set_binding(action, index, code)
 		Sfx.play(&"ui_click")
 	else:
-		var code := Profile.code_from_event(event)
-		if Profile.is_bindable(code):
-			Profile.set_binding(action, index, code)
-			Sfx.play(&"ui_click")
-		else:
-			Sfx.play(&"ui_error", null, -6.0)
+		Sfx.play(&"ui_error", null, -6.0)
 	_refresh_bindings()
+	focus.grab_focus()
 
 
 func _exit_tree() -> void:
@@ -177,7 +203,7 @@ func _show_page(idx: int) -> void:
 
 
 func _page(parent: Control) -> VBoxContainer:
-	var scroll := ScrollContainer.new()
+	var scroll := UIKit.pad_friendly(ScrollContainer.new())
 	scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	parent.add_child(scroll)
@@ -310,22 +336,43 @@ func _reset_defaults() -> void:
 
 
 func _build_controls(parent: VBoxContainer) -> void:
-	var tip := UIKit.label("Click a binding, then press a key or mouse button. Backspace clears it, Esc cancels. A key moves off any action that had it.", &"DimLabel")
+	parent.add_child(UIKit.label("CONTROLLER", &"SubheaderLabel"))
+	_slider_row(parent, "pad_sens", "Stick look sensitivity", 0.2, 3.0, 0.05, "%.2f")
+	_check_row(parent, "pad_invert_y", "Invert stick look Y")
+	_slider_row(parent, "pad_deadzone", "Stick deadzone", 0.0, 0.4, 0.01, "pct")
+	var curves: Array[String] = []
+	for c: Array in Profile.PAD_CURVES:
+		curves.append(str(c[0]))
+	_option_row(parent, "pad_curve", "Stick response curve", curves)
+	_option_row(parent, "aim_assist", "Aim assist", AimAssist.LEVEL_NAMES)
+	var assist_tip := UIKit.label("Aim assist slows the right stick near an enemy and follows a moving target a little. It only works offline against bots: online it is off for everyone, so a controller never has an edge over a mouse.", &"DimLabel")
+	assist_tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	parent.add_child(assist_tip)
+	parent.add_child(UIKit.label("BINDINGS", &"SubheaderLabel"))
+	var tip := UIKit.label("Pick a binding, then press a key or mouse button (KEY columns) or a controller button, stick direction or trigger (PAD). Backspace clears it, Esc or Start cancels. A key or button moves off any action that had it.", &"DimLabel")
 	tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	parent.add_child(tip)
 	var grid := GridContainer.new()
-	grid.columns = 3
+	grid.columns = 4
 	grid.add_theme_constant_override("h_separation", 12)
 	grid.add_theme_constant_override("v_separation", 6)
 	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	parent.add_child(grid)
+	for head: String in ["ACTION", "KEY", "KEY 2", "PAD"]:
+		grid.add_child(UIKit.label(head, &"DimLabel", HORIZONTAL_ALIGNMENT_LEFT if head == "ACTION" else HORIZONTAL_ALIGNMENT_CENTER))
 	for entry: Array in CONTROLS:
 		var name_label := UIKit.label(entry[1])
 		name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		# Long names and bindings shorten with an ellipsis so the three columns always fit.
+		name_label.clip_text = true
+		name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		name_label.custom_minimum_size.x = 150
 		grid.add_child(name_label)
-		for index in Profile.MAX_BINDINGS:
+		for index: int in [0, 1, PAD_SLOT]:
 			var b := UIKit.button("", &"", false)
-			b.custom_minimum_size = Vector2(170, 34)
+			b.custom_minimum_size = Vector2(150, 34)
+			b.clip_text = true
+			b.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 			b.set_meta(&"action", entry[0])
 			b.set_meta(&"index", index)
 			b.pressed.connect(_start_capture.bind(b))
@@ -352,7 +399,10 @@ func _refresh_bindings() -> void:
 		var action := str(b.get_meta(&"action"))
 		var index := int(b.get_meta(&"index"))
 		if not _capture.is_empty() and _capture.button == b:
-			b.text = "PRESS A KEY..."
+			b.text = "PRESS A BUTTON..." if index == PAD_SLOT else "PRESS A KEY..."
+			continue
+		if index == PAD_SLOT:
+			b.text = Profile.code_text(Profile.get_pad_binding(action))
 			continue
 		var codes := Profile.get_binding(action)
 		b.text = Profile.code_text(codes[index]) if index < codes.size() else "-"

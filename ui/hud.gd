@@ -141,6 +141,7 @@ var _results_timer: Label
 var _results_next: Label
 var _results_next_desc: Label
 var _results_skip: Button
+var _results_leave: Button
 ## Results-screen loadout pickers, keyed by weapon slot ("primary", "secondary").
 var _results_pickers := {}
 var _pause: PauseMenu
@@ -703,6 +704,7 @@ func _build_results() -> void:
 			_results_skip.text = "Ready - Waiting"
 			world.vote_skip())
 	var leave := Button.new()
+	_results_leave = leave
 	leave.text = "Leave to Menu"
 	leave.custom_minimum_size = Vector2(220, 44)
 	footer.add_child(leave)
@@ -1126,18 +1128,20 @@ func _show_controls_hint() -> void:
 	v.add_child(_label("CONTROLS", 18, Color(1, 0.85, 0.4)))
 	var k := func(action: String) -> String: return Profile.key_text(action)
 	var lines: Array[String] = [
-			"%s%s%s%s  move" % [k.call("move_forward"), k.call("move_left"), k.call("move_back"), k.call("move_right")],
+			"LEFT STICK  move   RIGHT STICK  look" if Profile.using_pad \
+				else "%s%s%s%s  move" % [k.call("move_forward"), k.call("move_left"), k.call("move_back"), k.call("move_right")],
 			"%s  sprint   %s  crouch (slide while sprinting)   %s  prone" % [k.call("sprint"), k.call("crouch"), k.call("prone")],
 			"%s / %s  peek left / right" % [k.call("lean_left"), k.call("lean_right")],
-			"%s  aim   %s  reload" % [k.call("aim"), k.call("reload")],
+			"%s  aim   %s  fire   %s  reload" % [k.call("aim"), k.call("fire"), k.call("reload")],
 			("%s  frag   %s  tactical   %s  swap weapon   %s  floor plan" % [k.call("grenade"), k.call("tactical"), k.call("interact"), k.call("tactical_map")]) if Tactical.is_active() \
 				else "%s  frag   %s  tactical   %s  grapple hook" % [k.call("grenade"), k.call("tactical"), k.call("grapple")],
-			"%s  quick melee   %s/%s/%s  weapons" % [k.call("melee"), k.call("weapon_1"), k.call("weapon_2"), k.call("weapon_3")]]
+			("%s  quick melee   %s  next weapon" % [k.call("melee"), k.call("next_weapon")]) if Profile.using_pad \
+				else "%s  quick melee   %s/%s/%s  weapons" % [k.call("melee"), k.call("weapon_1"), k.call("weapon_2"), k.call("weapon_3")]]
 	if Streaks.enabled():
 		lines.append("%s  call in your Block Bomber (%d-kill streak)" % [k.call("streak_reward"), Streaks.BOMBER_AT])
 	if Pings.active():
 		lines.append("%s  ping an enemy or a spot for your team" % k.call("ping"))
-	lines.append("%s  scores   %s  chat   Esc  menu (rebind keys in Settings)" % [k.call("scoreboard"), k.call("chat")])
+	lines.append("%s  scores   %s  chat   %s  menu (rebind in Settings > Controls)" % [k.call("scoreboard"), k.call("chat"), k.call("pause")])
 	for line: String in lines:
 		v.add_child(_label(line, 15))
 	var tw := create_tween()
@@ -1327,6 +1331,8 @@ func show_results(rows: Array, placement: int, rewards: Dictionary, wait: float,
 		_results_skip.text = "NEW GAME"
 		_results_skip.visible = multiplayer.is_server()
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	# A controller player lands on the main button (A presses it).
+	(_results_skip if _results_skip.visible else _results_leave).grab_focus.call_deferred()
 
 
 ## Map, mutator and time of day of the coming match, with what the mutator does.

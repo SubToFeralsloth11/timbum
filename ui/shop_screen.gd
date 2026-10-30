@@ -65,7 +65,7 @@ func _ready() -> void:
 	var list_panel := UIKit.panel(&"InsetPanel")
 	list_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	left.add_child(list_panel)
-	_scroll = ScrollContainer.new()
+	_scroll = UIKit.pad_friendly(ScrollContainer.new())
 	_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	_scroll.resized.connect(_fit_columns)
 	list_panel.add_child(_scroll)

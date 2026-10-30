@@ -12,6 +12,13 @@ const DEFAULT_SETTINGS := {
 	"ads_sens_mult": 0.75,
 	"fov": 85.0,
 	"invert_y": false,
+	## Controller: look speed, invert, stick deadzone (radial, 0..0.5), response curve
+	## (PAD_CURVES index) and aim assist (AimAssist.LEVEL_NAMES index; offline matches only).
+	"pad_sens": 1.0,
+	"pad_invert_y": false,
+	"pad_deadzone": 0.15,
+	"pad_curve": 1,
+	"aim_assist": 2,
 	"master_volume": 0.8,
 	"music_volume": 0.45,
 	"sfx_volume": 0.85,
@@ -37,6 +44,9 @@ const DEFAULT_SETTINGS := {
 }
 
 const ANTI_ALIASING_NAMES: Array[String] = ["Off", "FXAA", "MSAA 2x", "MSAA 4x", "TAA"]
+## Controller stick response curves: [name, exponent]. The stick's travel past the deadzone (0..1)
+## is raised to the exponent, so higher curves give finer control near the centre.
+const PAD_CURVES: Array = [["Linear", 1.0], ["Classic", 1.8], ["Precise", 2.8]]
 ## Effect toggles each graphics quality preset (Low, Medium, High) switches to when picked.
 const QUALITY_PRESETS: Array[Dictionary] = [
 	{"shadows": true, "ambient_occlusion": false, "bloom": false, "reflections": false, "anti_aliasing": 1},
@@ -94,9 +104,11 @@ var persist := true
 
 
 func _ready() -> void:
+	_add_menu_pad_events()
 	_apply_bindings()
 	load_profile()
 	apply_settings()
+	get_tree().root.window_input.connect(_note_device)
 
 
 # ---------------------------------------------------------------- inventory
@@ -810,7 +822,7 @@ func _payload() -> Dictionary:
 		"version": SAVE_VERSION,
 		"player_name": player_name, "coins": coins, "xp": xp, "level": level,
 		"owned": owned, "loadout": loadout, "equipped": equipped, "upgrades": upgrades,
-		"settings": settings, "stats": stats, "last_daily": last_daily, "bindings": bindings,
+		"settings": settings, "stats": stats, "last_daily": last_daily, "bindings": bindings, "pad_bindings": pad_bindings,
 		"weapon_stats": weapon_stats, "mastery_paid": mastery_paid, "camos": camos, "prestige": prestige,
 		"challenges": challenges, "feats": feats, "achievements": achievements,
 	}
@@ -913,6 +925,10 @@ func load_from_dict(d: Dictionary) -> void:
 	settings.render_scale = clampf(float(settings.render_scale), 0.5, 1.0)
 	settings.fov = clampf(float(settings.fov), 60.0, 110.0)
 	settings.mouse_sens = clampf(float(settings.mouse_sens), 0.05, 10.0)
+	settings.pad_sens = clampf(float(settings.pad_sens), 0.1, 5.0)
+	settings.pad_deadzone = clampf(float(settings.pad_deadzone), 0.0, 0.5)
+	settings.pad_curve = clampi(int(settings.pad_curve), 0, PAD_CURVES.size() - 1)
+	settings.aim_assist = clampi(int(settings.aim_assist), 0, 2)
 	settings.ads_sens_mult = clampf(float(settings.ads_sens_mult), 0.05, 3.0)
 	for key: String in ["master_volume", "music_volume", "sfx_volume"]:
 		settings[key] = clampf(float(settings[key]), 0.0, 1.0)
@@ -993,16 +1009,19 @@ func load_from_dict(d: Dictionary) -> void:
 				achievements[str(id)] = at
 	# Saves from before achievements: what their stats already reach unlocks now.
 	_unlock_achievements()
+	_load_pad_bindings(d.get("pad_bindings", {}))
 	_load_bindings(d.get("bindings", {}))
 
 
 # ---------------------------------------------------------------- input
 
-## Default bindings, action -> codes. A code is "k<physical keycode>" or "m<mouse button index>".
-## Players can rebind every action except "pause" (Esc must always reach the menus).
+## Default keyboard and mouse bindings, action -> codes. A code is "k<physical keycode>" or
+## "m<mouse button index>". Players can rebind every action except "pause" (Esc must always reach
+## the menus). The look_* actions turn the camera like the right stick (unbound on the keyboard).
 const DEFAULT_BINDINGS := {
 	"move_forward": ["k%d" % KEY_W, "k%d" % KEY_UP], "move_back": ["k%d" % KEY_S, "k%d" % KEY_DOWN],
 	"move_left": ["k%d" % KEY_A, "k%d" % KEY_LEFT], "move_right": ["k%d" % KEY_D, "k%d" % KEY_RIGHT],
+	"look_up": [], "look_down": [], "look_left": [], "look_right": [],
 	"jump": ["k%d" % KEY_SPACE], "sprint": ["k%d" % KEY_SHIFT], "crouch": ["k%d" % KEY_CTRL, "k%d" % KEY_C],
 	"prone": ["k%d" % KEY_Z],
 	"lean_left": ["k%d" % KEY_Q], "lean_right": ["k%d" % KEY_E],
@@ -1016,30 +1035,89 @@ const DEFAULT_BINDINGS := {
 	"scoreboard": ["k%d" % KEY_TAB], "chat": ["k%d" % KEY_T, "k%d" % KEY_ENTER],
 	"pause": ["k%d" % KEY_ESCAPE],
 }
-## Bindings per action; at most this many codes each.
+## Keyboard/mouse bindings per action; at most this many codes each.
 const MAX_BINDINGS := 2
+
+## Default controller bindings, action -> one code: "j<joypad button>", or "a<axis>+" / "a<axis>-"
+## for a stick direction or a trigger. Godot's SDL layout (Xbox names): buttons A 0, B 1, X 2, Y 3,
+## Back 4, Start 6, L3 7, R3 8, LB 9, RB 10, D-pad up/down/left/right 11-14; axes: left stick 0 (x)
+## and 1 (y, down is +), right stick 2 and 3, LT 4, RT 5. A pad has 24 inputs for 34 actions, so
+## the direct weapon slots, last/previous weapon, peeking and chat have no default (Y cycles the
+## weapons); the player can bind them. Start is the pause button and can't be rebound.
+const DEFAULT_PAD_BINDINGS := {
+	"move_forward": "a1-", "move_back": "a1+", "move_left": "a0-", "move_right": "a0+",
+	"look_up": "a3-", "look_down": "a3+", "look_left": "a2-", "look_right": "a2+",
+	"jump": "j0", "crouch": "j1", "reload": "j2", "next_weapon": "j3",
+	"sprint": "j7", "melee": "j8", "tactical": "j9", "grenade": "j10",
+	"aim": "a4+", "fire": "a5+",
+	"grapple": "j11", "prone": "j12", "ping": "j13", "streak_reward": "j14",
+	"interact": "j2", "tactical_map": "j11",
+	"scoreboard": "j4", "pause": "j6",
+}
+## Actions that may share one pad button, by default and when rebound, because they never get in
+## each other's way: Tactical has no grapple hook (so D-pad up opens its floor plan), and a gun
+## swapped in at a Tactical weapon spot comes with a full magazine (so the reload that goes with
+## X's swap does nothing).
+const PAD_SHARED: Array = [["reload", "interact"], ["grapple", "tactical_map"]]
+## Start: the pad's pause button, reserved like Esc.
+const PAD_PAUSE := "j6"
+## On-screen names of the pad buttons (JoyButton index) and axes ([negative, positive]).
+const PAD_BUTTON_NAMES := {
+	0: "A", 1: "B", 2: "X", 3: "Y", 4: "BACK", 6: "START", 7: "L3", 8: "R3", 9: "LB", 10: "RB",
+	11: "D-PAD UP", 12: "D-PAD DOWN", 13: "D-PAD LEFT", 14: "D-PAD RIGHT", 15: "SHARE",
+	16: "PADDLE 1", 17: "PADDLE 2", 18: "PADDLE 3", 19: "PADDLE 4", 20: "TOUCHPAD",
+}
+const PAD_AXIS_NAMES: Array = [["LS LEFT", "LS RIGHT"], ["LS UP", "LS DOWN"], ["RS LEFT", "RS RIGHT"],
+	["RS UP", "RS DOWN"], ["", "LT"], ["", "RT"]]
+
+## Emitted when the player switches between the controller and the keyboard/mouse.
+signal device_changed
 
 ## action -> Array of codes, for actions the player has rebound (others use DEFAULT_BINDINGS).
 var bindings := {}
+## action -> pad code ("" = none), for actions the player has rebound on the controller (others
+## use DEFAULT_PAD_BINDINGS).
+var pad_bindings := {}
+## True while the controller was the last device the player touched: key_text shows pad buttons,
+## AimAssist may work, and a trigger fires without a captured mouse.
+var using_pad := false
 
 
-## Codes currently bound to `action`.
+## Codes currently bound to `action` on the keyboard and mouse.
 func get_binding(action: String) -> Array:
 	return bindings.get(action, DEFAULT_BINDINGS.get(action, []))
 
 
-## True for codes a player may bind: well-formed, and never Esc (reserved for the menus).
+## The pad code bound to `action` ("" for none).
+func get_pad_binding(action: String) -> String:
+	return str(pad_bindings.get(action, DEFAULT_PAD_BINDINGS.get(action, "")))
+
+
+## True for codes a player may bind: well-formed, and never Esc or Start (reserved for the menus).
 static func is_bindable(code: String) -> bool:
-	return code != "k%d" % KEY_ESCAPE and event_from_code(code) != null
+	return code != "k%d" % KEY_ESCAPE and code != PAD_PAUSE and event_from_code(code) != null
 
 
-## Binds `code` to `action` in slot `index` (0 primary, 1 alternate). The code is taken away from
-## any other action, so one key never does two things. An empty `code` clears the slot.
+## True for controller codes ("j..." buttons, "a..." axes).
+static func is_pad_code(code: String) -> bool:
+	return code.begins_with("j") or code.begins_with("a")
+
+
+## Whether actions `a` and `b` may share one pad button (PAD_SHARED).
+static func pad_may_share(a: String, b: String) -> bool:
+	for pair: Array in PAD_SHARED:
+		if pair.has(a) and pair.has(b):
+			return true
+	return false
+
+
+## Binds key/mouse `code` to `action` in slot `index` (0 primary, 1 alternate). The code is taken
+## away from any other action, so one key never does two things. An empty `code` clears the slot.
 func set_binding(action: String, index: int, code: String) -> void:
 	if not DEFAULT_BINDINGS.has(action) or action == "pause" or index < 0 or index >= MAX_BINDINGS:
 		return
 	if not code.is_empty():
-		if not is_bindable(code):
+		if not is_bindable(code) or is_pad_code(code):
 			return
 		for other: String in DEFAULT_BINDINGS:
 			if other != action and get_binding(other).has(code):
@@ -1057,16 +1135,52 @@ func set_binding(action: String, index: int, code: String) -> void:
 	changed.emit()
 
 
-func reset_bindings() -> void:
-	bindings = {}
+## Binds pad `code` to `action` (one per action). Other actions lose it unless they may share it
+## (PAD_SHARED). An empty `code` unbinds the action on the pad.
+func set_pad_binding(action: String, code: String) -> void:
+	if not DEFAULT_BINDINGS.has(action) or action == "pause":
+		return
+	if not code.is_empty():
+		if not is_bindable(code) or not is_pad_code(code):
+			return
+		for other: String in DEFAULT_BINDINGS:
+			if other != action and other != "pause" and get_pad_binding(other) == code and not pad_may_share(action, other):
+				pad_bindings[other] = ""
+	pad_bindings[action] = code
 	_apply_bindings()
 	save()
 	changed.emit()
 
 
-## "k87" -> InputEventKey (physical W), "m1" -> InputEventMouseButton; null if malformed.
+func reset_bindings() -> void:
+	bindings = {}
+	pad_bindings = {}
+	_apply_bindings()
+	save()
+	changed.emit()
+
+
+## "k87" -> InputEventKey (physical W), "m1" -> InputEventMouseButton, "j0" ->
+## InputEventJoypadButton (A), "a5+" -> InputEventJoypadMotion (RT); null if malformed. Pad events
+## match every connected controller.
 static func event_from_code(code: String) -> InputEvent:
-	if code.length() < 2 or not code.substr(1).is_valid_int():
+	if code.length() < 2:
+		return null
+	if code[0] == "a":
+		var axis_text := code.substr(1, code.length() - 2)
+		var sign := code[code.length() - 1]
+		if not axis_text.is_valid_int() or not (sign == "+" or sign == "-"):
+			return null
+		var axis := axis_text.to_int()
+		# Triggers (LT 4, RT 5) only go one way.
+		if axis < 0 or axis >= JOY_AXIS_SDL_MAX or (axis >= JOY_AXIS_TRIGGER_LEFT and sign == "-"):
+			return null
+		var jm := InputEventJoypadMotion.new()
+		jm.device = -1
+		jm.axis = axis as JoyAxis
+		jm.axis_value = 1.0 if sign == "+" else -1.0
+		return jm
+	if not code.substr(1).is_valid_int():
 		return null
 	var n := code.substr(1).to_int()
 	match code[0]:
@@ -1082,10 +1196,18 @@ static func event_from_code(code: String) -> InputEvent:
 			var mb := InputEventMouseButton.new()
 			mb.button_index = n as MouseButton
 			return mb
+		"j":
+			if n < 0 or n >= JOY_BUTTON_SDL_MAX or n == JOY_BUTTON_GUIDE:
+				return null
+			var jb := InputEventJoypadButton.new()
+			jb.device = -1
+			jb.button_index = n as JoyButton
+			return jb
 	return null
 
 
-## Code for a key or mouse press the player made while rebinding ("" if it can't be bound).
+## Code for a key, mouse button, pad button or stick/trigger push the player made while rebinding
+## ("" if it can't be bound, or a stick barely moved).
 static func code_from_event(ev: InputEvent) -> String:
 	if ev is InputEventKey:
 		var k := ev as InputEventKey
@@ -1093,19 +1215,45 @@ static func code_from_event(ev: InputEvent) -> String:
 		return "" if phys == KEY_NONE else "k%d" % phys
 	if ev is InputEventMouseButton:
 		return "m%d" % (ev as InputEventMouseButton).button_index
+	if ev is InputEventJoypadButton:
+		return "j%d" % (ev as InputEventJoypadButton).button_index
+	if ev is InputEventJoypadMotion:
+		var jm := ev as InputEventJoypadMotion
+		if absf(jm.axis_value) < 0.6:
+			return ""
+		return "a%d%s" % [jm.axis, "+" if jm.axis_value > 0.0 else "-"]
 	return ""
 
 
-## Human-readable name of a binding code, e.g. "SHIFT", "MOUSE 4".
+## Human-readable name of a binding code, e.g. "SHIFT", "MOUSE 4", "RT".
 static func code_text(code: String) -> String:
 	var ev := event_from_code(code)
 	return binding_text(ev) if ev != null else "-"
 
 
-## Name of the first key bound to `action` for on-screen hints ("" when unbound).
+## Name of what `action` is bound to for on-screen hints ("" when unbound): the pad button while
+## the controller is in use (if the action has one), else the first key.
 func key_text(action: String) -> String:
+	if using_pad:
+		var pad := get_pad_binding(action)
+		if not pad.is_empty():
+			return code_text(pad)
 	var codes := get_binding(action)
 	return code_text(codes[0]) if not codes.is_empty() else ""
+
+
+## A stick read through four actions (the pad's axes, or keys bound to them) with the player's
+## radial deadzone and response curve: zero inside the deadzone, then the rest of the travel as
+## 0..1 raised to the curve's exponent (PAD_CURVES), so small pushes turn finely.
+func pad_stick(left: StringName, right: StringName, up: StringName, down: StringName) -> Vector2:
+	var v := Vector2(Input.get_action_raw_strength(right) - Input.get_action_raw_strength(left),
+		Input.get_action_raw_strength(down) - Input.get_action_raw_strength(up))
+	var push := minf(v.length(), 1.0)
+	var dead := float(get_setting("pad_deadzone"))
+	if push <= dead:
+		return Vector2.ZERO
+	var travel := (push - dead) / maxf(1.0 - dead, 0.001)
+	return v.normalized() * pow(travel, float(PAD_CURVES[int(get_setting("pad_curve"))][1]))
 
 
 ## Human-readable name of an input binding.
@@ -1129,6 +1277,12 @@ static func binding_text(ev: InputEvent) -> String:
 			MOUSE_BUTTON_WHEEL_RIGHT: return "WHEEL RIGHT"
 			MOUSE_BUTTON_XBUTTON1: return "MOUSE 4"
 			MOUSE_BUTTON_XBUTTON2: return "MOUSE 5"
+	if ev is InputEventJoypadButton:
+		var b := int((ev as InputEventJoypadButton).button_index)
+		return str(PAD_BUTTON_NAMES.get(b, "PAD %d" % b))
+	if ev is InputEventJoypadMotion:
+		var jm := ev as InputEventJoypadMotion
+		return str(PAD_AXIS_NAMES[jm.axis][1 if jm.axis_value > 0.0 else 0])
 	return ev.as_text().to_upper()
 
 
@@ -1142,10 +1296,44 @@ func _apply_bindings() -> void:
 			var ev := event_from_code(code)
 			if ev != null:
 				InputMap.action_add_event(action, ev)
+		var pad := event_from_code(get_pad_binding(action))
+		if pad != null:
+			InputMap.action_add_event(action, pad)
 
 
-## Keeps saved bindings for known actions with valid, unique codes; anything else falls back to
-## the defaults.
+## Menus on the pad: A accepts and B goes back (the D-pad and left stick already move the focus).
+func _add_menu_pad_events() -> void:
+	for pair: Array in [[&"ui_accept", JOY_BUTTON_A], [&"ui_cancel", JOY_BUTTON_B]]:
+		var ev := InputEventJoypadButton.new()
+		ev.device = -1
+		ev.button_index = pair[1]
+		if not InputMap.action_has_event(pair[0], ev):
+			InputMap.action_add_event(pair[0], ev)
+
+
+## Follows the last device the player touched (see using_pad). Every event reaches the window
+## first, before any node can consume it.
+func _note_device(event: InputEvent) -> void:
+	var pad: Variant = null
+	if event is InputEventJoypadButton:
+		if event.pressed:
+			pad = true
+	elif event is InputEventJoypadMotion:
+		if absf((event as InputEventJoypadMotion).axis_value) > 0.5:
+			pad = true
+	elif event is InputEventKey or event is InputEventMouseButton:
+		if event.is_pressed():
+			pad = false
+	elif event is InputEventMouseMotion:
+		if (event as InputEventMouseMotion).relative.length() > 6.0:
+			pad = false
+	if pad != null and pad != using_pad:
+		using_pad = pad
+		device_changed.emit()
+
+
+## Keeps saved key/mouse bindings for known actions with valid, unique codes; anything else falls
+## back to the defaults.
 func _load_bindings(saved: Variant) -> void:
 	bindings = {}
 	if typeof(saved) == TYPE_DICTIONARY:
@@ -1156,7 +1344,7 @@ func _load_bindings(saved: Variant) -> void:
 			var list: Array = []
 			for code: Variant in saved[action]:
 				var c := str(code)
-				if is_bindable(c) and not used.has(c) and list.size() < MAX_BINDINGS:
+				if is_bindable(c) and not is_pad_code(c) and not used.has(c) and list.size() < MAX_BINDINGS:
 					used[c] = true
 					list.append(c)
 			bindings[str(action)] = list
@@ -1168,3 +1356,31 @@ func _load_bindings(saved: Variant) -> void:
 			if defaults.any(func(c: String) -> bool: return used.has(c)):
 				bindings[action] = defaults.filter(func(c: String) -> bool: return not used.has(c))
 	_apply_bindings()
+
+
+## Keeps saved pad bindings for known actions with valid codes, each used once (or shared as
+## PAD_SHARED allows); a default that a rebind took is cleared. Saves from before controller
+## support have none and get DEFAULT_PAD_BINDINGS.
+func _load_pad_bindings(saved: Variant) -> void:
+	pad_bindings = {}
+	if typeof(saved) != TYPE_DICTIONARY:
+		return
+	for action: Variant in saved:
+		var a := str(action)
+		var c := str(saved[action])
+		if not DEFAULT_BINDINGS.has(a) or a == "pause" or not (c.is_empty() or (is_pad_code(c) and is_bindable(c))):
+			continue
+		if not c.is_empty() and _pad_code_taken(c, a):
+			continue
+		pad_bindings[a] = c
+	for action: String in DEFAULT_PAD_BINDINGS:
+		if action != "pause" and not pad_bindings.has(action) and _pad_code_taken(str(DEFAULT_PAD_BINDINGS[action]), action):
+			pad_bindings[action] = ""
+
+
+## Whether a loaded pad binding of another action already holds `code` (and can't share it).
+func _pad_code_taken(code: String, action: String) -> bool:
+	for other: String in pad_bindings:
+		if other != action and pad_bindings[other] == code and not pad_may_share(action, other):
+			return true
+	return false

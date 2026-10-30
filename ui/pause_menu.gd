@@ -14,6 +14,7 @@ var _dim: ColorRect
 var _menu: PanelContainer
 var _settings: SettingsPanel
 var _resume_button: Button
+var _settings_button: Button
 var _hint: Label
 ## Host of an online match: how friends can join (room code, Wi-Fi, Steam invite).
 var _invite: VBoxContainer
@@ -49,9 +50,9 @@ func _ready() -> void:
 	_resume_button = UIKit.button("RESUME", &"PrimaryButton")
 	_resume_button.pressed.connect(func() -> void: resume_requested.emit())
 	v.add_child(_resume_button)
-	var settings_button := UIKit.button("SETTINGS")
-	settings_button.pressed.connect(_open_settings)
-	v.add_child(settings_button)
+	_settings_button = UIKit.button("SETTINGS")
+	_settings_button.pressed.connect(_open_settings)
+	v.add_child(_settings_button)
 	var leave := UIKit.button("LEAVE MATCH", &"DangerButton")
 	leave.pressed.connect(func() -> void: Net.leave())
 	v.add_child(leave)
@@ -103,6 +104,7 @@ func _open_settings() -> void:
 	_settings.visible = true
 	_settings.refresh()
 	_animate_in(_settings)
+	_settings.focus_first.call_deferred()
 
 
 func _close_settings() -> void:
@@ -111,6 +113,7 @@ func _close_settings() -> void:
 	_settings.visible = false
 	_menu.visible = true
 	_animate_in(_menu)
+	_settings_button.grab_focus.call_deferred()
 
 
 func _refresh_invite() -> void:

@@ -16,7 +16,7 @@ func _ready() -> void:
 	page.add_child(header)
 	_subtitle = UIKit.label("", &"DimLabel")
 	(header.get_child(1) as Control).add_child(_subtitle)
-	var scroll := ScrollContainer.new()
+	var scroll := UIKit.pad_friendly(ScrollContainer.new())
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	page.add_child(scroll)

@@ -108,7 +108,7 @@ func _ready() -> void:
 	rv.add_child(UIKit.label("MATCH RULES", &"SubheaderLabel"))
 	# The rules (and the host's connection rows) scroll when a mode's rows outgrow a 720p window,
 	# so the status line and the start button always stay on screen below them.
-	var scroll := ScrollContainer.new()
+	var scroll := UIKit.pad_friendly(ScrollContainer.new())
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	rv.add_child(scroll)
