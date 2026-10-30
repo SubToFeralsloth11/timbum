@@ -18,6 +18,7 @@ const GENERATORS := {
 	"harbor": preload("res://scripts/world/maps/harbor_map.gd"),
 	"temple": preload("res://scripts/world/maps/temple_map.gd"),
 	"rooftops": preload("res://scripts/world/maps/rooftops_map.gd"),
+	"building": preload("res://scripts/world/maps/building_map.gd"),
 }
 
 const NAV_CELL := 0.25
