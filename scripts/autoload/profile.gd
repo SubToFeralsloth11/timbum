@@ -127,6 +127,11 @@ var achievements := {}
 ## MatchSetupScreen choices (sanitized with MatchSetupScreen.sanitize_choice on load).
 var match_presets: Array = []
 const MAX_MATCH_PRESETS := 8
+## First-run tutorial: whether the main menu has offered it (a new profile starts false; saves
+## from before the tutorial load as true, so returning players aren't asked) and whether its
+## one-time Data.TUTORIAL_REWARD was paid.
+var tutorial_offered := false
+var tutorial_paid := false
 
 ## Set to false by tests so they never touch the real save file.
 var persist := true
@@ -784,6 +789,31 @@ func do_prestige() -> int:
 	return bonus
 
 
+# ---------------------------------------------------------------- tutorial
+
+## The main menu's first-launch offer was answered (or the tutorial started): don't ask again.
+func mark_tutorial_offered() -> void:
+	if tutorial_offered:
+		return
+	tutorial_offered = true
+	save()
+
+
+## The tutorial was finished: pays Data.TUTORIAL_REWARD the first time, nothing on a replay.
+## Returns the coins paid.
+func finish_tutorial() -> int:
+	tutorial_offered = true
+	if tutorial_paid:
+		save()
+		return 0
+	tutorial_paid = true
+	coins += Data.TUTORIAL_REWARD
+	stats.coins_earned += Data.TUTORIAL_REWARD
+	save()
+	changed.emit()
+	return Data.TUTORIAL_REWARD
+
+
 # ---------------------------------------------------------------- match setup presets
 
 ## Index of the preset called `preset_name`, or -1.
@@ -969,6 +999,7 @@ func _payload() -> Dictionary:
 		"weapon_stats": weapon_stats, "mastery_paid": mastery_paid, "camos": camos, "prestige": prestige,
 		"challenges": challenges, "feats": feats, "achievements": achievements, "match_presets": match_presets,
 		"loadout_presets": loadout_presets, "active_preset": active_preset,
+		"tutorial_offered": tutorial_offered, "tutorial_paid": tutorial_paid,
 	}
 
 
@@ -1138,6 +1169,11 @@ func load_from_dict(d: Dictionary) -> void:
 			if has_camo(str(id)) and not camos.has(str(id)):
 				camos.append(str(id))
 	prestige = clampi(_num(d.get("prestige"), 0), 0, Data.PRESTIGE_MAX)
+	# A save from before the tutorial belongs to someone who has played: no first-launch offer.
+	var offered: Variant = d.get("tutorial_offered", true)
+	tutorial_offered = offered if typeof(offered) == TYPE_BOOL else true
+	var paid: Variant = d.get("tutorial_paid", false)
+	tutorial_paid = paid if typeof(paid) == TYPE_BOOL else false
 	# Challenges (saves from before them get today's sets at the next refresh).
 	challenges = {}
 	var saved_ch: Variant = d.get("challenges", {})

@@ -1,7 +1,8 @@
 extends Control
 ## Main menu root: 3D backdrop, persistent top bar (coins, level), home screen and the
 ## sub-screens (match setup, join, shop, locker, stats, challenges, achievements, settings) with
-## tweened transitions.
+## tweened transitions. The home screen also starts the Firing Range and the tutorial; a new
+## profile (Profile.tutorial_offered false) is offered the tutorial once, over the home screen.
 
 const TRANSITION := 0.22
 const SLIDE := 36.0
@@ -25,6 +26,8 @@ var _name_edit: LineEdit
 var _daily_button: Button
 var _play_button: Button
 var _challenges_button: Button
+## The first-launch tutorial offer (null once answered).
+var tutorial_offer: Control
 
 
 func _ready() -> void:
@@ -63,7 +66,10 @@ func _ready() -> void:
 	if int(carried.coins) > 0:
 		toast.call_deferred("UNCLAIMED CHALLENGES PAID: +%d COINS" % int(carried.coins), UITheme.ACCENT)
 	_refresh_profile()
-	_play_button.grab_focus.call_deferred()
+	if not Profile.tutorial_offered:
+		_add_tutorial_offer()
+	else:
+		_play_button.grab_focus.call_deferred()
 
 	modulate.a = 0.0
 	create_tween().tween_property(self, "modulate:a", 1.0, 0.35)
@@ -74,9 +80,61 @@ func _ready() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed(&"ui_cancel") and _current != _screens["home"]:
+	if event.is_action_pressed(&"ui_cancel") and tutorial_offer != null:
+		get_viewport().set_input_as_handled()
+		decline_tutorial()
+	elif event.is_action_pressed(&"ui_cancel") and _current != _screens["home"]:
 		get_viewport().set_input_as_handled()
 		(_current as MenuScreen).back_requested.emit()
+
+
+## Home's TUTORIAL button and the first-launch offer: the tutorial in the Firing Range.
+func start_tutorial() -> void:
+	Profile.mark_tutorial_offered()
+	Net.play_range(true)
+
+
+## The first-launch offer's NOT NOW (or Esc / B): never asked again; the TUTORIAL button stays.
+func decline_tutorial() -> void:
+	Profile.mark_tutorial_offered()
+	if tutorial_offer != null:
+		tutorial_offer.queue_free()
+		tutorial_offer = null
+	_play_button.grab_focus.call_deferred()
+
+
+func _add_tutorial_offer() -> void:
+	tutorial_offer = Control.new()
+	tutorial_offer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	tutorial_offer.mouse_filter = Control.MOUSE_FILTER_STOP
+	add_child(tutorial_offer)
+	var dim := ColorRect.new()
+	dim.color = Color(0.01, 0.015, 0.03, 0.6)
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	tutorial_offer.add_child(dim)
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	tutorial_offer.add_child(center)
+	var panel := UIKit.panel()
+	panel.custom_minimum_size = Vector2(520, 0)
+	center.add_child(panel)
+	var v := UIKit.vbox(14)
+	panel.add_child(v)
+	v.add_child(UIKit.label("NEW TO TIMBUM?", &"HeaderLabel", HORIZONTAL_ALIGNMENT_CENTER))
+	var text := UIKit.label("A short tutorial in the Firing Range walks you through moving, sliding, peeking, shooting, grenades and the grapple hook with your own keys or controller. Finish it once for %d coins." \
+		% Data.TUTORIAL_REWARD, &"", HORIZONTAL_ALIGNMENT_CENTER)
+	text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	text.custom_minimum_size.x = 480
+	v.add_child(text)
+	var start := UIKit.button("START TUTORIAL", &"PrimaryButton")
+	start.custom_minimum_size.y = 54
+	start.pressed.connect(start_tutorial)
+	v.add_child(start)
+	var later := UIKit.button("NOT NOW")
+	later.pressed.connect(decline_tutorial)
+	v.add_child(later)
+	v.add_child(UIKit.label("You can take it any time with TUTORIAL on the main menu.", &"DimLabel", HORIZONTAL_ALIGNMENT_CENTER))
+	start.grab_focus.call_deferred()
 
 
 ## Switches to a screen by name, creating it on first use.
@@ -349,6 +407,11 @@ func _build_home() -> MenuScreen:
 	range_button.custom_minimum_size.y = 50
 	range_button.pressed.connect(func() -> void: Net.play_range())
 	row5.add_child(range_button)
+	var tutorial_button := UIKit.button("TUTORIAL")
+	tutorial_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tutorial_button.custom_minimum_size.y = 50
+	tutorial_button.pressed.connect(start_tutorial)
+	row5.add_child(tutorial_button)
 	var quit := UIKit.button("QUIT", &"DangerButton")
 	quit.pressed.connect(func() -> void: get_tree().quit())
 	buttons.add_child(quit)

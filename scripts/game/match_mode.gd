@@ -30,7 +30,7 @@ static func create(p_world: World) -> MatchMode:
 	var m: MatchMode
 	match str(Net.config.get("session", "match")):
 		"range": m = FiringRange.new()
-		"tutorial": m = FiringRange.new()
+		"tutorial": m = Tutorial.new()
 		_:
 			match str(Net.config.get("mode", "ffa")):
 				"tdm": m = TeamDeathmatch.new()
