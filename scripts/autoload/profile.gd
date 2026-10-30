@@ -113,6 +113,10 @@ var challenges := {}
 var feats := {}
 ## Unlocked achievement id (Data.ACHIEVEMENTS) -> unlock time (Unix seconds).
 var achievements := {}
+## Match setup presets: up to MAX_MATCH_PRESETS of {name, settings} where settings are
+## MatchSetupScreen choices (sanitized with MatchSetupScreen.sanitize_choice on load).
+var match_presets: Array = []
+const MAX_MATCH_PRESETS := 8
 
 ## Set to false by tests so they never touch the real save file.
 var persist := true
@@ -768,6 +772,56 @@ func do_prestige() -> int:
 	return bonus
 
 
+# ---------------------------------------------------------------- match setup presets
+
+## Index of the preset called `preset_name`, or -1.
+func match_preset_index(preset_name: String) -> int:
+	for i in match_presets.size():
+		if match_presets[i].name == preset_name:
+			return i
+	return -1
+
+
+## Saves setup `choice` (MatchSetupScreen choices) as preset `preset_name`, replacing a preset of
+## that name. Returns its index, or -1 for an empty name or when all MAX_MATCH_PRESETS are taken.
+func save_match_preset(preset_name: String, choice: Dictionary) -> int:
+	preset_name = sanitize_name(preset_name)
+	if preset_name.is_empty():
+		return -1
+	var entry := {"name": preset_name, "settings": MatchSetupScreen.sanitize_choice(choice)}
+	var i := match_preset_index(preset_name)
+	if i < 0:
+		if match_presets.size() >= MAX_MATCH_PRESETS:
+			return -1
+		match_presets.append(entry)
+		i = match_presets.size() - 1
+	else:
+		match_presets[i] = entry
+	save()
+	return i
+
+
+## False for a bad index, an empty name or a name another preset already has.
+func rename_match_preset(index: int, new_name: String) -> bool:
+	new_name = sanitize_name(new_name)
+	if index < 0 or index >= match_presets.size() or new_name.is_empty():
+		return false
+	var other := match_preset_index(new_name)
+	if other >= 0 and other != index:
+		return false
+	match_presets[index].name = new_name
+	save()
+	return true
+
+
+func delete_match_preset(index: int) -> bool:
+	if index < 0 or index >= match_presets.size():
+		return false
+	match_presets.remove_at(index)
+	save()
+	return true
+
+
 # ---------------------------------------------------------------- settings
 
 func get_setting(key: String) -> Variant:
@@ -839,7 +893,7 @@ func _payload() -> Dictionary:
 		"owned": owned, "loadout": loadout, "equipped": equipped, "upgrades": upgrades,
 		"settings": settings, "stats": stats, "last_daily": last_daily, "bindings": bindings, "pad_bindings": pad_bindings,
 		"weapon_stats": weapon_stats, "mastery_paid": mastery_paid, "camos": camos, "prestige": prestige,
-		"challenges": challenges, "feats": feats, "achievements": achievements,
+		"challenges": challenges, "feats": feats, "achievements": achievements, "match_presets": match_presets,
 	}
 
 
@@ -1028,6 +1082,17 @@ func load_from_dict(d: Dictionary) -> void:
 			var at := _num(saved_ach[id], 0)
 			if Data.ACHIEVEMENTS.has(str(id)) and at > 0:
 				achievements[str(id)] = at
+	# Match setup presets (saves from before them have none); a value the setup screen no longer
+	# offers falls back to its default, a repeated name or anything past the limit is dropped.
+	match_presets = []
+	var saved_presets: Variant = d.get("match_presets", [])
+	if typeof(saved_presets) == TYPE_ARRAY:
+		for raw: Variant in saved_presets:
+			if typeof(raw) != TYPE_DICTIONARY or match_presets.size() >= MAX_MATCH_PRESETS:
+				continue
+			var preset_name := sanitize_name(str((raw as Dictionary).get("name", "")))
+			if not preset_name.is_empty() and match_preset_index(preset_name) < 0:
+				match_presets.append({"name": preset_name, "settings": MatchSetupScreen.sanitize_choice((raw as Dictionary).get("settings"))})
 	# Saves from before achievements: what their stats already reach unlocks now.
 	_unlock_achievements()
 	_load_pad_bindings(d.get("pad_bindings", {}))

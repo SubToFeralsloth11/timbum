@@ -11,11 +11,8 @@ const ROTATION := "rotation"
 ## Last choices this session, shared by both modes. Each mode with its own limit keeps it apart
 ## (sent as `kill_limit`): the team score, the Gun Game ladder length, King of the Block's points.
 ## `streaks`: mode -> killstreaks on, once picked for that mode (until then the mode's default,
-## Streaks.default_for).
-static var _choice := {"mode": "ffa", "map": ROTATION, "bots_fill": 8, "difficulty": 1, "kill_limit": 20,
-	"team_kill_limit": TeamDeathmatch.DEFAULT_KILL_LIMIT, "ladder": GunGame.max_length(),
-	"koth_limit": KingOfTheBlock.DEFAULT_SCORE_LIMIT, "time_minutes": 8, "mutators": true, "link": Net.Link.DIRECT,
-	"streaks": {}}
+## Streaks.default_for). A match setup preset (Profile.match_presets) holds a copy of it.
+static var _choice := default_choice()
 const MODE_IDS: Array[String] = ["ffa", "tdm", "gungame", "koth", "infected", "tactical"]
 const MODE_HINTS := {
 	"ffa": "Bots fill every empty slot up to the player count.",
@@ -59,11 +56,72 @@ var _mode_row: Container
 ## Rule rows (name label and control) and the modes that show them.
 var _mode_rules: Array = []
 var _rules_hint: Label
+var _link_row: Container
+## Match setup presets (Profile.match_presets): the list, the name field and its buttons.
+var _preset_pick: OptionButton
+var _preset_name: LineEdit
+var _preset_load: Button
+var _preset_rename: Button
+var _preset_delete: Button
+var _preset_quick: Button
+## DELETE was pressed once for the picked preset; the second press deletes it.
+var _delete_armed := false
 
 
 func _init(host_mode: bool) -> void:
 	super()
 	hosting = host_mode
+
+
+## The setup screen's starting choices (also what a preset's missing or invalid fields fall back to).
+static func default_choice() -> Dictionary:
+	return {"mode": "ffa", "map": ROTATION, "bots_fill": 8, "difficulty": 1, "kill_limit": 20,
+		"team_kill_limit": TeamDeathmatch.DEFAULT_KILL_LIMIT, "ladder": GunGame.max_length(),
+		"koth_limit": KingOfTheBlock.DEFAULT_SCORE_LIMIT, "time_minutes": 8, "mutators": true, "link": Net.Link.DIRECT,
+		"streaks": {}}
+
+
+## A full, valid set of setup choices from saved data (a preset from an old or edited save): each
+## field must be one the screen offers today, else it takes default_choice()'s value.
+static func sanitize_choice(raw: Variant) -> Dictionary:
+	var out := default_choice()
+	if typeof(raw) != TYPE_DICTIONARY:
+		return out
+	var d: Dictionary = raw
+	var mode := str(d.get("mode", ""))
+	if MODE_IDS.has(mode):
+		out.mode = mode
+	var map_id := str(d.get("map", ""))
+	if map_id == ROTATION or Data.MAP_ROTATION.has(map_id):
+		out.map = map_id
+	out.bots_fill = clampi(_int(d.get("bots_fill"), out.bots_fill), 2, Data.MAX_PLAYERS)
+	out.difficulty = clampi(_int(d.get("difficulty"), out.difficulty), 0, Data.DIFFICULTY_NAMES.size() - 1)
+	for pair: Array in [["kill_limit", KILL_LIMITS], ["team_kill_limit", TEAM_KILL_LIMITS], ["ladder", GunGame.LENGTHS],
+			["koth_limit", KingOfTheBlock.LIMITS], ["time_minutes", TIME_LIMITS]]:
+		var v := _int(d.get(pair[0]), -1)
+		if (pair[1] as Array).has(v):
+			out[pair[0]] = v
+	if typeof(d.get("mutators")) == TYPE_BOOL:
+		out.mutators = d.mutators
+	var link := _int(d.get("link"), -1)
+	if link in [Net.Link.DIRECT, Net.Link.STEAM, Net.Link.WEBRTC]:
+		out.link = link
+	var streaks: Variant = d.get("streaks", {})
+	if typeof(streaks) == TYPE_DICTIONARY:
+		for m: String in MODE_IDS:
+			if typeof((streaks as Dictionary).get(m)) == TYPE_BOOL:
+				out.streaks[m] = streaks[m]
+	return out
+
+
+## A whole number from saved data (JSON numbers are floats), or `fallback`.
+static func _int(v: Variant, fallback: int) -> int:
+	return int(v) if typeof(v) in [TYPE_INT, TYPE_FLOAT] else fallback
+
+
+## A copy of the current choices (what SAVE stores in a preset).
+static func current_choice() -> Dictionary:
+	return _choice.duplicate(true)
 
 
 func _ready() -> void:
@@ -105,6 +163,8 @@ func _ready() -> void:
 	body.add_child(rules_panel)
 	var rv := UIKit.vbox(12)
 	rules_panel.add_child(rv)
+	_build_presets(rv)
+	rv.add_child(HSeparator.new())
 	rv.add_child(UIKit.label("MATCH RULES", &"SubheaderLabel"))
 	# The rules (and the host's connection rows) scroll when a mode's rows outgrow a 720p window,
 	# so the status line and the start button always stay on screen below them.
@@ -227,9 +287,16 @@ func _ready() -> void:
 
 
 func on_shown() -> void:
+	_status.remove_theme_color_override("font_color")
 	_status.text = LINK_HINTS[_choice.link] if hosting else ""
 	_start.disabled = false
 	# Choices are shared with the other mode's screen, which may have changed them.
+	_show_choice()
+	_refresh_presets(_preset_pick.selected)
+
+
+## Sets every control to `_choice`.
+func _show_choice() -> void:
 	_players_slider.set_value_no_signal(_choice.bots_fill)
 	_update_players_label()
 	_pick_segment(_difficulty_row, _choice.difficulty)
@@ -239,6 +306,9 @@ func on_shown() -> void:
 	_pick_segment(_koth_row, KingOfTheBlock.LIMITS.find(_choice.koth_limit))
 	_pick_segment(_time_row, TIME_LIMITS.find(_choice.time_minutes))
 	_pick_segment(_mutator_row, 0 if _choice.mutators else 1)
+	if _link_row != null:
+		_pick_segment(_link_row, [Net.Link.DIRECT, Net.Link.STEAM, Net.Link.WEBRTC].find(_choice.link))
+		_update_link_rows()
 	_select_map(_choice.map)
 	_pick_segment(_mode_row, MODE_IDS.find(_choice.mode))
 	_apply_mode()
@@ -391,9 +461,10 @@ func _build_host_section(parent: VBoxContainer) -> void:
 	parent.add_child(grid)
 	var links: Array[int] = [Net.Link.DIRECT, Net.Link.STEAM, Net.Link.WEBRTC]
 	var link_names: Array[String] = ["CODE + WI-FI", "STEAM", "WEBRTC"]
-	_rule(grid, "CONNECTION", _segmented(link_names, links.find(_choice.link), func(i: int) -> void:
+	_link_row = _segmented(link_names, links.find(_choice.link), func(i: int) -> void:
 		_choice.link = links[i]
-		_update_link_rows()))
+		_update_link_rows())
+	_rule(grid, "CONNECTION", _link_row)
 
 	# One row per address; the first also holds the port (only joining by address uses it, and
 	# only over the internet does it need forwarding).
@@ -453,18 +524,220 @@ func _update_link_rows() -> void:
 		c.visible = _choice.link == Net.Link.DIRECT
 
 
+# ---------------------------------------------------------------- presets
+
+## Saved match setups (Profile.match_presets): pick one to load, rename, delete or start it right
+## away (QUICK PLAY / QUICK HOST); SAVE stores the current choices under the typed name.
+func _build_presets(parent: VBoxContainer) -> void:
+	var top := UIKit.hbox(8)
+	parent.add_child(top)
+	var title := UIKit.label("PRESETS", &"SubheaderLabel")
+	title.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	top.add_child(title)
+	_preset_pick = OptionButton.new()
+	_preset_pick.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_preset_pick.fit_to_longest_item = false
+	_preset_pick.item_selected.connect(_on_preset_picked)
+	top.add_child(_preset_pick)
+	_preset_quick = UIKit.button("QUICK HOST" if hosting else "QUICK PLAY")
+	_preset_quick.tooltip_text = "Load the picked preset and start straight away."
+	_preset_quick.pressed.connect(_on_preset_quick)
+	top.add_child(_preset_quick)
+	var row := UIKit.hbox(6)
+	parent.add_child(row)
+	_preset_name = LineEdit.new()
+	_preset_name.placeholder_text = "Preset name"
+	_preset_name.max_length = 16
+	_preset_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_preset_name.custom_minimum_size.x = 150
+	_preset_name.text_submitted.connect(func(_t: String) -> void: _on_preset_save())
+	row.add_child(_preset_name)
+	var save := UIKit.button("SAVE", &"IconButton")
+	save.tooltip_text = "Save the current settings under this name (replaces a preset of the same name)."
+	save.pressed.connect(_on_preset_save)
+	row.add_child(save)
+	_preset_load = UIKit.button("LOAD", &"IconButton")
+	_preset_load.pressed.connect(_on_preset_load)
+	row.add_child(_preset_load)
+	_preset_rename = UIKit.button("RENAME", &"IconButton")
+	_preset_rename.tooltip_text = "Give the picked preset the name typed here."
+	_preset_rename.pressed.connect(_on_preset_rename)
+	row.add_child(_preset_rename)
+	_preset_delete = UIKit.button("DELETE", &"IconButton")
+	_preset_delete.pressed.connect(_on_preset_delete)
+	row.add_child(_preset_delete)
+	_refresh_presets(0)
+
+
+## Refills the preset list and picks entry `select` (clamped).
+func _refresh_presets(select: int) -> void:
+	var list := Profile.match_presets
+	_preset_pick.clear()
+	for p: Dictionary in list:
+		_preset_pick.add_item(str(p.name))
+		_preset_pick.set_item_tooltip(_preset_pick.item_count - 1, choice_summary(p.settings))
+	if list.is_empty():
+		_preset_pick.add_item("No presets saved yet")
+	_preset_pick.disabled = list.is_empty()
+	_preset_pick.select(clampi(select, 0, maxi(0, list.size() - 1)))
+	for b: Button in [_preset_load, _preset_rename, _preset_delete]:
+		b.disabled = list.is_empty()
+	# While a match is starting QUICK stays off with START.
+	if _start == null or not _start.disabled:
+		_preset_quick.disabled = list.is_empty()
+	_disarm_delete()
+
+
+## The picked preset's index in Profile.match_presets, or -1 when there are none.
+func _preset_index() -> int:
+	return _preset_pick.selected if not Profile.match_presets.is_empty() else -1
+
+
+func _preset_named(i: int) -> String:
+	return str(Profile.match_presets[i].name)
+
+
+func _disarm_delete() -> void:
+	_delete_armed = false
+	_preset_delete.text = "DELETE"
+
+
+func _on_preset_picked(i: int) -> void:
+	_disarm_delete()
+	_preset_name.text = _preset_named(i)
+	_show_status("%s: %s" % [_preset_named(i), choice_summary(Profile.match_presets[i].settings)])
+
+
+func _on_preset_save() -> void:
+	var preset_name := Profile.sanitize_name(_preset_name.text)
+	if preset_name.is_empty():
+		_preset_error("Type a name for the preset first.")
+		return
+	var i := Profile.save_match_preset(preset_name, current_choice())
+	if i < 0:
+		_preset_error("All %d preset slots are in use: delete one first." % Profile.MAX_MATCH_PRESETS)
+		return
+	_preset_name.text = preset_name
+	_refresh_presets(i)
+	_show_status("Saved preset %s." % preset_name)
+
+
+func _on_preset_load() -> void:
+	var i := _preset_index()
+	if i < 0:
+		return
+	_load_preset(i)
+	_show_status("Loaded %s: %s" % [_preset_named(i), choice_summary(_choice)])
+
+
+## Puts preset `i` into the controls (fields no longer offered fall back to the defaults).
+func _load_preset(i: int) -> void:
+	_choice = sanitize_choice(Profile.match_presets[i].settings)
+	_show_choice()
+
+
+func _on_preset_rename() -> void:
+	var i := _preset_index()
+	if i < 0:
+		return
+	var new_name := Profile.sanitize_name(_preset_name.text)
+	if new_name.is_empty():
+		_preset_error("Type the new name first.")
+		return
+	var old_name := _preset_named(i)
+	if not Profile.rename_match_preset(i, new_name):
+		_preset_error("Another preset is already called %s." % new_name)
+		return
+	_refresh_presets(i)
+	_show_status("Renamed %s to %s." % [old_name, new_name])
+
+
+## The first press asks for a second one, which deletes the preset.
+func _on_preset_delete() -> void:
+	var i := _preset_index()
+	if i < 0:
+		return
+	var preset_name := _preset_named(i)
+	if not _delete_armed:
+		_delete_armed = true
+		_preset_delete.text = "SURE?"
+		_show_status("Press SURE? to delete %s." % preset_name)
+		return
+	Profile.delete_match_preset(i)
+	_refresh_presets(i)
+	_preset_name.text = _preset_named(_preset_index()) if _preset_index() >= 0 else ""
+	_show_status("Deleted %s." % preset_name)
+
+
+func _on_preset_quick() -> void:
+	var i := _preset_index()
+	if i < 0:
+		return
+	_load_preset(i)
+	_on_start()
+
+
+func _show_status(text: String) -> void:
+	_status.remove_theme_color_override("font_color")
+	_status.text = text
+
+
+func _preset_error(text: String) -> void:
+	Sfx.play(&"ui_error")
+	_set_error(text)
+
+
+## One line describing a set of setup choices (preset tooltips and status lines).
+static func choice_summary(choice: Dictionary) -> String:
+	var parts: Array[String] = []
+	for row: Array in describe_config(config_from(sanitize_choice(choice))):
+		parts.append(str(row[1]))
+	return "  ·  ".join(parts)
+
+
+## The match rules of a config as [name, value] rows (preset summaries, the pre-match lobby).
+static func describe_config(cfg: Dictionary) -> Array:
+	var mode := str(cfg.mode)
+	var rows: Array = [["MODE", str(Data.MODES[mode].name)]]
+	if mode == "tactical":
+		rows.append(["MAP", str(Data.MAPS[Data.TACTICAL_MAP].name)])
+		rows.append(["PLAYERS", "%d v %d" % [Tactical.PLAYERS / 2, Tactical.PLAYERS / 2]])
+	else:
+		rows.append(["MAP", "Rotation" if cfg.map == ROTATION else str(Data.MAPS[cfg.map].name)])
+		rows.append(["PLAYERS", "%d players" % int(cfg.bots_fill)])
+	rows.append(["BOTS", "%s bots" % Data.DIFFICULTY_NAMES[int(cfg.difficulty)]])
+	match mode:
+		"ffa":
+			rows.append(["KILL LIMIT", "%d kills" % int(cfg.kill_limit)])
+		"tdm":
+			rows.append(["TEAM KILLS", "%d team kills" % int(cfg.kill_limit)])
+		"gungame":
+			rows.append(["LADDER", "%d guns" % (int(cfg.kill_limit) - 1)])
+		"koth":
+			rows.append(["POINTS", "%d points" % int(cfg.kill_limit)])
+	rows.append(["TIME LIMIT", "%d min" % (int(cfg.time_limit) / 60)])
+	if mode != "tactical":
+		rows.append(["MUTATORS", "Random mutators" if cfg.mutators else "No mutators"])
+	rows.append(["KILLSTREAKS", "Killstreaks on" if cfg.streaks else "Killstreaks off"])
+	return rows
+
+
+## The Net config a set of setup choices starts.
+static func config_from(choice: Dictionary) -> Dictionary:
+	return {
+		"mode": choice.mode,
+		"map": choice.map,
+		"bots_fill": choice.bots_fill,
+		"difficulty": choice.difficulty,
+		"kill_limit": {"tdm": choice.team_kill_limit, "gungame": choice.ladder, "koth": choice.koth_limit}.get(choice.mode, choice.kill_limit),
+		"time_limit": int(choice.time_minutes) * 60,
+		"mutators": choice.mutators,
+		"streaks": bool(choice.streaks.get(choice.mode, Streaks.default_for(choice.mode))),
+	}
+
 
 func _config() -> Dictionary:
-	return {
-		"mode": _choice.mode,
-		"map": _choice.map,
-		"bots_fill": _choice.bots_fill,
-		"difficulty": _choice.difficulty,
-		"kill_limit": {"tdm": _choice.team_kill_limit, "gungame": _choice.ladder, "koth": _choice.koth_limit}.get(_choice.mode, _choice.kill_limit),
-		"time_limit": int(_choice.time_minutes) * 60,
-		"mutators": _choice.mutators,
-		"streaks": _streaks_on(),
-	}
+	return config_from(_choice)
 
 
 func _streaks_on() -> bool:
@@ -474,6 +747,7 @@ func _streaks_on() -> bool:
 func _on_start() -> void:
 	if not hosting:
 		_start.disabled = true
+		_preset_quick.disabled = true
 		_status.text = "Loading map..."
 		Net.play_offline(_config())
 		return
@@ -486,6 +760,7 @@ func _on_start() -> void:
 			_set_error("Port must be a number between 1024 and 65535.")
 			return
 	_start.disabled = true
+	_preset_quick.disabled = true
 	_status.remove_theme_color_override("font_color")
 	_status.text = "Starting server on port %d..." % port if link == Net.Link.DIRECT else "Starting..."
 	_host_pending = true
@@ -493,6 +768,7 @@ func _on_start() -> void:
 	_host_pending = false
 	if err != OK and err != ERR_SKIP:
 		_start.disabled = false
+		_preset_quick.disabled = Profile.match_presets.is_empty()
 		Sfx.play(&"ui_error")
 		# Net already reported why on `status`.
 		_set_error(_status.text if not _status.text.ends_with("...") else "Could not start hosting: %s" % error_string(err))
