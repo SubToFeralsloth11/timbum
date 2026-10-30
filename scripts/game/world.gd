@@ -49,6 +49,8 @@ var rules: MatchMode
 var tactical: Tactical
 ## Killstreak rewards (child "Streaks"; idle when `Net.config.streaks` is off).
 var streaks: Streaks
+## Quick pings (child "Pings"; idle outside team modes).
+var pings: Pings
 
 var _entities_root: Node3D
 var _shake := 0.0
@@ -134,6 +136,9 @@ func _ready() -> void:
 	streaks = Streaks.new()
 	streaks.world = self
 	add_child(streaks)
+	pings = Pings.new()
+	pings.world = self
+	add_child(pings)
 	time_left = float(Net.config.time_limit)
 	Sfx.play_music(&"match")
 	Sfx.play(&"match_start")
@@ -1287,6 +1292,7 @@ func _s_match_end(rows: Array, next: Dictionary, wait: float) -> void:
 		reward_place = 1 if won else (2 if int(next.winner) < 0 else 0)
 	rules.on_match_over()
 	streaks.on_match_over()
+	pings.on_match_over()
 	var rewards := {}
 	if not mine.is_empty():
 		rewards = Profile.record_match({

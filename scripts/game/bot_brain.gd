@@ -335,6 +335,8 @@ func _perceive() -> void:
 			_last_target_pos = best.global_position
 			_target_vel = Vector3.ZERO
 			_read_vel = Vector3.ZERO
+			# Team modes: call the new contact out to the team (Pings rate-limits it).
+			p.world.pings.bot_spotted(p, best)
 		_target_visible = true
 		_last_seen_pos = best.global_position
 		_last_seen_time = now
@@ -805,6 +807,18 @@ func _roam_tactical(delta: float) -> void:
 ## World.now() when the current target was last seen (Tactical squads track contact).
 func last_seen_time() -> float:
 	return _last_seen_time
+
+
+## A teammate pinged an enemy at `pos` (Pings, server): a bot with no target and the ping within
+## Pings.BOT_HEED_RANGE goes and looks there, like a fresh sighting.
+func heed_ping(pos: Vector3) -> void:
+	if target != null:
+		return
+	if p.global_position.distance_to(pos) > Pings.BOT_HEED_RANGE:
+		return
+	_last_seen_pos = pos
+	_last_seen_time = World.now()
+	_has_goal = false
 
 
 func _set_goal(point: Vector3) -> void:

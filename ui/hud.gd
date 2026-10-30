@@ -1047,10 +1047,11 @@ func _show_match_intro() -> void:
 
 
 ## The mode's top-panel bars and lines (team modes) and its compass pips (Tactical's team
-## markers, King of the Block's zone) plus the killstreak ones (Radar Sweep, Block Bomber strikes).
+## markers, King of the Block's zone) plus the killstreak ones (Radar Sweep, Block Bomber strikes)
+## and teammates' pings.
 func _update_mode_hud() -> void:
 	var cam := get_viewport().get_camera_3d()
-	_compass.pips = world.rules.compass_pips(cam) + world.streaks.compass_pips(cam) if cam != null else []
+	_compass.pips = world.rules.compass_pips(cam) + world.streaks.compass_pips(cam) + world.pings.compass_pips(cam) if cam != null else []
 	if not Teams.is_team_mode():
 		return
 	var bars := world.rules.hud_bars()
@@ -1122,6 +1123,8 @@ func _show_controls_hint() -> void:
 			"%s  quick melee   %s/%s/%s  weapons" % [k.call("melee"), k.call("weapon_1"), k.call("weapon_2"), k.call("weapon_3")]]
 	if Streaks.enabled():
 		lines.append("%s  call in your Block Bomber (%d-kill streak)" % [k.call("streak_reward"), Streaks.BOMBER_AT])
+	if Pings.active():
+		lines.append("%s  ping an enemy or a spot for your team" % k.call("ping"))
 	lines.append("%s  scores   %s  chat   Esc  menu (rebind keys in Settings)" % [k.call("scoreboard"), k.call("chat")])
 	for line: String in lines:
 		v.add_child(_label(line, 15))

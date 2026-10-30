@@ -15,6 +15,7 @@ const NAMES: Array[StringName] = [
 	&"shot_shotgun", &"shot_sniper", &"shot_lmg", &"shot_rocket", &"explosion",
 	&"shot_suppressed", &"shot_dmr", &"slide", &"grapple_fire", &"smoke_pop", &"flashbang",
 	&"streak_reward", &"radar_sweep", &"shield_hit", &"shield_break", &"bomber_warning",
+	&"ping", &"ping_enemy",
 ]
 
 ## Sounds rendered in several takes; one is picked at random per play.
@@ -34,7 +35,7 @@ const GAIN_DB := {
 	&"shot_suppressed": -6.0, &"shot_dmr": -1.0, &"slide": -9.0, &"grapple_fire": -6.0,
 	&"smoke_pop": -5.0, &"flashbang": 0.0,
 	&"streak_reward": -4.0, &"radar_sweep": -6.0, &"shield_hit": -7.0, &"shield_break": -4.0,
-	&"bomber_warning": -3.0,
+	&"bomber_warning": -3.0, &"ping": -8.0, &"ping_enemy": -6.0,
 }
 
 ## Reference distance (m) for positional playback: loud sounds carry across a ~60 m map,
@@ -416,6 +417,19 @@ static func _render_one(sound: StringName, v: int, rng: RandomNumberGenerator) -
 			Synth.tone(b, 1.2, 0.8, 2400.0, 700.0, 0.3, W.SINE, 0.05, 0.0)
 			Synth.lowpass(b, 3000.0)
 			Synth.echo(b, 0.2, 0.3, 0.3, 2500.0)
+			return b
+		&"ping":
+			# A teammate marked a spot: two soft rising blips.
+			var b := Synth.make(0.4)
+			Synth.bell(b, 0.0, 0.18, 1174.7, 0.5, 0.06)
+			Synth.bell(b, 0.09, 0.3, 1568.0, 0.55, 0.09)
+			return b
+		&"ping_enemy":
+			# A teammate marked an enemy: a sharper falling double beep.
+			var b := Synth.make(0.42)
+			for k in 2:
+				Synth.tone(b, k * 0.13, 0.11, 1760.0, 1480.0, 0.4, W.SQUARE, 0.002, 0.05, 0.3)
+			Synth.lowpass(b, 5000.0)
 			return b
 	return Synth.make(0.01)
 

@@ -16,7 +16,7 @@ const CONTROLS: Array = [
 	["weapon_2", "Secondary"], ["weapon_3", "Knife"], ["quick_swap", "Last weapon"],
 	["next_weapon", "Next weapon"], ["prev_weapon", "Previous weapon"], ["grenade", "Frag grenade"],
 	["tactical", "Tactical grenade"], ["melee", "Quick melee"], ["grapple", "Grapple hook"],
-	["streak_reward", "Call in Block Bomber (killstreak)"],
+	["streak_reward", "Call in Block Bomber (killstreak)"], ["ping", "Ping (team modes)"],
 	["interact", "Swap weapon (Tactical)"], ["tactical_map", "Floor plan (Tactical)"],
 	["scoreboard", "Scoreboard"], ["chat", "Chat"],
 ]
