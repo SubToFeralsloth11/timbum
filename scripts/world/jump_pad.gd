@@ -20,6 +20,10 @@ const COLOR := Color(0.25, 1.0, 0.85)
 ## Particles thrown up by a launch, and seconds before the same pad bursts again.
 const BURST_AMOUNT := 26
 const BURST_GAP := 0.25
+## Glowing dashes along the flight path (spacing in metres, flow speed in m/s), so a pad shows
+## where it throws you.
+const ARC_SPACING := 0.45
+const ARC_FLOW := 1.6
 
 ## Landing spot (feet, world space) and the arc's highest point (world y).
 var target := Vector3.ZERO
@@ -30,6 +34,11 @@ var drop: Array = []
 var _burst: CPUParticles3D
 var _light: OmniLight3D
 var _last_burst := -10.0
+## The flight path in local space, sampled densely, with the cumulative length at each sample.
+var _arc_pts := PackedVector3Array()
+var _arc_len := PackedFloat32Array()
+var _arc_dots: MultiMesh
+var _arc_phase := 0.0
 
 static var _mats := {}
 
@@ -161,6 +170,69 @@ func _ready() -> void:
 	_add_link("NavLink", Vector3.ZERO, target - position)
 	if drop.size() == 2:
 		_add_link("DropLink", (drop[0] as Vector3) - position, (drop[1] as Vector3) - position)
+	_build_arc()
+
+
+## The trajectory's shape depends only on the start, apex and landing, not on gravity, so it is
+## sampled with g = 1. Dots flow along it from the pad towards the landing, and a ring marks
+## the landing spot.
+func _build_arc() -> void:
+	var v := launch_velocity(position, target, apex_y, 1.0)
+	var time := flight_time(1.0)
+	var total := 0.0
+	var samples := 64
+	for i in samples + 1:
+		var t := time * float(i) / samples
+		var p := v * t + Vector3.DOWN * 0.5 * t * t + Vector3.UP * 0.3
+		if i > 0:
+			total += p.distance_to(_arc_pts[i - 1])
+		_arc_pts.append(p)
+		_arc_len.append(total)
+	var dot := BoxMesh.new()
+	dot.size = Vector3(0.08, 0.08, 0.3)
+	dot.material = _material("glow")
+	_arc_dots = MultiMesh.new()
+	_arc_dots.transform_format = MultiMesh.TRANSFORM_3D
+	_arc_dots.mesh = dot
+	_arc_dots.instance_count = maxi(1, int(total / ARC_SPACING))
+	var mmi := MultiMeshInstance3D.new()
+	mmi.name = "Arc"
+	mmi.multimesh = _arc_dots
+	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(mmi)
+	var ring := MeshInstance3D.new()
+	var ring_mesh := TorusMesh.new()
+	ring_mesh.inner_radius = 0.42
+	ring_mesh.outer_radius = 0.5
+	ring_mesh.rings = 16
+	ring_mesh.ring_segments = 4
+	ring_mesh.material = _material("glow")
+	ring.mesh = ring_mesh
+	ring.position = target - position + Vector3.UP * 0.06
+	ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(ring)
+	_place_arc_dots()
+
+
+## Puts each dash at its distance along the path (shifted by the flow phase), lying along the
+## path, and shrinks the dashes near both ends so the line fades in and out.
+func _place_arc_dots() -> void:
+	var total := _arc_len[_arc_len.size() - 1]
+	var n := _arc_dots.instance_count
+	for k in n:
+		var d := fposmod(k * ARC_SPACING + _arc_phase, n * ARC_SPACING)
+		if d > total:
+			_arc_dots.set_instance_transform(k, Transform3D(Basis().scaled(Vector3.ZERO), Vector3.ZERO))
+			continue
+		var j := clampi(_arc_len.bsearch(d), 1, _arc_len.size() - 1)
+		var seg := _arc_len[j] - _arc_len[j - 1]
+		var f := 0.0 if seg <= 0.0 else (d - _arc_len[j - 1]) / seg
+		var pos := _arc_pts[j - 1].lerp(_arc_pts[j], f)
+		var tangent := (_arc_pts[j] - _arc_pts[j - 1]).normalized()
+		var up := Vector3.RIGHT if absf(tangent.y) > 0.99 else Vector3.UP
+		var s := clampf(minf(d, total - d) / 1.5, 0.25, 1.0)
+		var basis := Basis.looking_at(tangent, up).scaled(Vector3.ONE * s)
+		_arc_dots.set_instance_transform(k, Transform3D(basis, pos))
 
 
 func _add_link(link_name: String, from: Vector3, to: Vector3) -> void:
@@ -174,6 +246,9 @@ func _add_link(link_name: String, from: Vector3, to: Vector3) -> void:
 
 func _process(delta: float) -> void:
 	_light.light_energy = move_toward(_light.light_energy, 1.2, delta * 8.0)
+	if _arc_dots != null:
+		_arc_phase = fmod(_arc_phase + delta * ARC_FLOW, ARC_SPACING * _arc_dots.instance_count)
+		_place_arc_dots()
 
 
 func _particles(amount: int, life: float, one_shot: bool) -> CPUParticles3D:
