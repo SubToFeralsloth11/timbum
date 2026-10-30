@@ -365,7 +365,8 @@ func _choose_weapon() -> void:
 	if want == 0 and close > 0.0:
 		if p.current_slot == 1:
 			close += LONG_GUN_SLACK
-		if dist < close and sa.x + sa.y > 0:
+		# A backup that is itself a long gun (a rocket behind the sniper) is no better up close.
+		if dist < close and sa.x + sa.y > 0 and not LONG_GUN_CLOSE.has(secondary):
 			want = 1
 		elif dist < 6.0 and primary == "rocket":
 			want = 2
