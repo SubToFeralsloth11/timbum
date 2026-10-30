@@ -22,12 +22,6 @@ const MIN_SPACING := 10.0
 const MOVE_INTERVAL := 60.0
 const WARNING := 10.0
 
-const COLOR_FREE := Color(1.0, 0.85, 0.3)
-const COLOR_MINE := Color(0.35, 1.0, 0.45)
-const COLOR_OTHER := Color(1.0, 0.4, 0.3)
-const COLOR_CONTESTED := Color(1.0, 0.3, 0.9)
-const COLOR_NEXT := Color(0.85, 0.92, 1.0)
-
 ## Feet positions the zone can sit on (every peer builds the same list from the map).
 var spots: Array[Vector3] = []
 ## Current and next spot index (-1 until the server says), and the match clock (`World.time_left`)
@@ -249,16 +243,17 @@ func _process(delta: float) -> void:
 	var alpha := 1.0 if not contested else 0.6 + 0.4 * pulse
 	_tint(_zone_mats, col, alpha)
 	if warning:
-		_tint(_next_mats, COLOR_NEXT, 0.35 + 0.35 * pulse)
+		_tint(_next_mats, Palette.color("zone_next"), 0.35 + 0.35 * pulse)
 
 
-## The zone's colour for the local player: free, held by them, by someone else, or contested.
+## The zone's colour for the local player (Palette roles, so it follows the colour mode): free,
+## held by them, by someone else, or contested.
 func zone_color() -> Color:
 	if contested:
-		return COLOR_CONTESTED
+		return Palette.color("zone_contested")
 	if holder == 0:
-		return COLOR_FREE
-	return COLOR_MINE if holder == world.my_id() else COLOR_OTHER
+		return Palette.color("zone_free")
+	return Palette.color("zone_mine" if holder == world.my_id() else "zone_other")
 
 
 ## Ring wall, floor disc and a tall beam that shows the zone from anywhere on the map.
@@ -347,7 +342,7 @@ func compass_pips(cam: Camera3D) -> Array:
 		return []
 	var out: Array = []
 	if _next_node.visible:
-		out.append([_heading(cam, next_pos()), COLOR_NEXT.darkened(0.2)])
+		out.append([_heading(cam, next_pos()), Palette.color("zone_next").darkened(0.2)])
 	out.append([_heading(cam, zone_pos()), zone_color()])
 	return out
 

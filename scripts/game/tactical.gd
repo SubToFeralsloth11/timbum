@@ -936,11 +936,11 @@ func _build_barrier(team: int) -> void:
 
 
 ## Team look (MatchMode/Teams); Tactical nametags show just the name and prestige badge (no
-## level), since 50 players crowd the building.
+## level), since 50 players crowd the building. Set before the team look adds the team's shape.
 func on_player_added(p: Player) -> void:
-	super(p)
 	if p.nametag != null:
 		p.nametag.text = Data.badged_name(str(p.info.name), int(p.info.get("prestige", 0)))
+	super(p)
 
 
 ## Client: the local player died; after a short death cam the camera follows teammates.
@@ -956,7 +956,7 @@ func hud_bars() -> Array:
 
 func hud_goal() -> String:
 	var team := my_team()
-	return "" if team < 0 else "Your team: %s  ·  last team standing wins" % Teams.name_of(team)
+	return "" if team < 0 else "Your team: %s  ·  last team standing wins" % Teams.label(team)
 
 
 ## The team's attack/hold markers.

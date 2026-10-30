@@ -11,8 +11,6 @@ const CHAT_MAX := 8
 ## next-match strip would push the panel off a 720p screen).
 const RESULTS_VISIBLE_ROWS := 6
 const HEALTH_SEGMENTS := 10
-## Overshield (Streaks) on the health card.
-const SHIELD_COLOR := Color(0.45, 0.85, 1.0)
 
 
 ## Heading strip across the top of the screen: N/E/S/W letters and ticks every 15 degrees,
@@ -92,9 +90,12 @@ var _grenade_label: Label
 var _tactical_label: Label
 var _grapple_label: Label
 var _grapple_bar: ProgressBar
-## Team modes: one bar and count per team (MatchMode.hud_bars), team 0 then team 1.
+## Team modes: one name, bar and count per team (MatchMode.hud_bars), team 0 then team 1.
+var _team_names: Array[Label] = []
 var _team_bars: Array[ProgressBar] = []
 var _team_counts: Array[Label] = []
+## Colour mode the HUD's team colours were last drawn in (Palette.mode()).
+var _palette_mode := -1
 var _hook_box: Control
 var _results_prep: Array[Control] = []
 ## Health and weapon cards (hidden while spectating in Tactical).
@@ -247,6 +248,8 @@ func _ready() -> void:
 		_show_match_intro()
 	_refresh_crosshair_color()
 	Profile.changed.connect(_refresh_crosshair_color)
+	_refresh_palette()
+	Profile.changed.connect(_refresh_palette)
 
 	_pause = PauseMenu.new()
 	_pause.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -260,6 +263,27 @@ func _ready() -> void:
 func _refresh_crosshair_color() -> void:
 	var html := str(Profile.get_setting("crosshair_color"))
 	_crosshair_color = Color.html(html) if Color.html_is_valid(html) else Color.WHITE
+
+
+## Team colours and shapes in the top panel, and the shield colour. When the colour mode changes
+## mid-match (Settings in the pause menu) also the nametags and armbands (Teams.refresh_tags) and
+## the scoreboard; every other colour asks Palette when it is drawn.
+func _refresh_palette() -> void:
+	var mode := Palette.mode()
+	if mode == _palette_mode:
+		return
+	var first := _palette_mode < 0
+	_palette_mode = mode
+	for t in 2:
+		var c := Teams.color(t)
+		_team_names[t].text = Teams.label(t)
+		_team_names[t].add_theme_color_override("font_color", c)
+		(_team_bars[t].get_theme_stylebox("fill") as StyleBoxFlat).bg_color = c
+		_team_counts[t].add_theme_color_override("font_color", c.lightened(0.2))
+	_shield_label.add_theme_color_override("font_color", Palette.color("shield"))
+	_scores_dirty = true
+	if not first and Teams.is_team_mode():
+		Teams.refresh_tags(world)
 
 
 # ---------------------------------------------------------------- building
@@ -330,12 +354,13 @@ func _build_top() -> void:
 	teams.add_theme_constant_override("v_separation", 2)
 	v.add_child(teams)
 	for t in 2:
-		var c := Teams.color(t)
-		teams.add_child(_label(Teams.name_of(t), 15, c))
-		var bar := _bar(c, Vector2(200, 9))
+		var name_label := _label("", 15)
+		teams.add_child(name_label)
+		_team_names.append(name_label)
+		var bar := _bar(Color.WHITE, Vector2(200, 9))
 		teams.add_child(bar)
 		_team_bars.append(bar)
-		var count := _label("0", 20, c.lightened(0.2))
+		var count := _label("0", 20)
 		count.custom_minimum_size.x = 30
 		count.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		teams.add_child(count)
@@ -397,7 +422,7 @@ func _build_bottom() -> void:
 	row.add_child(cross)
 	_health_label = _label("100", 44)
 	row.add_child(_health_label)
-	_shield_label = _label("", 30, SHIELD_COLOR)
+	_shield_label = _label("", 30)
 	_shield_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_shield_label.visible = false
 	row.add_child(_shield_label)
@@ -786,7 +811,7 @@ func _process(delta: float) -> void:
 		return
 	var hp_frac := p.health / p.max_health()
 	_health_label.text = str(int(ceil(p.health)))
-	var hp_color := Color(0.95, 0.3, 0.25).lerp(Color(0.35, 0.95, 0.45), hp_frac)
+	var hp_color := Palette.health(hp_frac)
 	for i in _hp_segments.size():
 		# Each segment fills in proportion to its share of health.
 		var fill := clampf(hp_frac * HEALTH_SEGMENTS - i, 0.0, 1.0)
@@ -797,7 +822,7 @@ func _process(delta: float) -> void:
 	for i in _shield_segments.size():
 		var fill := clampf(overshield / 10.0 - i, 0.0, 1.0)
 		_shield_segments[i].visible = overshield > 0.0
-		_shield_segments[i].color = Color(0, 0, 0, 0.45).lerp(SHIELD_COLOR, fill)
+		_shield_segments[i].color = Color(0, 0, 0, 0.45).lerp(Palette.color("shield"), fill)
 	var low := 0.0
 	if p.alive and hp_frac < 0.35:
 		low = (0.35 - hp_frac) * 1.6 * (0.75 + 0.25 * sin(Time.get_ticks_msec() * 0.008))
@@ -954,7 +979,8 @@ func _fill_rows(container: VBoxContainer, rows: Array) -> void:
 		if team >= 0 and team != group:
 			group = team
 			container.add_child(_group_row(world.rules.group_header(team, rows), Teams.color(team)))
-		var player_name := "%s  Lv %d%s" % [Data.badged_name(str(r.name), int(r.get("prestige", 0))), int(r.get("level", 1)), "  [BOT]" if r.bot else ""]
+		# The team's shape before the name: the side shows without its colour too.
+		var player_name := Teams.tagged(team, "%s  Lv %d%s" % [Data.badged_name(str(r.name), int(r.get("prestige", 0))), int(r.get("level", 1)), "  [BOT]" if r.bot else ""])
 		var tag := world.rules.row_tag(r)
 		if not tag.is_empty():
 			player_name += "  " + tag
@@ -1008,7 +1034,7 @@ func damage_number(pos: Vector3, amount: float, head: bool) -> void:
 func _style_damage_number(l: Label, total: float, head: bool) -> void:
 	l.text = str(roundi(total))
 	l.add_theme_font_size_override("font_size", 26 if head else 21)
-	l.add_theme_color_override("font_color", Color(1, 0.8, 0.2) if head else Color.WHITE)
+	l.add_theme_color_override("font_color", Palette.color("hit_head") if head else Palette.color("hit"))
 
 
 func _update_damage_numbers(delta: float) -> void:
@@ -1161,17 +1187,18 @@ func add_killfeed(killer: String, weapon: String, victim: String, head: bool, su
 	var h := HBoxContainer.new()
 	panel.add_child(h)
 	var me := world.tagged_name(world.my_id())
-	var killer_color := Teams.color(killer_team) if killer_team >= 0 else Color(1, 0.55, 0.5)
-	var victim_color := Teams.color(victim_team) if victim_team >= 0 else Color(0.6, 0.8, 1.0)
+	var killer_color := Teams.color(killer_team) if killer_team >= 0 else Palette.color("feed_killer")
+	var victim_color := Teams.color(victim_team) if victim_team >= 0 else Palette.color("feed_victim")
+	# In team modes each name gets its side's shape too, so colour is never the only cue.
 	if suicide:
-		h.add_child(_label(victim, 18, Color(1, 0.9, 0.6) if victim == me else (victim_color if victim_team >= 0 else Color.WHITE)))
+		h.add_child(_label(Teams.tagged(victim_team, victim), 18, Color(1, 0.9, 0.6) if victim == me else (victim_color if victim_team >= 0 else Color.WHITE)))
 		h.add_child(_label(" [%s] " % weapon, 16, Color(0.7, 0.7, 0.75)))
 	else:
-		h.add_child(_label(killer, 18, Color(1, 0.9, 0.4) if killer == me else killer_color))
+		h.add_child(_label(Teams.tagged(killer_team, killer), 18, Color(1, 0.9, 0.4) if killer == me else killer_color))
 		if wid == Streaks.WEAPON:
 			h.add_child(BomberIcon.new())
 		h.add_child(_label(" [%s%s] " % [weapon, " HS" if head else ""], 16, Color(1, 0.7, 0.4) if wid == Streaks.WEAPON else Color(0.75, 0.75, 0.8)))
-		h.add_child(_label(victim, 18, Color(1, 0.9, 0.4) if victim == me else victim_color))
+		h.add_child(_label(Teams.tagged(victim_team, victim), 18, Color(1, 0.9, 0.4) if victim == me else victim_color))
 	panel.set_meta("age", 0.0)
 	_killfeed.add_child(panel)
 	while _killfeed.get_child_count() > KILLFEED_MAX:

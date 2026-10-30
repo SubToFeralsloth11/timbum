@@ -30,7 +30,7 @@ class MarkerLayer extends Control:
 				continue
 			var at := cam.unproject_position(pos)
 			var d := 7.0
-			draw_colored_polygon(PackedVector2Array([at + Vector2(0, -d), at + Vector2(d, 0), at + Vector2(0, d), at + Vector2(-d, 0)]), Color(Streaks.ENEMY_COLOR, 0.85))
+			draw_colored_polygon(PackedVector2Array([at + Vector2(0, -d), at + Vector2(d, 0), at + Vector2(0, d), at + Vector2(-d, 0)]), Color(Palette.color("radar"), 0.85))
 			draw_polyline(PackedVector2Array([at + Vector2(0, -d), at + Vector2(d, 0), at + Vector2(0, d), at + Vector2(-d, 0), at + Vector2(0, -d)]), Color(0, 0, 0, 0.8), 1.5)
 		var t := World.now()
 		for s: Dictionary in streaks.strikes:
@@ -43,7 +43,7 @@ class MarkerLayer extends Control:
 			var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 18).x
 			var tp := at + Vector2(-w * 0.5, 0)
 			draw_string_outline(font, tp, text, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, 5, Color(0, 0, 0, 0.9))
-			draw_string(font, tp, text, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Streaks.WARNING_COLOR.lightened(0.35))
+			draw_string(font, tp, text, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Palette.color("warning").lightened(0.35))
 
 var streaks: Streaks
 var _markers: MarkerLayer
@@ -116,7 +116,7 @@ func _ready() -> void:
 	_radar_bar.add_theme_stylebox_override("background", bg)
 	_radar_bar.add_theme_stylebox_override("fill", fill)
 	v.add_child(_radar_bar)
-	_enemy_line = _label("ENEMY RADAR  ·  YOU ARE SPOTTED", 15, Streaks.ENEMY_COLOR)
+	_enemy_line = _label("ENEMY RADAR  ·  YOU ARE SPOTTED", 15, Palette.color("radar"))
 	v.add_child(_enemy_line)
 	_bomber_line = _label("", 17, Streaks.REWARDS.bomber.color)
 	v.add_child(_bomber_line)
@@ -128,7 +128,7 @@ func _ready() -> void:
 	_target_help.position.y += 45
 	root.add_child(_target_help)
 
-	_danger = _label("AIRSTRIKE INCOMING  ·  MOVE!", 30, Streaks.WARNING_COLOR.lightened(0.2))
+	_danger = _label("AIRSTRIKE INCOMING  ·  MOVE!", 30, Palette.color("warning").lightened(0.2))
 	_danger.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
 	_danger.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	_danger.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER

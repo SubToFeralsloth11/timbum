@@ -157,7 +157,7 @@ func _draw_plan() -> void:
 			var x0 := a.x if team == 0 else Gen.SIZE.x - 1 - b.x
 			var rect := Rect2(r.position + Vector2(x0, a.z) * cell, Vector2(b.x - a.x + 1, b.z - a.z + 1) * cell)
 			_plan.draw_rect(rect, Color(Teams.color(team), 0.18))
-			_plan.draw_string(font, rect.get_center() + Vector2(-34, 6), Teams.name_of(team), HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Teams.color(team))
+			_plan.draw_string(font, rect.get_center() + Vector2(-34, 6), Teams.label(team), HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Teams.color(team))
 	# Weapon spots on this storey.
 	for s: Dictionary in tactical.spots:
 		if str(s.wid).is_empty() or tactical.floor_of(s.pos) != floor_index:

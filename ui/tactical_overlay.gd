@@ -175,7 +175,7 @@ func _process(delta: float) -> void:
 	var team := tactical.my_team()
 	_team_label.visible = team >= 0 and not over
 	if team >= 0:
-		_team_label.text = "TEAM %s" % Teams.name_of(team)
+		_team_label.text = "TEAM %s" % Teams.label(team)
 		_team_label.add_theme_color_override("font_color", Teams.color(team))
 	_toast_t -= delta
 	_toast.modulate.a = clampf(_toast_t, 0.0, 1.0)
@@ -183,7 +183,7 @@ func _process(delta: float) -> void:
 	_spectate.visible = tactical.is_spectating() and not over and not map.visible
 	if _spectate.visible and tactical.spectating != null:
 		var s := tactical.spectating
-		_spectate_label.text = "SPECTATING  %s  ·  %s" % [w.display_name(s.id).to_upper(), Teams.name_of(Teams.of(s))]
+		_spectate_label.text = "SPECTATING  %s  ·  %s" % [w.display_name(s.id).to_upper(), Teams.label(Teams.of(s))]
 		_spectate_label.add_theme_color_override("font_color", Teams.color(Teams.of(s)))
 
 

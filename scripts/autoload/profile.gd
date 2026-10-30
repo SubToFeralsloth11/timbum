@@ -37,6 +37,8 @@ const DEFAULT_SETTINGS := {
 	"show_fps": false,
 	"damage_numbers": true,
 	"killfeed": true,
+	## Accessibility colour mode (Palette.MODE_NAMES index).
+	"color_mode": 0,
 	"crosshair_color": "ffffff",
 	"last_ip": "127.0.0.1",
 	"last_port": 7777,
@@ -929,6 +931,7 @@ func load_from_dict(d: Dictionary) -> void:
 	settings.pad_deadzone = clampf(float(settings.pad_deadzone), 0.0, 0.5)
 	settings.pad_curve = clampi(int(settings.pad_curve), 0, PAD_CURVES.size() - 1)
 	settings.aim_assist = clampi(int(settings.aim_assist), 0, 2)
+	settings.color_mode = clampi(int(settings.color_mode), 0, Palette.MODE_NAMES.size() - 1)
 	settings.ads_sens_mult = clampf(float(settings.ads_sens_mult), 0.05, 3.0)
 	for key: String in ["master_volume", "music_volume", "sfx_volume"]:
 		settings[key] = clampf(float(settings[key]), 0.0, 1.0)

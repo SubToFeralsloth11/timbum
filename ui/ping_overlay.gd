@@ -20,7 +20,7 @@ class MarkerLayer extends Control:
 		var t := World.now()
 		for e: Dictionary in pings.pings:
 			var enemy := int(e.target) != 0
-			var col := Pings.ENEMY_COLOR if enemy else Pings.SPOT_COLOR
+			var col := Palette.color("ping_enemy" if enemy else "ping_spot")
 			col.a = clampf(float(e.until) - t, 0.0, 1.0)
 			var who := "ENEMY" if enemy else pings.world.display_name(int(e.owner)).to_upper()
 			_marker(cam, e.pos, col, who, enemy)

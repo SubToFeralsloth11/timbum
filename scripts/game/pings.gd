@@ -25,8 +25,6 @@ const BOT_GAP := 8.0
 const BOT_REPEAT := 4.0
 ## A teammate bot without a target investigates an enemy ping this close (m).
 const BOT_HEED_RANGE := 40.0
-const ENEMY_COLOR := Color(1.0, 0.3, 0.2)
-const SPOT_COLOR := Color(1.0, 0.85, 0.3)
 ## Ray mask: the world and hitboxes (Player.MASK_WORLD | Player.MASK_HITBOX).
 const MASK := 1 | 4
 
@@ -114,7 +112,7 @@ func compass_pips(cam: Camera3D) -> Array:
 	var out: Array = []
 	for e: Dictionary in pings:
 		var to: Vector3 = (e.pos as Vector3) - cam.global_position
-		out.append([rad_to_deg(-atan2(-to.x, -to.z)), ENEMY_COLOR if int(e.target) != 0 else SPOT_COLOR])
+		out.append([rad_to_deg(-atan2(-to.x, -to.z)), Palette.color("ping_enemy" if int(e.target) != 0 else "ping_spot")])
 	return out
 
 

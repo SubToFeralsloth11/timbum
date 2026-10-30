@@ -221,7 +221,7 @@ func group_header(team: int, rows: Array) -> String:
 		if int(r.get("team", -1)) == team:
 			kills += int(r.kills)
 			n += 1
-	return "%s  ·  %d player%s  ·  %d kills" % [Teams.name_of(team), n, "" if n == 1 else "s", kills]
+	return "%s  ·  %d player%s  ·  %d kills" % [Teams.label(team), n, "" if n == 1 else "s", kills]
 
 
 ## Two bars in the HUD's top panel instead of the free-for-all kill race: [[fraction, text], x2]
@@ -254,7 +254,7 @@ func results_title(rows: Array, next: Dictionary) -> Array:
 	var mine := _my_row(rows)
 	if winner < 0:
 		return ["DRAW", Teams.NEUTRAL]
-	var who := "%s WINS" % Teams.name_of(winner)
+	var who := "%s WINS" % Teams.label(winner)
 	if mine.is_empty() or int(mine.get("team", -1)) < 0:
 		return [who, Teams.color(winner)]
 	return ["VICTORY!  " + who if bool(mine.get("won", false)) else "DEFEAT  ·  " + who, Teams.color(winner)]
@@ -263,7 +263,7 @@ func results_title(rows: Array, next: Dictionary) -> Array:
 ## The end-of-match banner over the winner's emote (team modes: the winning side).
 func win_banner(next: Dictionary) -> String:
 	var winner := int(next.get("winner", -1))
-	return "%s WINS!" % Teams.name_of(winner) if winner >= 0 else ""
+	return "%s WINS!" % Teams.label(winner) if winner >= 0 else ""
 
 
 ## The results screen's match highlights, which are also the medals (Data.MEDALS):

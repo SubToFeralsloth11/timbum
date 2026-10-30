@@ -25,6 +25,60 @@ const CONTROLS: Array = [
 const PAD_SLOT := -1
 const SAVE_DELAY := 0.35
 
+
+## Accessibility preview: the colour mode's team colours with their shapes, a kill feed line,
+## the health and shield bar, the three hitmarkers and King of the Block / ping / radar colours.
+## Redrawn every frame while shown, so it follows the option at once.
+class PalettePreview extends Control:
+	func _init() -> void:
+		custom_minimum_size = Vector2(0, 236)
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	func _process(_delta: float) -> void:
+		if is_visible_in_tree():
+			queue_redraw()
+
+	func _draw() -> void:
+		var font := get_theme_default_font()
+		var x := 8.0
+		for t in 2:
+			var c := Palette.color(Teams.COLOR_ROLES[t])
+			draw_rect(Rect2(x, 4, 150, 34), Color(c, 0.25))
+			draw_rect(Rect2(x, 4, 150, 34), c, false, 2.0)
+			draw_string(font, Vector2(x + 12, 28), "%s %s" % [Teams.SHAPES[t], Teams.NAMES[t]], HORIZONTAL_ALIGNMENT_LEFT, -1, 18, c.lightened(0.3))
+			x += 166.0
+		# A kill feed line.
+		var y := 66.0
+		x = 8.0
+		for part: Array in [["%s Rook" % Teams.SHAPES[0], Palette.color("team_a")], ["  [AR-Cube HS]  ", Color(0.75, 0.75, 0.8)], ["%s Ivy" % Teams.SHAPES[1], Palette.color("team_b")]]:
+			draw_string(font, Vector2(x, y), part[0], HORIZONTAL_ALIGNMENT_LEFT, -1, 17, part[1])
+			x += font.get_string_size(part[0], HORIZONTAL_ALIGNMENT_LEFT, -1, 17).x
+		# Health (empty to full) and an Overshield segment.
+		y = 86.0
+		for i in 10:
+			draw_rect(Rect2(8 + i * 27, y, 24, 12), Palette.health(i / 9.0))
+		draw_rect(Rect2(8 + 10 * 27, y, 24, 12), Palette.color("shield"))
+		draw_string(font, Vector2(320, y + 11), "health low to full, then shield", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.75, 0.78, 0.85))
+		# Hitmarkers: hit, headshot, kill (bigger).
+		y = 140.0
+		x = 26.0
+		for h: Array in [["hit", 18.0, 3.0, "HIT"], ["hit_head", 18.0, 3.0, "HEADSHOT"], ["hit_kill", 24.0, 4.0, "KILL"]]:
+			var c := Palette.color(h[0])
+			for d: Vector2 in [Vector2(1, 1), Vector2(-1, 1), Vector2(1, -1), Vector2(-1, -1)]:
+				draw_line(Vector2(x, y) + d.normalized() * 6.0, Vector2(x, y) + d.normalized() * float(h[1]), c, h[2])
+			draw_string(font, Vector2(x + 28, y + 6), h[3], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, c)
+			x += 150.0
+		# King of the Block zone states, pings and radar contacts.
+		y = 200.0
+		x = 8.0
+		for z: Array in [["zone_free", "ZONE"], ["zone_mine", "YOURS"], ["zone_other", "TAKEN"], ["zone_contested", "CONTESTED"],
+				["ping_spot", "PING"], ["ping_enemy", "ENEMY"], ["radar", "RADAR"]]:
+			var c := Palette.color(z[0])
+			draw_colored_polygon(PackedVector2Array([Vector2(x + 8, y - 8), Vector2(x + 16, y), Vector2(x + 8, y + 8), Vector2(x, y)]), c)
+			draw_string(font, Vector2(x + 22, y + 5), z[1], HORIZONTAL_ALIGNMENT_LEFT, -1, 13, c.lightened(0.2))
+			x += 30.0 + font.get_string_size(z[1], HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x + 14.0
+
+
 var _pages: Array[Control] = []
 var _tabs: Array[Button] = []
 var _pending := {}
@@ -51,12 +105,11 @@ func _ready() -> void:
 	var head := UIKit.hbox(12)
 	root.add_child(head)
 	head.add_child(UIKit.label("SETTINGS", &"HeaderLabel"))
-	head.add_child(UIKit.spacer())
+	# The tabs get their own row under the title so all of them fit the panel.
 	var tab_row := UIKit.hbox(6)
-	tab_row.alignment = BoxContainer.ALIGNMENT_END
-	head.add_child(tab_row)
+	root.add_child(tab_row)
 	var group := ButtonGroup.new()
-	for tab_name in ["GAMEPLAY", "VIDEO", "AUDIO", "CONTROLS"]:
+	for tab_name in ["GAMEPLAY", "VIDEO", "AUDIO", "CONTROLS", "ACCESSIBILITY"]:
 		var t := UIKit.button(tab_name, &"TabButton")
 		t.toggle_mode = true
 		t.button_group = group
@@ -105,6 +158,14 @@ func _ready() -> void:
 
 	var controls := _page(pages)
 	_build_controls(controls)
+
+	var access := _page(pages)
+	_option_row(access, "color_mode", "Colour mode", Palette.MODE_NAMES)
+	var access_tip := UIKit.label("Remaps the colours that tell sides and states apart: teams, enemy and teammate nametags, the kill feed, hitmarkers and damage numbers, the health and shield bar, compass pips, King of the Block's zone, pings, radar contacts and airstrike warnings. Teams also carry a shape beside every name (▲ ALPHA, ◼ BRAVO), so colour is never the only cue.", &"DimLabel")
+	access_tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	access.add_child(access_tip)
+	access.add_child(UIKit.label("PREVIEW", &"SubheaderLabel"))
+	access.add_child(PalettePreview.new())
 
 	var foot := UIKit.hbox(12)
 	root.add_child(foot)

@@ -2,11 +2,17 @@ class_name Teams
 extends RefCounted
 ## Shared team rules for every team mode (Team Deathmatch, Infected, Tactical): which modes have
 ## teams, a player's team (`Player.info.team`, set by the server at spawn: 0 or 1, -1 none), the
-## team names and colours, picking a side for a newcomer, and the team look (armbands and
-## nametags). Free-for-all modes have no teams: `of()` is -1 for everyone and everyone is an enemy.
+## team names, colours (Palette) and shapes, picking a side for a newcomer, and the team look
+## (armbands and nametags). Free-for-all modes have no teams: `of()` is -1 for everyone and
+## everyone is an enemy.
 
 const NAMES: Array[String] = ["ALPHA", "BRAVO"]
-const COLORS: Array[Color] = [Color(0.3, 0.62, 1.0), Color(1.0, 0.45, 0.22)]
+## Palette roles of the two sides' colours (a mode may name its own: Data.MODES[mode].team_colors).
+const COLOR_ROLES: Array[String] = ["team_a", "team_b"]
+## A shape per side, shown beside team names and player names (kill feed, scoreboard, nametags,
+## HUD team labels) so colour is never the only cue.
+## (◼ U+25FC: the font's ■ draws as a small dot-sized square.)
+const SHAPES: Array[String] = ["▲", "◼"]
 const NEUTRAL := Color(0.85, 0.85, 0.85)
 
 
@@ -35,9 +41,28 @@ static func name_of(team: int) -> String:
 	return str(names[team]) if team >= 0 and team < 2 else "-"
 
 
+## The side's colour in the player's colour mode (Palette; Data.MODES[mode].team_colors names the
+## roles, else team_a / team_b).
 static func color(team: int) -> Color:
-	var colors: Array = Data.MODES.get(str(Net.config.get("mode", "ffa")), {}).get("team_colors", COLORS)
-	return colors[team] if team >= 0 and team < 2 else NEUTRAL
+	if team < 0 or team > 1:
+		return NEUTRAL
+	var roles: Array = Data.MODES.get(str(Net.config.get("mode", "ffa")), {}).get("team_colors", COLOR_ROLES)
+	return Palette.color(str(roles[team]))
+
+
+## The side's shape ("" for no team).
+static func shape(team: int) -> String:
+	return SHAPES[team] if team >= 0 and team < 2 else ""
+
+
+## The side's name with its shape: "▲ ALPHA".
+static func label(team: int) -> String:
+	return "%s %s" % [shape(team), name_of(team)] if team >= 0 and team < 2 else name_of(team)
+
+
+## `text` (a player's name) with their side's shape in front in team modes.
+static func tagged(team: int, text: String) -> String:
+	return "%s %s" % [shape(team), text] if team >= 0 and team < 2 else text
 
 
 ## [team 0, team 1] counts of `world`'s players: all of them, or only the living.
@@ -71,16 +96,16 @@ static func pick(world: World, is_bot: bool) -> int:
 
 
 ## Team look on a newly spawned player (every peer): glowing armbands in the team colour, and a
-## nametag in that colour; teammates' tags show through walls and from further away.
+## nametag in that colour with the team's shape; teammates' tags show through walls and from
+## further away.
 static func decorate(p: Player, my_team: int) -> void:
 	var team := of(p)
 	if team < 0:
 		return
 	set_armbands(p, color(team))
 	if p.nametag != null:
-		p.nametag.modulate = color(team).lightened(0.3)
 		p.nametag.fixed_size = false
-		_tag_range(p, team == my_team)
+		_tag(p, team, team == my_team)
 
 
 ## Replaces `p`'s armbands with `col` (a player whose team changes, e.g. a new Infected).
@@ -107,16 +132,25 @@ static func set_armbands(p: Player, col: Color) -> void:
 
 
 ## The local player's team is only known once its own entity arrives (after others may have),
-## and changes when it switches sides: re-colours and re-ranges every nametag.
+## and changes when it switches sides; the colour mode can change mid-match. Re-colours, re-tags
+## and re-ranges every nametag and re-colours the armbands.
 static func refresh_tags(world: World) -> void:
 	var mine := of(world.local_player)
 	for eid: int in world.entities:
 		var p: Player = world.entities[eid]
-		if p.nametag != null and of(p) >= 0:
-			p.nametag.modulate = color(of(p)).lightened(0.3)
-			_tag_range(p, of(p) == mine)
+		if of(p) < 0:
+			continue
+		set_armbands(p, color(of(p)))
+		if p.nametag != null:
+			_tag(p, of(p), of(p) == mine)
 
 
-static func _tag_range(p: Player, friendly: bool) -> void:
+## Nametag colour, shape and range. The tag's own text (name, level) is kept as its "base" meta the
+## first time, so a later change of side swaps the shape instead of stacking another.
+static func _tag(p: Player, team: int, friendly: bool) -> void:
+	if not p.nametag.has_meta(&"base"):
+		p.nametag.set_meta(&"base", p.nametag.text)
+	p.nametag.text = tagged(team, str(p.nametag.get_meta(&"base")))
+	p.nametag.modulate = color(team).lightened(0.3)
 	p.nametag.no_depth_test = friendly
 	p.nametag.visibility_range_end = 60.0 if friendly else 30.0

@@ -8,6 +8,7 @@ var color := Color.WHITE
 ## False while aiming down sights: the lines and dot hide, but hitmarkers still draw.
 var show_lines := true
 var _hit_t := 0.0
+var _hit_kill := false
 var _hit_color := Color.WHITE
 
 
@@ -15,9 +16,12 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 
+## Hitmarker in the colour mode's hit / headshot / kill colour (Palette); a kill's marker is also
+## bigger and thicker, so it doesn't rely on colour alone.
 func hit(head: bool, killed: bool) -> void:
 	_hit_t = 0.28 if killed else 0.18
-	_hit_color = Color(1, 0.25, 0.2) if killed else (Color(1, 0.8, 0.2) if head else Color.WHITE)
+	_hit_kill = killed
+	_hit_color = Palette.color("hit_kill" if killed else ("hit_head" if head else "hit"))
 
 
 func _process(delta: float) -> void:
@@ -34,9 +38,10 @@ func _draw() -> void:
 		var k := clampf(_hit_t / 0.18, 0.0, 1.0)
 		var hc := _hit_color
 		hc.a = k
+		var reach := 24.0 if _hit_kill else 18.0
 		for d: Vector2 in [Vector2(1, 1), Vector2(-1, 1), Vector2(1, -1), Vector2(-1, -1)]:
 			var dn := d.normalized()
-			draw_line(c + dn * 8.0, c + dn * 18.0, hc, 3.0)
+			draw_line(c + dn * 8.0, c + dn * reach, hc, 4.0 if _hit_kill else 3.0)
 
 
 func _draw_lines(c: Vector2) -> void:

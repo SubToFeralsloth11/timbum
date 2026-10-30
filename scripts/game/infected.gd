@@ -208,7 +208,7 @@ func group_header(team: int, rows: Array) -> String:
 	for r: Dictionary in rows:
 		if int(r.get("team", -1)) == team:
 			n += 1
-	return "%s  ·  %d" % [Teams.name_of(team), n]
+	return "%s  ·  %d" % [Teams.label(team), n]
 
 
 func results_title(rows: Array, next: Dictionary) -> Array:

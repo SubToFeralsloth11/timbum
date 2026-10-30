@@ -46,9 +46,9 @@ const REWARDS := {
 	"bomber": {"name": "BLOCK BOMBER", "at": BOMBER_AT, "color": Color(1.0, 0.6, 0.25),
 		"desc": "Airstrike ready"},
 }
-const WARNING_COLOR := Color(1.0, 0.18, 0.1)
+## The Block Bomber's targeting preview on the ground (strike warnings and radar contacts use
+## Palette's "warning" and "radar" colours, which follow the colour mode).
 const PREVIEW_COLOR := Color(1.0, 0.85, 0.2)
-const ENEMY_COLOR := Color(1.0, 0.25, 0.2)
 ## Bots call their bomber on a target at least this far away (m).
 const BOT_MIN_RANGE := 14.0
 
@@ -152,9 +152,9 @@ func radar_targets() -> Array[Player]:
 func compass_pips(cam: Camera3D) -> Array:
 	var out: Array = []
 	for p: Player in radar_targets():
-		out.append([_heading(cam, p.global_position), ENEMY_COLOR])
+		out.append([_heading(cam, p.global_position), Palette.color("radar")])
 	for s: Dictionary in strikes:
-		out.append([_heading(cam, strike_center(s)), WARNING_COLOR.lightened(0.3)])
+		out.append([_heading(cam, strike_center(s)), Palette.color("warning").lightened(0.3)])
 	return out
 
 
@@ -496,7 +496,7 @@ func _s_reward(eid: int, kind: String, streak: int) -> void:
 @rpc("authority", "call_remote", "reliable")
 func _s_strike(id: int, caller: int, points: PackedVector3Array, land_in: float, done: int) -> void:
 	bomber_ready.erase(caller)
-	var mat := _warning_material(WARNING_COLOR)
+	var mat := _warning_material(Palette.color("warning"))
 	var marks: Array[Node3D] = []
 	for i in points.size():
 		var n := _make_mark(mat, true)

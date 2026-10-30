@@ -113,7 +113,7 @@ func _s_score(alpha: int, bravo: int) -> void:
 	var lead := -1 if alpha == bravo else (0 if alpha > bravo else 1)
 	var mine := Teams.of(world.local_player)
 	if lead >= 0 and lead != _leader and not world.match_over and mine >= 0:
-		world.hud.announce("YOUR TEAM TAKES THE LEAD" if lead == mine else "%s TAKES THE LEAD" % Teams.name_of(lead))
+		world.hud.announce("YOUR TEAM TAKES THE LEAD" if lead == mine else "%s TAKES THE LEAD" % Teams.label(lead))
 	if lead >= 0:
 		_leader = lead
 	world.hud.refresh_scores()
@@ -129,14 +129,14 @@ func hud_bars() -> Array:
 func hud_goal() -> String:
 	var mine := Teams.of(world.local_player)
 	var goal := "First team to %d kills" % int(Net.config.kill_limit)
-	return goal if mine < 0 else "Your team: %s  ·  %s" % [Teams.name_of(mine), goal.to_lower()]
+	return goal if mine < 0 else "Your team: %s  ·  %s" % [Teams.label(mine), goal.to_lower()]
 
 
 func hud_rank() -> String:
 	if score[0] == score[1]:
 		return "Tied %d - %d" % [score[0], score[1]]
 	var lead := 0 if score[0] > score[1] else 1
-	return "%s leads by %d" % [Teams.name_of(lead), absi(score[0] - score[1])]
+	return "%s leads by %d" % [Teams.label(lead), absi(score[0] - score[1])]
 
 
 func group_header(team: int, rows: Array) -> String:
@@ -144,7 +144,7 @@ func group_header(team: int, rows: Array) -> String:
 	for r: Dictionary in rows:
 		if int(r.get("team", -1)) == team:
 			n += 1
-	return "%s  ·  %d  ·  %d player%s" % [Teams.name_of(team), score[team], n, "" if n == 1 else "s"]
+	return "%s  ·  %d  ·  %d player%s" % [Teams.label(team), score[team], n, "" if n == 1 else "s"]
 
 
 func results_title(rows: Array, next: Dictionary) -> Array:
@@ -163,5 +163,5 @@ func extra_highlights(rows: Array) -> Array:
 			if int(r.get("team", -1)) == team and (best.is_empty() or int(r.kills) > int(best.kills)):
 				best = r
 		if not best.is_empty() and int(best.kills) > 0:
-			out.append(["Top of %s:  %s  (%d kills)" % [Teams.name_of(team), best.name, int(best.kills)], int(best.id) == world.my_id(), "team_top"])
+			out.append(["Top of %s:  %s  (%d kills)" % [Teams.label(team), best.name, int(best.kills)], int(best.id) == world.my_id(), "team_top"])
 	return out

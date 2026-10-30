@@ -358,7 +358,7 @@ const MAP_ROTATION: Array[String] = ["village", "desert", "factory", "sky", "sno
 
 ## Game modes (`Net.config.mode`), in match-setup order. `short` labels the setup button;
 ## `teams` marks the two-team modes (Teams.is_team_mode), which may name and colour their sides
-## (`team_names` / `team_colors`, else ALPHA / BRAVO in Teams.COLORS). Each mode's rules are a
+## (`team_names`, else ALPHA / BRAVO; `team_colors`: Palette roles, else team_a / team_b). Each mode's rules are a
 ## MatchMode subclass (MatchMode.create). Tactical always plays TACTICAL_MAP, outside the rotation.
 const MODES := {
 	"ffa": {"name": "Deathmatch", "short": "DEATHMATCH", "desc": "Free-for-all. First to the kill limit wins."},
@@ -368,7 +368,7 @@ const MODES := {
 		"desc": "Every kill gives you the next gun. A knife kill on the last step wins; a knife kill sets the victim back."},
 	"koth": {"name": "King of the Block", "short": "KING", "desc": "Stand alone in the glowing zone to score. It moves every minute."},
 	"infected": {"name": "Infected", "short": "INFECTED", "teams": true,
-		"team_names": ["SURVIVORS", "INFECTED"], "team_colors": [Color(0.45, 0.78, 1.0), Color(0.45, 0.95, 0.3)],
+		"team_names": ["SURVIVORS", "INFECTED"], "team_colors": ["survivors", "infected"],
 		"desc": "One player turns. Every survivor they knife joins them. Survive the clock."},
 	"tactical": {"name": "Tactical", "short": "TACTICAL", "teams": true,
 		"desc": "25 v 25 in an office block. Plan, find your weapons, one life each."},
