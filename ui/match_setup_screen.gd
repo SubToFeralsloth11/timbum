@@ -3,14 +3,21 @@ extends MenuScreen
 ## Match configuration shared by "Play vs Bots" (offline) and "Host Game" (ENet server).
 
 const KILL_LIMITS: Array[int] = [10, 15, 20, 30, 50]
+## Team Deathmatch's limit is on the team score, so it runs higher.
+const TEAM_KILL_LIMITS: Array[int] = [25, 40, 50, 75, 100]
 const TIME_LIMITS: Array[int] = [5, 8, 10, 15]
 const ROTATION := "rotation"
 
 ## Last choices this session, shared by both modes.
-static var _choice := {"mode": "ffa", "map": ROTATION, "bots_fill": 8, "difficulty": 1, "kill_limit": 20, "time_minutes": 8, "mutators": true, "link": Net.Link.DIRECT}
-const MODE_IDS: Array[String] = ["ffa", "tactical"]
-const FFA_HINT := "Bots fill every empty slot up to the player count."
-const TACTICAL_HINT := "25 v 25 in Block HQ, bots fill every slot. 30 s of planning behind barriers, then find your weapons: everyone starts with a knife. One life; the last team standing wins."
+static var _choice := {"mode": "ffa", "map": ROTATION, "bots_fill": 8, "difficulty": 1, "kill_limit": 20,
+	"team_kill_limit": TeamDeathmatch.DEFAULT_KILL_LIMIT, "time_minutes": 8, "mutators": true, "link": Net.Link.DIRECT}
+const MODE_IDS: Array[String] = ["ffa", "tdm", "infected", "tactical"]
+const MODE_HINTS := {
+	"ffa": "Bots fill every empty slot up to the player count.",
+	"tdm": "Two teams, bots fill both evenly. The kill limit is the team score; friendly fire is off.",
+	"infected": "10 s in, one player turns Infected: knife only, faster, tougher. Everyone they kill turns too. Survivors win if any are left at the end. Rocket Party and Snipers Only are off.",
+	"tactical": "25 v 25 in Block HQ, bots fill every slot. 30 s of planning behind barriers, then find your weapons: everyone starts with a knife. One life; the last team standing wins.",
+}
 
 const LINK_HINTS := {
 	Net.Link.DIRECT: "Wi-Fi friends see it under Join; others use the room code.",
@@ -33,13 +40,14 @@ var _direct_rows: Array[Control] = []
 ## Waiting for Steam/WebRTC to set up hosting; leaving the page cancels it.
 var _host_pending := false
 var _kill_row: HBoxContainer
+var _team_kill_row: HBoxContainer
 var _time_row: HBoxContainer
 var _mutator_row: HBoxContainer
 ## Map preview rects still waiting for their texture.
 var _preview_queue: Array[TextureRect] = []
 var _mode_row: HBoxContainer
-## Rule rows (name label and control) that only apply to deathmatch.
-var _ffa_rules: Array[Control] = []
+## Rule rows (name label and control) and the modes that show them.
+var _mode_rules: Array = []
 var _rules_hint: Label
 
 
@@ -96,7 +104,7 @@ func _ready() -> void:
 
 	var mode_names: Array[String] = []
 	for id in MODE_IDS:
-		mode_names.append(str(Data.MODES[id].name).to_upper())
+		mode_names.append(str(Data.MODES[id].short))
 	_mode_row = _segmented(mode_names, MODE_IDS.find(_choice.mode), func(i: int) -> void:
 		_choice.mode = MODE_IDS[i]
 		_apply_mode())
@@ -123,7 +131,7 @@ func _ready() -> void:
 	_players_label.custom_minimum_size.x = 104
 	players_row.add_child(_players_label)
 	_rule(rules, "PLAYERS", players_row)
-	_ffa_rules.append_array([rules.get_child(rules.get_child_count() - 2), players_row])
+	_mode_rule(rules, ["ffa", "tdm", "infected"])
 	_update_players_label()
 
 	var difficulty_names: Array[String] = []
@@ -137,7 +145,14 @@ func _ready() -> void:
 	_kill_row = _segmented(kill_names, KILL_LIMITS.find(_choice.kill_limit),
 		func(i: int) -> void: _choice.kill_limit = KILL_LIMITS[i])
 	_rule(rules, "KILL LIMIT", _kill_row)
-	_ffa_rules.append_array([rules.get_child(rules.get_child_count() - 2), _kill_row])
+	_mode_rule(rules, ["ffa"])
+	var team_kill_names: Array[String] = []
+	for k in TEAM_KILL_LIMITS:
+		team_kill_names.append(str(k))
+	_team_kill_row = _segmented(team_kill_names, TEAM_KILL_LIMITS.find(_choice.team_kill_limit),
+		func(i: int) -> void: _choice.team_kill_limit = TEAM_KILL_LIMITS[i])
+	_rule(rules, "TEAM KILLS", _team_kill_row)
+	_mode_rule(rules, ["tdm"])
 	var time_names: Array[String] = []
 	for t in TIME_LIMITS:
 		time_names.append("%d MIN" % t)
@@ -148,8 +163,8 @@ func _ready() -> void:
 	_mutator_row = _segmented(mutator_names, 0 if _choice.mutators else 1,
 		func(i: int) -> void: _choice.mutators = i == 0)
 	_rule(rules, "MUTATORS", _mutator_row)
-	_ffa_rules.append_array([rules.get_child(rules.get_child_count() - 2), _mutator_row])
-	_rules_hint = UIKit.label(FFA_HINT, &"DimLabel")
+	_mode_rule(rules, ["ffa", "tdm", "infected"])
+	_rules_hint = UIKit.label(MODE_HINTS.ffa, &"DimLabel")
 	_rules_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	rv.add_child(_rules_hint)
 
@@ -183,6 +198,7 @@ func on_shown() -> void:
 	_update_players_label()
 	_pick_segment(_difficulty_row, _choice.difficulty)
 	_pick_segment(_kill_row, KILL_LIMITS.find(_choice.kill_limit))
+	_pick_segment(_team_kill_row, TEAM_KILL_LIMITS.find(_choice.team_kill_limit))
 	_pick_segment(_time_row, TIME_LIMITS.find(_choice.time_minutes))
 	_pick_segment(_mutator_row, 0 if _choice.mutators else 1)
 	_select_map(_choice.map)
@@ -190,13 +206,14 @@ func on_shown() -> void:
 	_apply_mode()
 
 
-## Tactical fixes the map, player count, kill rule and mutators: only its own map card and the
-## rules that still apply are shown. The deathmatch choices are kept for switching back.
+## Shows the rules that apply to the chosen mode (the others keep their choices for switching
+## back). Tactical fixes the map, player count, kill rule and mutators: only its own map card.
 func _apply_mode() -> void:
 	var tactical: bool = _choice.mode == "tactical"
-	for c in _ffa_rules:
-		c.visible = not tactical
-	_rules_hint.text = TACTICAL_HINT if tactical else FFA_HINT
+	for entry: Array in _mode_rules:
+		for c: Control in entry[0]:
+			c.visible = (entry[1] as Array).has(_choice.mode)
+	_rules_hint.text = MODE_HINTS[_choice.mode]
 	for b in _map_group.get_buttons():
 		b.visible = (b.name == Data.TACTICAL_MAP) == tactical
 	if tactical:
@@ -223,6 +240,12 @@ func _rule(grid: GridContainer, text: String, control: Control) -> void:
 	grid.add_child(_rule_name(text))
 	control.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	grid.add_child(control)
+
+
+## The rule row just added to `grid` only shows in `modes`.
+func _mode_rule(grid: GridContainer, modes: Array) -> void:
+	var n := grid.get_child_count()
+	_mode_rules.append([[grid.get_child(n - 2), grid.get_child(n - 1)], modes])
 
 
 func _update_players_label() -> void:
@@ -392,7 +415,7 @@ func _config() -> Dictionary:
 		"map": _choice.map,
 		"bots_fill": _choice.bots_fill,
 		"difficulty": _choice.difficulty,
-		"kill_limit": _choice.kill_limit,
+		"kill_limit": _choice.team_kill_limit if _choice.mode == "tdm" else _choice.kill_limit,
 		"time_limit": int(_choice.time_minutes) * 60,
 		"mutators": _choice.mutators,
 	}

@@ -66,6 +66,7 @@ var _recoil := 0.0
 var _flash := 0.0
 var _dead := false
 var _protected := false
+var _tint: Material
 ## Reload animation: seconds left / total; while > 0 the gun dips and rolls and the off hand
 ## drops to the hip and back (fetching a new magazine).
 var _reload_left := 0.0
@@ -517,8 +518,15 @@ func set_protected(on: bool) -> void:
 	_apply_overlay()
 
 
+## A lasting tint over the whole avatar (an Infected's green; null clears it). The hit flash
+## and spawn shimmer show over it while active.
+func set_tint(mat: Material) -> void:
+	_tint = mat
+	_apply_overlay()
+
+
 func _apply_overlay() -> void:
-	var overlay: Material = null
+	var overlay: Material = _tint
 	if _flash > 0.0:
 		overlay = Models.hit_overlay_material()
 	elif _protected:

@@ -24,7 +24,8 @@ const GAME_ID := "timbum"
 ## 6: prone state flag.
 ## 7: charms, win emotes, draw animations and attachment levels in peer_info; win emote at match end.
 ## 8: Tactical mode (config `mode`, team/weapon-pickup/marker RPCs).
-const PROTOCOL_VERSION := 8
+## 9: Team Deathmatch and Infected (mode controllers' RPCs, role fields in entity info).
+const PROTOCOL_VERSION := 9
 const CONNECT_TIMEOUT := 8.0
 ## A room-code join first tries a direct (NAT punch-through) link this long, then the relay.
 const NAT_CONNECT_TIMEOUT := 6.0
@@ -34,7 +35,7 @@ const WORLD_SCENE := "res://scenes/world.tscn"
 const MENU_SCENE := "res://scenes/main_menu.tscn"
 
 const DEFAULT_CONFIG := {
-	## "ffa" (deathmatch) or "tactical" (see Data.MODES and scripts/game/tactical.gd).
+	## A Data.MODES id: "ffa" (deathmatch), "tdm", "infected" or "tactical" (see MatchMode).
 	"mode": "ffa",
 	"map": "rotation",
 	"bots_fill": 8,
@@ -322,7 +323,7 @@ static func sanitize_config(cfg: Dictionary) -> Dictionary:
 	out.map = map_id if (map_id == "rotation" or Data.MAP_ROTATION.has(map_id)) else "rotation"
 	out.bots_fill = clampi(int(cfg.get("bots_fill", out.bots_fill)), 1, Data.MAX_PLAYERS)
 	out.difficulty = clampi(int(cfg.get("difficulty", out.difficulty)), 0, 2)
-	out.kill_limit = clampi(int(cfg.get("kill_limit", out.kill_limit)), 1, 200)
+	out.kill_limit = clampi(int(cfg.get("kill_limit", TeamDeathmatch.DEFAULT_KILL_LIMIT if out.mode == "tdm" else out.kill_limit)), 1, 200)
 	out.time_limit = clampi(int(cfg.get("time_limit", out.time_limit)), 60, 3600)
 	out.mutators = bool(cfg.get("mutators", out.mutators))
 	var mut := str(cfg.get("mutator", out.mutator))
@@ -334,6 +335,9 @@ static func sanitize_config(cfg: Dictionary) -> Dictionary:
 		out.map = Data.TACTICAL_MAP
 		out.bots_fill = Tactical.PLAYERS
 		out.mutators = false
+		out.mutator = "none"
+	elif out.mode == "infected" and World.LOADOUT_MUTATORS.has(out.mutator):
+		# Infected keeps everyone's own loadout: no loadout mutators.
 		out.mutator = "none"
 	return out
 
@@ -358,6 +362,9 @@ func _roll_match_variety(previous: String) -> Dictionary:
 		var options: Array = Data.MUTATORS.keys()
 		options.erase("none")
 		options.erase(previous)
+		if config.mode == "infected":
+			for m: String in World.LOADOUT_MUTATORS:
+				options.erase(m)
 		if previous == "none" or randf() < 0.5:
 			mutator = options.pick_random()
 	return {"mutator": mutator, "time_of_day": Data.TIMES_OF_DAY.pick_random()}

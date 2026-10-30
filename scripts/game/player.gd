@@ -191,7 +191,9 @@ var _fall_speed := 0.0
 var _stand_query: PhysicsShapeQueryParameters3D
 ## Match mutator effects (see Data.MUTATORS), set once in _ready from Net.config.
 var gravity_scale := 1.0
+## Movement speed multiplier: the Turbo mutator times the role's `info.speed` (Infected).
 var speed_scale := 1.0
+var _mutator_speed := 1.0
 var _head_hit_y := 1.56
 ## REMOTE: seconds the reload flag has stayed on with no reload pose playing.
 var _reload_gap := 0.0
@@ -238,6 +240,40 @@ func setup(p_world: World, p_id: int, p_info: Dictionary, p_mode: Mode, p_is_bot
 	for mid: String in Data.ATTACHMENTS:
 		_mods[mid] = Data.attachment_mult(mid, int(levels.get(mid, 0)) if levels is Dictionary else 0)
 	refill_ammo()
+	_refill_equipment()
+	health = max_health()
+
+
+## Most health this player can have: `info.max_hp` (Infected have more), else Data.MAX_HEALTH.
+func max_health() -> float:
+	return float(info.get("max_hp", Data.MAX_HEALTH))
+
+
+## `info.knife_only` (Infected): only the knife, no grenades or tactical.
+func knife_only() -> bool:
+	return bool(info.get("knife_only", false))
+
+
+func _refill_equipment() -> void:
+	grenades = 0 if knife_only() else int(Data.GRENADE.per_life)
+	tacticals = 0 if knife_only() else int(Data.TACTICAL_PER_LIFE)
+
+
+## Every peer, from the server: this player's info changed mid-match (a survivor turned
+## Infected). Rebuilds the weapon slots, equipment and speed from it; health stays the
+## server's to set.
+func apply_info(p_info: Dictionary) -> void:
+	info = p_info
+	slots = [str(info.primary), str(info.secondary), "knife"]
+	_cancel_reload()
+	refill_ammo()
+	if slots[current_slot].is_empty():
+		current_slot = _first_armed_slot()
+	if slots[previous_slot].is_empty():
+		previous_slot = 2
+	_refill_equipment()
+	speed_scale = _mutator_speed * float(info.get("speed", 1.0))
+	_refresh_weapon_visual()
 
 
 ## Multiplier this player's attachment upgrade `mid` applies to its stat (1.0 without it).
@@ -309,7 +345,7 @@ func _ready() -> void:
 		"low_gravity":
 			gravity_scale = 0.42
 		"speed":
-			speed_scale = 1.3
+			_mutator_speed = 1.3
 		"big_heads":
 			# Head pivots at the neck (1.35 m); scaling it 1.8x lifts its centre to ~1.75 m.
 			head_box.size = Vector3.ONE * 0.52 * 1.8
@@ -319,6 +355,7 @@ func _ready() -> void:
 				if part is Node3D:
 					(part as Node3D).scale *= 1.8
 					(part as Node3D).position *= 1.8
+	speed_scale = _mutator_speed * float(info.get("speed", 1.0))
 	_hit_head = _make_hitbox("HitHead", "head", head_box)
 	_hit_head_col = _hit_head.get_child(0)
 	_hit_body_shape = BoxShape3D.new()
@@ -1542,10 +1579,9 @@ func respawn(pos: Vector3, p_yaw: float) -> void:
 	pitch = 0.0
 	recoil = 0.0
 	bloom = 0.0
-	health = Data.MAX_HEALTH
+	health = max_health()
 	alive = true
-	grenades = Data.GRENADE.per_life
-	tacticals = int(Data.TACTICAL_PER_LIFE)
+	_refill_equipment()
 	_reset_movement_state()
 	_clear_intent()
 	_cancel_reload()

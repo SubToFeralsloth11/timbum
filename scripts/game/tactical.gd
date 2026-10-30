@@ -1,9 +1,9 @@
 class_name Tactical
-extends Node
+extends MatchMode
 ## Tactical mode (`Net.config.mode == "tactical"`): 25 v 25 in the Block HQ building, one life
-## each, weapons found on the floor. Added by World as its child "Tactical" when the mode is on;
-## World asks it about teams, spawns, friendly fire and the end of the match, and it owns the
-## mode's own state and RPCs:
+## each, weapons found on the floor. World's MatchMode (child "Tactical") when the mode is on;
+## besides the MatchMode hooks (teams via `Teams`, spawns, no respawns, friendly fire off, the
+## end of the match) it owns the mode's own state and RPCs:
 ##   - teams (Player.info.team: 0 ALPHA west, 1 BRAVO east), set by the server at spawn;
 ##   - the phase: PLANNING (teams held behind barriers in their staging rooms) -> FIGHT -> OVER;
 ##   - weapon spots (map pickups of kind "weapon" plus guns dropped by the dead), each holding
@@ -18,8 +18,6 @@ const Gen := preload("res://scripts/world/maps/building_map.gd")
 const PLAYERS := 50
 const TEAM_SIZE := 25
 const PLANNING_TIME := 30.0
-const TEAM_NAMES: Array[String] = ["ALPHA", "BRAVO"]
-const TEAM_COLORS: Array[Color] = [Color(0.3, 0.62, 1.0), Color(1.0, 0.45, 0.22)]
 ## Relative chance of each gun on a weapon spot (default 1): launchers and snipers are rare.
 const WEAPON_WEIGHTS := {"rocket": 0.15, "sniper": 0.45, "lmg": 0.7, "dmr": 0.8}
 ## How much bots want each gun when deciding whether to swap what they carry for it.
@@ -72,7 +70,6 @@ class Squad:
 	var order := Vector3.ZERO
 	var holding := false
 
-var world: World
 var phase := Phase.PLANNING
 ## World.now() when the planning phase ends (every peer counts down from the server's value).
 var planning_ends := 0.0
@@ -107,8 +104,7 @@ var _spec_cam: Camera3D
 var _dead_since := -1.0
 
 
-func setup(p_world: World) -> void:
-	world = p_world
+func _init() -> void:
 	name = "Tactical"
 
 
@@ -155,40 +151,35 @@ func planning_left() -> float:
 	return maxf(0.0, planning_ends - World.now()) if phase == Phase.PLANNING else 0.0
 
 
-static func team_of_player(p: Player) -> int:
-	return int(p.info.get("team", -1)) if p != null else -1
+func clock_running() -> bool:
+	return fighting()
+
+
+func attacks_blocked() -> bool:
+	return is_planning()
+
+
+## One life: no respawns.
+func respawn_delay() -> float:
+	return -1.0
+
+
+## Teams wait out the planning phase behind barriers instead.
+func spawn_protection() -> bool:
+	return false
+
+
+## No next match on a timer: the results screen offers NEW GAME (request_new_game).
+func has_next_match() -> bool:
+	return false
 
 
 func team_of(eid: int) -> int:
-	return team_of_player(world.entities.get(eid))
+	return Teams.of(world.entities.get(eid))
 
 
 func my_team() -> int:
 	return team_of(world.my_id())
-
-
-func same_team(a: int, b: int) -> bool:
-	var ta := team_of(a)
-	return ta >= 0 and ta == team_of(b)
-
-
-## Living players per team: [alpha, bravo].
-func alive_counts() -> Array[int]:
-	var counts: Array[int] = [0, 0]
-	for eid: int in world.entities:
-		var p: Player = world.entities[eid]
-		var t := team_of_player(p)
-		if p.alive and t >= 0:
-			counts[t] += 1
-	return counts
-
-
-static func team_color(team: int) -> Color:
-	return TEAM_COLORS[team] if team >= 0 and team < 2 else Color(0.85, 0.85, 0.85)
-
-
-static func team_name(team: int) -> String:
-	return TEAM_NAMES[team] if team >= 0 and team < 2 else "-"
 
 
 static func slot_of(wid: String) -> int:
@@ -230,26 +221,8 @@ func spot_near(pos: Vector3, radius: float) -> int:
 
 # ================================================================ server: match flow (World hooks)
 
-## Team for the next player: humans go to the team with fewer humans (then fewer players).
-func server_team_for(is_bot: bool) -> int:
-	var humans: Array[int] = [0, 0]
-	var total: Array[int] = [0, 0]
-	for eid: int in world.entities:
-		var t := team_of(eid)
-		if t < 0:
-			continue
-		total[t] += 1
-		if eid > 0:
-			humans[t] += 1
-	if not is_bot and humans[0] != humans[1]:
-		return 0 if humans[0] < humans[1] else 1
-	if total[0] != total[1]:
-		return 0 if total[0] < total[1] else 1
-	return randi() % 2 if not is_bot else 0
-
-
 ## The info a player spawns with in Tactical: on `team`, with empty weapon slots.
-static func prepare_info(info: Dictionary, team: int) -> Dictionary:
+func prepare_info(info: Dictionary, team: int) -> Dictionary:
 	var out := info.duplicate()
 	out.team = team
 	out.primary = ""
@@ -258,7 +231,7 @@ static func prepare_info(info: Dictionary, team: int) -> Dictionary:
 
 
 ## [feet position, yaw] in `team`'s staging room, facing the enemy end.
-func spawn_point(team: int) -> Array:
+func spawn_point(_eid: int, team: int) -> Array:
 	var mine: Array[Vector3] = []
 	var centre := world.map_info.bounds.get_center()
 	for s: Vector3 in world.map_info.spawns:
@@ -369,7 +342,7 @@ func _living_bot(team: int) -> Player:
 
 
 ## After a kill: the victim drops their best gun where they fell, and a wiped-out team ends it.
-func server_on_kill(victim_id: int) -> void:
+func server_on_kill(victim_id: int, _killer_id: int, _wid: String) -> void:
 	var victim: Player = world.entities.get(victim_id)
 	if victim != null:
 		var drop := victim.slots[0] if not victim.slots[0].is_empty() else victim.slots[1]
@@ -382,7 +355,7 @@ func server_on_kill(victim_id: int) -> void:
 func server_check_end() -> void:
 	if world.match_over or phase == Phase.OVER:
 		return
-	var counts := alive_counts()
+	var counts := Teams.counts(world, true)
 	if counts[0] == 0 or counts[1] == 0:
 		world.server_end_match()
 
@@ -390,13 +363,30 @@ func server_check_end() -> void:
 ## 0 / 1 for the winning team, -1 for a draw: the side with players left (at the time limit, the
 ## side with more of them).
 func server_winner() -> int:
-	var counts := alive_counts()
+	var counts := Teams.counts(world, true)
 	if counts[0] == counts[1]:
 		return -1
 	return 0 if counts[0] > counts[1] else 1
 
 
-func server_match_over() -> void:
+## Rows carry each player's team, whether they survived and whether their team won; the winning
+## team first, survivors before the fallen, then by kills. Returns {winner} (0, 1, -1 draw).
+func server_finish(rows: Array) -> Dictionary:
+	var winner := server_winner()
+	phase = Phase.OVER
+	annotate_rows(rows)
+	for r: Dictionary in rows:
+		r.won = winner >= 0 and int(r.team) == winner
+	rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		if a.team != b.team:
+			return a.team == winner or (winner < 0 and a.team < b.team)
+		if a.alive != b.alive:
+			return a.alive
+		return a.kills > b.kills)
+	return {"winner": winner}
+
+
+func on_match_over() -> void:
 	phase = Phase.OVER
 
 
@@ -492,12 +482,6 @@ func _spot_list() -> Array:
 func _sync_peer(pid: int) -> void:
 	_s_phase.rpc_id(pid, phase, maxf(0.0, planning_ends - World.now()))
 	_s_spots.rpc_id(pid, _spot_list())
-
-
-func _broadcast(method: StringName, args: Array) -> void:
-	for pid: int in world.ready_peer_ids():
-		callv(&"rpc_id", [pid, method] + args)
-	callv(method, args)
 
 
 # ================================================================ server: markers
@@ -599,7 +583,7 @@ func _nearest_squad(team: int, pos: Vector3) -> Squad:
 
 func _server_squads() -> void:
 	var now := World.now()
-	var counts := alive_counts()
+	var counts := Teams.counts(world, true)
 	_assign_markers()
 	for sq: Squad in _squads:
 		var alive: Array[Player] = []
@@ -756,7 +740,7 @@ func _release_claims(eid: int) -> void:
 ## What a roaming bot should do now: {pos, hold (crouch and watch on arrival), sprint, look}.
 func bot_order(p: Player) -> Dictionary:
 	var here := p.global_position
-	var forward := here + Vector3(1.0 if team_of_player(p) == 0 else -1.0, 0.0, 0.0) * 10.0 + Vector3.UP * 1.5
+	var forward := here + Vector3(1.0 if Teams.of(p) == 0 else -1.0, 0.0, 0.0) * 10.0 + Vector3.UP * 1.5
 	if phase == Phase.PLANNING:
 		return {"pos": here, "hold": false, "sprint": false, "look": forward}
 	if _wants_loot(p) or (p.slots[0].is_empty() and spot_near(here, 14.0) >= 0):
@@ -765,7 +749,7 @@ func bot_order(p: Player) -> Dictionary:
 			return {"pos": spots[i].pos, "hold": false, "sprint": true, "look": forward}
 	var sq: Squad = _squad_of.get(p.id)
 	if sq == null:
-		var enemy := _nearest_enemy(team_of_player(p), here)
+		var enemy := _nearest_enemy(Teams.of(p), here)
 		return {"pos": enemy.global_position if enemy != null else here, "hold": false, "sprint": false, "look": forward}
 	# Formation: members spread across the objective so they don't stack in one doorway.
 	var k := sq.members.find(p.id)
@@ -918,7 +902,7 @@ func _build_barrier(team: int) -> void:
 	var mat := StandardMaterial3D.new()
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.albedo_color = Color(team_color(team), 0.35)
+	mat.albedo_color = Color(Teams.color(team), 0.35)
 	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	for box: Array in Gen.BARRIERS:
 		var a: Vector3i = box[0]
@@ -946,52 +930,36 @@ func _build_barrier(team: int) -> void:
 	_barriers.append(body)
 
 
-## Team colours on a newly spawned player: armbands on both arms and a coloured nametag;
-## teammates' tags show through walls.
+## Team look (MatchMode/Teams); Tactical nametags show just the name (no level), since 50
+## players crowd the building.
 func on_player_added(p: Player) -> void:
-	var team := team_of_player(p)
-	if team < 0:
-		return
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = team_color(team)
-	mat.emission_enabled = true
-	mat.emission = team_color(team)
-	mat.emission_energy_multiplier = 0.6
-	var band := BoxMesh.new()
-	band.size = Vector3(0.27, 0.09, 0.27)
-	band.material = mat
-	for arm: String in ["ArmL", "ArmR"]:
-		var mount := p.avatar.find_child(arm, true, false) as Node3D
-		if mount == null:
-			continue
-		var mi := MeshInstance3D.new()
-		mi.name = "Armband"
-		mi.mesh = band
-		mi.position = Vector3(0.0, -0.12, 0.0)
-		mount.add_child(mi)
+	super(p)
 	if p.nametag != null:
-		var friendly := team == my_team()
-		p.nametag.modulate = team_color(team).lightened(0.3)
-		p.nametag.text = "%s%s" % ["" if friendly else "", str(p.info.name)]
-		p.nametag.no_depth_test = friendly
-		p.nametag.fixed_size = false
-		p.nametag.visibility_range_end = 60.0 if friendly else 30.0
-
-
-## The local player's team is only known once its own entity arrives, after others may have.
-func refresh_tags() -> void:
-	var mine := my_team()
-	for eid: int in world.entities:
-		var p: Player = world.entities[eid]
-		if p.nametag != null:
-			var friendly := team_of_player(p) == mine
-			p.nametag.no_depth_test = friendly
-			p.nametag.visibility_range_end = 60.0 if friendly else 30.0
+		p.nametag.text = str(p.info.name)
 
 
 ## Client: the local player died; after a short death cam the camera follows teammates.
-func on_local_death() -> void:
+func on_local_death(_killer_id: int) -> void:
 	_dead_since = World.now()
+
+
+## Living players per team against the full team.
+func hud_bars() -> Array:
+	var counts := Teams.counts(world, true)
+	return [[float(counts[0]) / TEAM_SIZE, str(counts[0])], [float(counts[1]) / TEAM_SIZE, str(counts[1])]]
+
+
+func hud_goal() -> String:
+	var team := my_team()
+	return "" if team < 0 else "Your team: %s  ·  last team standing wins" % Teams.name_of(team)
+
+
+func row_tag(r: Dictionary) -> String:
+	return "" if bool(r.get("alive", true)) else "KIA"
+
+
+func row_dimmed(r: Dictionary) -> bool:
+	return not bool(r.get("alive", true))
 
 
 func _process(delta: float) -> void:
@@ -1020,7 +988,7 @@ func _spectate_candidates() -> Array[Player]:
 	var out: Array[Player] = []
 	for eid: int in world.entities:
 		var p: Player = world.entities[eid]
-		if p.alive and p != world.local_player and team_of_player(p) == mine:
+		if p.alive and p != world.local_player and Teams.of(p) == mine:
 			out.append(p)
 	if out.is_empty():
 		for eid: int in world.entities:

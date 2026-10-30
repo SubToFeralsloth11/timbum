@@ -44,6 +44,7 @@ static var _meshes: Dictionary = {}
 static var _noise_texture: ImageTexture
 static var _overlay: StandardMaterial3D
 static var _shield_overlay: ShaderMaterial
+static var _infected_overlay: StandardMaterial3D
 
 
 # --- Public API ------------------------------------------------------------------------------
@@ -369,6 +370,18 @@ static func hit_overlay_material() -> StandardMaterial3D:
 		_overlay.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		_overlay.albedo_color = Color(1.0, 0.18, 0.15, 0.6)
 	return _overlay
+
+
+## Shared sickly green tint over an Infected player's avatar (still lit by the scene).
+static func infected_overlay_material() -> StandardMaterial3D:
+	if _infected_overlay == null:
+		_infected_overlay = StandardMaterial3D.new()
+		_infected_overlay.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		_infected_overlay.albedo_color = Color(0.3, 0.95, 0.2, 0.5)
+		_infected_overlay.emission_enabled = true
+		_infected_overlay.emission = Color(0.15, 0.5, 0.05)
+		_infected_overlay.emission_energy_multiplier = 0.4
+	return _infected_overlay
 
 
 ## Shared pulsing cyan shell used while an Avatar has spawn protection.

@@ -72,7 +72,7 @@ var _grenade_label: Label
 var _tactical_label: Label
 var _grapple_label: Label
 var _grapple_bar: ProgressBar
-## Tactical: living players per team (bar and count, ALPHA then BRAVO).
+## Team modes: one bar and count per team (MatchMode.hud_bars), team 0 then team 1.
 var _team_bars: Array[ProgressBar] = []
 var _team_counts: Array[Label] = []
 var _hook_box: Control
@@ -291,26 +291,26 @@ func _build_top() -> void:
 	race.add_child(_label("LEAD", 13, Color(1, 0.55, 0.5)))
 	_lead_bar = _bar(Color(1, 0.4, 0.35), Vector2(200, 7))
 	race.add_child(_lead_bar)
-	# Tactical replaces the race with each team's living players.
+	# Team modes replace the race with one bar per team (what it measures is the mode's).
 	var teams := GridContainer.new()
 	teams.columns = 3
 	teams.add_theme_constant_override("h_separation", 8)
 	teams.add_theme_constant_override("v_separation", 2)
 	v.add_child(teams)
 	for t in 2:
-		var c := Tactical.team_color(t)
-		teams.add_child(_label(Tactical.team_name(t), 15, c))
+		var c := Teams.color(t)
+		teams.add_child(_label(Teams.name_of(t), 15, c))
 		var bar := _bar(c, Vector2(200, 9))
 		teams.add_child(bar)
 		_team_bars.append(bar)
-		var count := _label("25", 20, c.lightened(0.2))
+		var count := _label("0", 20, c.lightened(0.2))
 		count.custom_minimum_size.x = 30
 		count.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		teams.add_child(count)
 		_team_counts.append(count)
-	var tactical_mode := Tactical.is_active()
-	race.visible = not tactical_mode
-	teams.visible = tactical_mode
+	var team_mode := Teams.is_team_mode()
+	race.visible = not team_mode
+	teams.visible = team_mode
 	_goal_label = _label("", 15, Color(1, 0.85, 0.4))
 	_goal_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(_goal_label)
@@ -536,8 +536,9 @@ func _build_scoreboard() -> void:
 	var v := VBoxContainer.new()
 	_scoreboard.add_child(v)
 	var mut: Dictionary = Data.MUTATORS[str(Net.config.mutator)]
-	var title := _label("%s  -  %s  -  %s" % [Data.MAPS[Net.current_map].name.to_upper(), str(mut.name).to_upper(),
-		str(Net.config.time_of_day).to_upper()], 24, Color(1, 0.85, 0.4))
+	var mode: Dictionary = Data.MODES.get(str(Net.config.mode), Data.MODES.ffa)
+	var title := _label("%s  -  %s  -  %s  -  %s" % [str(mode.name).to_upper(), Data.MAPS[Net.current_map].name.to_upper(),
+		str(mut.name).to_upper(), str(Net.config.time_of_day).to_upper()], 24, Color(1, 0.85, 0.4))
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(title)
 	v.add_child(_score_row(["#", "PLAYER", "KILLS", "DEATHS", "HS"], Color(0.7, 0.75, 0.85), false))
@@ -737,7 +738,7 @@ func _process(delta: float) -> void:
 		_scope.visible = false
 		_protect_label.visible = false
 		return
-	var hp_frac := p.health / Data.MAX_HEALTH
+	var hp_frac := p.health / p.max_health()
 	_health_label.text = str(int(ceil(p.health)))
 	var hp_color := Color(0.95, 0.3, 0.25).lerp(Color(0.35, 0.95, 0.45), hp_frac)
 	for i in _hp_segments.size():
@@ -838,10 +839,9 @@ func is_blocking() -> bool:
 
 func refresh_scores() -> void:
 	_scores_dirty = true
-	if world.tactical != null:
-		var team := world.tactical.my_team()
-		_goal_label.text = "" if team < 0 else "Your team: %s  ·  last team standing wins" % Tactical.team_name(team)
-		_rank_label.text = ""
+	if Teams.is_team_mode():
+		_goal_label.text = world.rules.hud_goal()
+		_rank_label.text = world.rules.hud_rank()
 		return
 	var rows := _sorted_rows()
 	var me := world.my_id()
@@ -883,37 +883,47 @@ func _sorted_rows() -> Array:
 	for eid: int in world.scores:
 		var s: Dictionary = world.scores[eid]
 		rows.append({"id": eid, "name": s.name, "level": s.get("level", 1), "kills": s.kills, "deaths": s.deaths, "headshots": s.headshots, "bot": s.bot})
-	if world.tactical != null:
-		for r: Dictionary in rows:
-			var p: Player = world.entities.get(int(r.id))
-			r.team = Tactical.team_of_player(p)
-			r.alive = p != null and p.alive
-		rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-			if a.team != b.team:
-				return a.team < b.team
-			return a.kills > b.kills if a.kills != b.kills else a.deaths < b.deaths)
-		return rows
-	rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-		return a.kills > b.kills if a.kills != b.kills else a.deaths < b.deaths)
+	world.rules.annotate_rows(rows)
+	world.rules.sort_rows(rows)
 	return rows
 
 
+## Rows with a `team` (team modes) are grouped under a header per team (MatchMode.group_header).
 func _fill_rows(container: VBoxContainer, rows: Array) -> void:
 	for c in container.get_children():
 		c.queue_free()
 	var me := world.my_id()
+	var group := -2
 	for i in rows.size():
 		var r: Dictionary = rows[i]
+		var team := int(r.get("team", -1))
+		if team >= 0 and team != group:
+			group = team
+			container.add_child(_group_row(world.rules.group_header(team, rows), Teams.color(team)))
 		var player_name := "%s  Lv %d%s" % [r.name, int(r.get("level", 1)), "  [BOT]" if r.bot else ""]
+		var tag := world.rules.row_tag(r)
+		if not tag.is_empty():
+			player_name += "  " + tag
 		var mine := int(r.id) == me
 		var color := Color(1, 0.95, 0.8) if mine else Color.WHITE
-		if r.has("team"):
-			# Tactical: team colours; the fallen are dimmed.
-			color = Tactical.team_color(int(r.team)).lightened(0.35 if mine else 0.15)
-			if not bool(r.get("alive", true)):
+		if team >= 0:
+			color = Teams.color(team).lightened(0.35 if mine else 0.15)
+			if world.rules.row_dimmed(r):
 				color = color.darkened(0.45)
-				player_name += "  KIA"
 		container.add_child(_score_row([i + 1, player_name, r.kills, r.deaths, r.headshots], color, mine))
+
+
+## A team's header line in the scoreboard and results table.
+func _group_row(text: String, color: Color) -> Control:
+	var panel := PanelContainer.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(color, 0.22)
+	sb.set_content_margin_all(4)
+	sb.set_corner_radius_all(2)
+	panel.add_theme_stylebox_override("panel", sb)
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(_label(text, 18, color.lightened(0.25)))
+	return panel
 
 
 func show_damage(from_pos: Vector3) -> void:
@@ -977,6 +987,12 @@ func _show_match_intro() -> void:
 	var map_label := _label(Data.MAPS[Net.current_map].name.to_upper(), 46, Color(1, 0.85, 0.35))
 	map_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(map_label)
+	# Modes other than Deathmatch say which mode this is and its rule in one line.
+	if str(Net.config.mode) != "ffa" and Data.MODES.has(str(Net.config.mode)):
+		var mode: Dictionary = Data.MODES[str(Net.config.mode)]
+		var mode_label := _label("%s  ·  %s" % [str(mode.name).to_upper(), str(mode.desc)], 20, Color(0.75, 1.0, 0.7))
+		mode_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		box.add_child(mode_label)
 	var sub := "%s  ·  %s" % [str(mut.name).to_upper(), str(Net.config.time_of_day).to_upper()]
 	var sub_label := _label(sub, 24, Color(0.6, 0.9, 1.0) if Net.config.mutator != "none" else Color.WHITE)
 	sub_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -990,15 +1006,20 @@ func _show_match_intro() -> void:
 	tw.tween_callback(box.queue_free)
 
 
-## Tactical: living players per team in the top panel, and the team's markers on the compass.
+## Team modes: the mode's two bars and lines in the top panel; Tactical's markers on the compass.
 func _update_team_hud() -> void:
+	if not Teams.is_team_mode():
+		return
+	var bars := world.rules.hud_bars()
+	for i in mini(2, bars.size()):
+		_team_bars[i].value = float(bars[i][0])
+		_team_counts[i].text = str(bars[i][1])
+	# Mode lines can count down (Infected's start), so they follow every frame; same text is a no-op.
+	_goal_label.text = world.rules.hud_goal()
+	_rank_label.text = world.rules.hud_rank()
 	var t := world.tactical
 	if t == null:
 		return
-	var counts := t.alive_counts()
-	for i in 2:
-		_team_bars[i].value = float(counts[i]) / float(Tactical.TEAM_SIZE)
-		_team_counts[i].text = str(counts[i])
 	var cam := get_viewport().get_camera_3d()
 	_compass.pips.clear()
 	if cam == null:
@@ -1079,14 +1100,14 @@ func show_hitmarker(head: bool, killed: bool) -> void:
 	_crosshair.hit(head, killed)
 
 
-## `killer_team` / `victim_team` (Tactical, 0 or 1) colour the names by team instead.
+## `killer_team` / `victim_team` (team modes, 0 or 1) colour the names by team instead.
 func add_killfeed(killer: String, weapon: String, victim: String, head: bool, suicide: bool, killer_team := -1, victim_team := -1) -> void:
 	var panel := _panel(0.5)
 	var h := HBoxContainer.new()
 	panel.add_child(h)
 	var me: String = Net.players.get(world.my_id(), {}).get("name", "")
-	var killer_color := Tactical.team_color(killer_team) if killer_team >= 0 else Color(1, 0.55, 0.5)
-	var victim_color := Tactical.team_color(victim_team) if victim_team >= 0 else Color(0.6, 0.8, 1.0)
+	var killer_color := Teams.color(killer_team) if killer_team >= 0 else Color(1, 0.55, 0.5)
+	var victim_color := Teams.color(victim_team) if victim_team >= 0 else Color(0.6, 0.8, 1.0)
 	if suicide:
 		h.add_child(_label(victim, 18, Color(1, 0.9, 0.6) if victim == me else (victim_color if victim_team >= 0 else Color.WHITE)))
 		h.add_child(_label(" [%s] " % weapon, 16, Color(0.7, 0.7, 0.75)))
@@ -1172,14 +1193,14 @@ func add_chat(sender: String, text: String) -> void:
 		old.queue_free()
 
 
-## Winner celebration before the results: a big banner, and the crosshair and scope hidden
-## while the camera shows the winner's emote.
-func show_winner(winner_name: String, is_me: bool) -> void:
+## Winner celebration before the results: a big banner ("YOU WIN!", "ALPHA WINS!"), and the
+## crosshair and scope hidden while the camera shows the winner's emote.
+func show_winner(text: String) -> void:
 	_close_pause()
 	_close_chat()
 	_death_panel.visible = false
 	_celebrating = true
-	_win_banner.text = "YOU WIN!" if is_me else "%s WINS!" % winner_name.to_upper()
+	_win_banner.text = text
 	_win_banner.visible = true
 	_win_banner.move_to_front()
 
@@ -1196,8 +1217,11 @@ func show_results(rows: Array, placement: int, rewards: Dictionary, wait: float,
 	_scoreboard.move_to_front()
 	_skip_votes = 0
 	_results_left = wait
-	if world.tactical != null:
-		_tactical_results_title(rows, int(next.get("winner", -1)))
+	var title: Array = world.rules.results_title(rows, next)
+	_results_title.add_theme_color_override("font_color", Color(1, 0.82, 0.25))
+	if not str(title[0]).is_empty():
+		_results_title.text = str(title[0])
+		_results_title.add_theme_color_override("font_color", title[1])
 	elif placement == 1:
 		_results_title.text = "VICTORY!"
 	elif placement > 0:
@@ -1227,21 +1251,6 @@ func show_results(rows: Array, placement: int, rewards: Dictionary, wait: float,
 		_results_skip.text = "NEW GAME"
 		_results_skip.visible = multiplayer.is_server()
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-
-
-## "VICTORY" / "DEFEAT" / "DRAW" for this player's team, and who won.
-func _tactical_results_title(rows: Array, winner: int) -> void:
-	var mine := -1
-	for r: Dictionary in rows:
-		if int(r.id) == world.my_id():
-			mine = int(r.get("team", -1))
-	if winner < 0:
-		_results_title.text = "DRAW"
-	elif winner == mine:
-		_results_title.text = "VICTORY!  %s WINS" % Tactical.team_name(winner)
-	else:
-		_results_title.text = "DEFEAT  ·  %s WINS" % Tactical.team_name(winner)
-	_results_title.add_theme_color_override("font_color", Tactical.team_color(winner) if winner >= 0 else Color(0.85, 0.85, 0.85))
 
 
 ## Map, mutator and time of day of the coming match, with what the mutator does.
@@ -1297,6 +1306,8 @@ func _fill_highlights(rows: Array) -> void:
 	]
 	var me := world.my_id()
 	for a: Array in awards:
+		if world.rules.hides_award(str(a[1])):
+			continue
 		var best: Dictionary = {}
 		for r: Dictionary in rows:
 			# Fewest deaths only counts for someone who actually fought.
@@ -1313,6 +1324,8 @@ func _fill_highlights(rows: Array) -> void:
 		var l := _label("%s:  %s  (%s)" % [a[0], best.name, amount], 18,
 			Color(1, 0.82, 0.25) if mine else Color.WHITE)
 		_results_highlights.add_child(l)
+	for extra: Array in world.rules.extra_highlights(rows):
+		_results_highlights.add_child(_label(str(extra[0]), 18, Color(1, 0.82, 0.25) if extra[1] else Color.WHITE))
 
 
 ## One row per reward source from Profile.record_match, then the total.

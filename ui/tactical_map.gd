@@ -156,8 +156,8 @@ func _draw_plan() -> void:
 			var b := Gen.SPAWN_ROOM[1]
 			var x0 := a.x if team == 0 else Gen.SIZE.x - 1 - b.x
 			var rect := Rect2(r.position + Vector2(x0, a.z) * cell, Vector2(b.x - a.x + 1, b.z - a.z + 1) * cell)
-			_plan.draw_rect(rect, Color(Tactical.team_color(team), 0.18))
-			_plan.draw_string(font, rect.get_center() + Vector2(-34, 6), Tactical.team_name(team), HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Tactical.team_color(team))
+			_plan.draw_rect(rect, Color(Teams.color(team), 0.18))
+			_plan.draw_string(font, rect.get_center() + Vector2(-34, 6), Teams.name_of(team), HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Teams.color(team))
 	# Weapon spots on this storey.
 	for s: Dictionary in tactical.spots:
 		if str(s.wid).is_empty() or tactical.floor_of(s.pos) != floor_index:
@@ -168,11 +168,11 @@ func _draw_plan() -> void:
 	var mine := tactical.my_team()
 	for eid: int in tactical.world.entities:
 		var p: Player = tactical.world.entities[eid]
-		if not p.alive or Tactical.team_of_player(p) != mine:
+		if not p.alive or Teams.of(p) != mine:
 			continue
 		var on_floor := tactical.floor_of(p.global_position) == floor_index
 		var at := _to_map(p.global_position, r)
-		var col := Tactical.team_color(mine)
+		var col := Teams.color(mine)
 		if p == tactical.world.local_player:
 			var fwd := Vector2(-sin(p.yaw), -cos(p.yaw))
 			var side := Vector2(fwd.y, -fwd.x)

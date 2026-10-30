@@ -175,16 +175,16 @@ func _process(delta: float) -> void:
 	var team := tactical.my_team()
 	_team_label.visible = team >= 0 and not over
 	if team >= 0:
-		_team_label.text = "TEAM %s" % Tactical.team_name(team)
-		_team_label.add_theme_color_override("font_color", Tactical.team_color(team))
+		_team_label.text = "TEAM %s" % Teams.name_of(team)
+		_team_label.add_theme_color_override("font_color", Teams.color(team))
 	_toast_t -= delta
 	_toast.modulate.a = clampf(_toast_t, 0.0, 1.0)
 	_prompt.text = _prompt_text()
 	_spectate.visible = tactical.is_spectating() and not over and not map.visible
 	if _spectate.visible and tactical.spectating != null:
 		var s := tactical.spectating
-		_spectate_label.text = "SPECTATING  %s  ·  %s" % [w.display_name(s.id).to_upper(), Tactical.team_name(Tactical.team_of_player(s))]
-		_spectate_label.add_theme_color_override("font_color", Tactical.team_color(Tactical.team_of_player(s)))
+		_spectate_label.text = "SPECTATING  %s  ·  %s" % [w.display_name(s.id).to_upper(), Teams.name_of(Teams.of(s))]
+		_spectate_label.add_theme_color_override("font_color", Teams.color(Teams.of(s)))
 
 
 ## "Swap" prompt when standing at a weapon your slot already holds something for; a reminder

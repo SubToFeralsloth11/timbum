@@ -204,9 +204,13 @@ func think(delta: float) -> void:
 	_reset_intent()
 	if p.world.match_over:
 		return
-	# A target that died or left (despawned, freed) since the last perception pass is dropped at
-	# once, so the bot neither shoots a corpse nor touches a freed node until the next _perceive().
-	if target != null and (not is_instance_valid(target) or not target.alive):
+	# A target that died, left (despawned, freed) or turned into a teammate (Infected) since the
+	# last perception pass is dropped at once, so the bot neither shoots a corpse or a friend nor
+	# touches a freed node until the next _perceive().
+	if target != null and (not is_instance_valid(target) or not target.alive or not p.world.is_enemy(p, target)):
+		if is_instance_valid(target) and target.alive:
+			# Now a teammate: nothing to search for where it was last seen either.
+			_last_seen_time = -100.0
 		target = null
 		_target_visible = false
 	_perceive_timer -= delta
@@ -430,6 +434,8 @@ func _fight(delta: float) -> void:
 
 	# Movement: hold preferred range and strafe.
 	var range_pref := _preferred_range() / aggression
+	# The mode may want more room (Infected: survivors back off from the Infected).
+	range_pref.x = maxf(range_pref.x, p.world.rules.bot_min_range(p, target))
 	var to_target := target.global_position - p.global_position
 	var flat := Vector3(to_target.x, 0.0, to_target.z).normalized()
 	var right := flat.cross(Vector3.UP)
@@ -656,8 +662,16 @@ func _roam(delta: float) -> void:
 		_chase_pos = _last_seen_pos
 		_goal_pickup = null
 		_set_goal(_last_seen_pos)
-	elif not _has_goal:
-		_set_goal(_pick_roam_goal())
+	else:
+		# The mode can send the bot somewhere (Infected hunt the nearest survivor); a goal that
+		# moved more than a few metres is re-routed.
+		var push: Variant = p.world.rules.bot_roam_goal(p)
+		if push != null:
+			if not _has_goal or _goal.distance_to(push) > 4.0:
+				_goal_pickup = null
+				_set_goal(push)
+		elif not _has_goal:
+			_set_goal(_pick_roam_goal())
 	_go_toward(_goal, delta)
 	p.in_sprint = difficulty > 0 and now - _last_seen_time > 1.5
 	_maybe_slide(delta)
@@ -673,9 +687,12 @@ func _pick_roam_goal() -> Vector3:
 		return p.world.tactical.bot_order(p).pos
 	_goal_pickup = null
 	var info := p.world.map_info
-	var needs_health := p.health < 60.0
-	var cur: Vector2i = p.ammo[p.slots[0]]
-	var needs_ammo := cur.x + cur.y < p.mag_size(p.slots[0])
+	var needs_health := p.health < p.max_health() * 0.6
+	# An empty primary slot (Infected, knife only) needs no ammo.
+	var needs_ammo := false
+	if not p.slots[0].is_empty():
+		var cur: Vector2i = p.ammo[p.slots[0]]
+		needs_ammo = cur.x + cur.y < p.mag_size(p.slots[0])
 	if needs_health or needs_ammo:
 		var best: PickupNode = null
 		var best_d := INF
@@ -692,7 +709,7 @@ func _pick_roam_goal() -> Vector3:
 			_goal_pickup = best
 			return best.position
 	if aggression > 1.1 and randf() < 0.6:
-		var prey: Array = p.world.entities.values().filter(func(o: Player) -> bool: return o != p and o.alive)
+		var prey: Array = p.world.entities.values().filter(func(o: Player) -> bool: return o.alive and p.world.is_enemy(p, o))
 		if not prey.is_empty():
 			return (prey.pick_random() as Player).global_position
 	if randf() < 0.35 / aggression:
