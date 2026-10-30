@@ -50,7 +50,7 @@ const TRACERS_PER_SHOT := 3
 ## A player moving further than this between two frames teleported (respawn): no interpolation.
 const SNAP_DIST := 4.0
 
-## Bits added to Player.state_flags (which uses bits 0-19).
+## Bits added to Player.state_flags (which uses bits 0-20).
 const BIT_ALIVE := 1 << 24
 const BIT_REMOTE := 1 << 25
 const BIT_GRAPPLE := 1 << 26

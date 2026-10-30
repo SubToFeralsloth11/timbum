@@ -56,9 +56,10 @@ const FLAG_RELOAD := 16
 const FLAG_NEEDS_AMMO := 32
 const FLAG_SLIDE := 64
 const FLAG_PRONE := 128
-## Bits 8-15: weapon index. Bits 16-19: lean, quantised to -7..7 and stored + 8.
+## Bits 8-15: weapon index. Bits 16-19: lean, quantised to -7..7 and stored + 8. Bit 20: inspecting.
 const FLAG_WEAPON_SHIFT := 8
 const FLAG_LEAN_SHIFT := 16
+const FLAG_INSPECT := 1 << 20
 
 ## Sliding: crouch while sprinting. Entry needs this much ground speed; the slide starts at
 ## SLIDE_SPEED (or the current speed plus SLIDE_BOOST), bleeds SLIDE_FRICTION m/s per second
@@ -126,6 +127,9 @@ var in_slot := -1
 var in_grenade := false
 var in_melee := false
 var in_tactical := false
+var in_inspect := false
+## Weapon inspect: seconds left (local player; see _tick_inspect), 0 when not inspecting.
+var inspect_left := 0.0
 var in_grapple := false
 ## -1 peek left, 0 none, 1 peek right.
 var in_lean := 0
@@ -285,6 +289,7 @@ func apply_info(p_info: Dictionary) -> void:
 		previous_slot = 2
 	_refill_equipment()
 	speed_scale = _mutator_speed * float(info.get("speed", 1.0))
+	stop_inspect()
 	_refresh_weapon_visual()
 
 
@@ -512,6 +517,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		in_grapple = true
 	elif event.is_action_pressed("prone"):
 		in_prone = true
+	elif event.is_action_pressed("inspect"):
+		in_inspect = true
 
 
 func _read_input() -> void:
@@ -660,6 +667,8 @@ func _simulate(delta: float) -> void:
 	lean = move_toward(lean, lean_target, delta * LEAN_RATE)
 	_lean_reach = _measure_lean_reach() if not is_zero_approx(lean) else 1.0
 	_apply_head_pose()
+	if mode == Mode.LOCAL:
+		_tick_inspect(delta)
 	_tick_weapon(delta)
 
 
@@ -1006,6 +1015,44 @@ func _tick_weapon(delta: float) -> void:
 		_try_fire(wid, w)
 
 
+# ---------------------------------------------------------------- weapon inspect
+
+## True while an inspect plays: the local player's timer, or a remote player's FLAG_INSPECT.
+func inspecting() -> bool:
+	if mode == Mode.REMOTE:
+		return (_remote_flags & FLAG_INSPECT) != 0
+	return inspect_left > 0.0
+
+
+func stop_inspect() -> void:
+	inspect_left = 0.0
+	if viewmodel != null:
+		viewmodel.stop_inspect()
+
+
+## What ends an inspect at once and keeps one from starting: fire, aim, reload, a weapon switch,
+## sprinting, melee, a grenade or tactical, a slide or the grapple.
+func _inspect_blocked() -> bool:
+	return in_fire or in_aim or in_reload or reloading or in_slot >= 0 or switch_timer > 0.0 or sprinting \
+		or in_melee or melee_timer > 0.0 or in_grenade or in_tactical or grappling or sliding or _burst_left > 0
+
+
+## Local player, every physics frame before _tick_weapon (so the press that cancels an inspect
+## still fires, reloads or switches): `inspect` starts the Viewmodel's INSPECT_TIME inspect of
+## the held weapon when nothing blocks it. Dead players (kill cam), spectators and photo mode
+## never get here or get no input.
+func _tick_inspect(delta: float) -> void:
+	var start := in_inspect
+	in_inspect = false
+	if inspect_left > 0.0:
+		inspect_left = maxf(0.0, inspect_left - delta)
+		if _inspect_blocked():
+			stop_inspect()
+	elif start and not world.match_over and not weapon_id().is_empty() and not _inspect_blocked():
+		inspect_left = Viewmodel.INSPECT_TIME
+		viewmodel.play_inspect()
+
+
 func switch_to(slot: int) -> void:
 	previous_slot = current_slot
 	current_slot = slot
@@ -1349,6 +1396,8 @@ func state_flags() -> int:
 		f |= FLAG_PRONE
 	f |= weapon_index(weapon_id()) << FLAG_WEAPON_SHIFT
 	f |= (roundi(lean * _lean_reach * 7.0) + 8) << FLAG_LEAN_SHIFT
+	if inspecting():
+		f |= FLAG_INSPECT
 	return f
 
 
@@ -1467,6 +1516,7 @@ func _update_visuals(delta: float) -> void:
 		var local_vel := Basis(Vector3.UP, yaw).inverse() * world_vel
 		avatar.set_motion(sliding, lean * _lean_reach, Vector2(local_vel.x, -local_vel.z), grappling)
 		avatar.set_look_pitch(pitch)
+		avatar.set_inspect(inspecting())
 		avatar.animate(delta, anim_speed, on_floor_visual, crouching, prone)
 		_footsteps(delta)
 	_update_rope(delta)
@@ -1492,6 +1542,7 @@ func _update_visuals(delta: float) -> void:
 
 ## Laser Sight attachment: beam from the gun to where the shot would go, hidden while the gun
 ## is down (switching, reloading, sprinting, knife) and the beam (not the dot) when scoped.
+## During an inspect it shines straight out of the barrel, so it sweeps as the gun turns.
 func _update_laser() -> void:
 	if laser == null:
 		return
@@ -1500,6 +1551,14 @@ func _update_laser() -> void:
 		down = not alive or weapon_id() == "knife" or (_remote_flags & (FLAG_RELOAD | FLAG_SPRINT)) != 0
 	if down or world.match_over:
 		laser.visible = false
+		return
+	if inspecting():
+		var barrel := Transform3D(Basis.IDENTITY, global_position)
+		if viewmodel != null:
+			barrel = viewmodel.muzzle_transform()
+		elif _muzzle != null and is_instance_valid(_muzzle):
+			barrel = _muzzle.global_transform
+		laser.aim(barrel.origin, barrel.origin, -barrel.basis.z, _exclude)
 		return
 	var aim := aim_transform()
 	var from := aim.origin
@@ -1596,6 +1655,7 @@ func _reset_movement_state() -> void:
 	prone = false
 	prone_blend = 0.0
 	_slide_cooldown = 0.0
+	stop_inspect()
 	_burst_left = 0
 	lean = 0.0
 	_lean_reach = 1.0
@@ -1676,6 +1736,7 @@ func _clear_intent() -> void:
 	in_grapple = false
 	in_lean = 0
 	in_slot = -1
+	in_inspect = false
 
 
 ## The camera rises behind the corpse, on the side away from the killer, and turns to keep the

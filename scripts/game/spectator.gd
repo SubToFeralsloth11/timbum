@@ -37,6 +37,7 @@ var _vm_weapon := ""
 var _ads := 0.0
 var _ads_fov := 60.0
 var _reloading := false
+var _inspecting := false
 var _target_dead_at := -1.0
 var _last_pos := Vector3.ZERO
 var _vel := Vector3.ZERO
@@ -242,6 +243,7 @@ func _set_target(p: Player) -> void:
 		_cam.add_child(_viewmodel)
 	_vm_weapon = ""
 	_reloading = false
+	_inspecting = false
 	_ads = 0.0
 
 
@@ -310,6 +312,13 @@ func _update_follow(delta: float) -> void:
 	elif _reloading and not reloading:
 		_viewmodel.stop_reload()
 	_reloading = reloading
+	# The followed player's weapon inspect plays in their viewmodel as it starts and stops.
+	var inspecting := (fl & Player.FLAG_INSPECT) != 0
+	if inspecting and not _inspecting:
+		_viewmodel.play_inspect()
+	elif _inspecting and not inspecting:
+		_viewmodel.stop_inspect()
+	_inspecting = inspecting
 	if delta > 0.0:
 		_vel = _vel.lerp((p.global_position - _last_pos) / delta, minf(1.0, delta * 10.0))
 	_last_pos = p.global_position

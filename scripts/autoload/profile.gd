@@ -1204,7 +1204,7 @@ const DEFAULT_BINDINGS := {
 	"interact": ["k%d" % KEY_B], "tactical_map": ["k%d" % KEY_M],
 	"scoreboard": ["k%d" % KEY_TAB], "chat": ["k%d" % KEY_T, "k%d" % KEY_ENTER],
 	"skip_killcam": ["k%d" % KEY_K],
-	"spectate_view": ["k%d" % KEY_N], "photo_mode": ["k%d" % KEY_P],
+	"spectate_view": ["k%d" % KEY_N], "photo_mode": ["k%d" % KEY_P], "inspect": ["k%d" % KEY_I],
 	"pause": ["k%d" % KEY_ESCAPE],
 }
 ## Keyboard/mouse bindings per action; at most this many codes each.
@@ -1213,9 +1213,10 @@ const MAX_BINDINGS := 2
 ## Default controller bindings, action -> one code: "j<joypad button>", or "a<axis>+" / "a<axis>-"
 ## for a stick direction or a trigger. Godot's SDL layout (Xbox names): buttons A 0, B 1, X 2, Y 3,
 ## Back 4, Start 6, L3 7, R3 8, LB 9, RB 10, D-pad up/down/left/right 11-14; axes: left stick 0 (x)
-## and 1 (y, down is +), right stick 2 and 3, LT 4, RT 5. A pad has 24 inputs for 37 actions, so
-## the direct weapon slots, last/previous weapon, peeking and chat have no default (Y cycles the
-## weapons); the player can bind them. Start is the pause button and can't be rebound.
+## and 1 (y, down is +), right stick 2 and 3, LT 4, RT 5. A pad has 24 inputs for 38 actions, so
+## the direct weapon slots, last/previous weapon, peeking, chat and weapon inspect have no default
+## (Y cycles the weapons; every button is taken and inspect can't share one); the player can bind
+## them. Start is the pause button and can't be rebound.
 const DEFAULT_PAD_BINDINGS := {
 	"move_forward": "a1-", "move_back": "a1+", "move_left": "a0-", "move_right": "a0+",
 	"look_up": "a3-", "look_down": "a3+", "look_left": "a2-", "look_right": "a2+",

@@ -92,6 +92,11 @@ var _sprint := 0.0
 var _slash_left := 0.0
 var _slash_side := 1.0
 var _throw_left := 0.0
+## Weapon inspect (Player.FLAG_INSPECT, set_inspect): `_inspect` blends the gun up in front of the
+## chest and turns it side to side over `_inspect_t` seconds; switched off it eases back.
+var _inspect_on := false
+var _inspect := 0.0
+var _inspect_t := 0.0
 
 
 ## Builds the rig. Called by Models.build_avatar().
@@ -190,7 +195,17 @@ func animate(delta: float, speed: float, on_floor: bool, crouching: bool, prone:
 		_slash_left = maxf(0.0, _slash_left - delta)
 	if _throw_left > 0.0:
 		_throw_left = maxf(0.0, _throw_left - delta)
+	_inspect = move_toward(_inspect, 1.0 if _inspect_on else 0.0, delta * 4.0)
+	if _inspect > 0.0:
+		_inspect_t += delta
 	_apply_pose()
+
+
+## Third-person weapon inspect on / off (remote players: their FLAG_INSPECT state flag).
+func set_inspect(on: bool) -> void:
+	if on and not _inspect_on and _inspect <= 0.0:
+		_inspect_t = 0.0
+	_inspect_on = on
 
 
 ## Third-person knife slash (or quick melee): the right arm sweeps across the body,
@@ -305,6 +320,8 @@ func reset_pose() -> void:
 	_sprint = 0.0
 	_slash_left = 0.0
 	_throw_left = 0.0
+	_inspect_on = false
+	_inspect = 0.0
 	_twist = _twist_target
 	_set_flash(false)
 	_apply_pose()
@@ -611,8 +628,13 @@ func _apply_pose() -> void:
 	var bob := Vector3(0.0, -absf(sin(_phase)) * 0.02 * _swing + 0.015 * _recoil, 0.07 * _recoil)
 	var r := _reload_envelope()
 	var reload_tilt := Basis(Vector3.RIGHT, -0.55 * r) * Basis(Vector3.BACK, 0.6 * r)
-	var mount := Transform3D(inv * aim * Basis(Vector3.RIGHT, 0.2 * _recoil) * reload_tilt,
-		inv * (center + aim * (_grip + bob + Vector3(-0.05, -0.08, 0.1) * r)))
+	# Inspect: the gun comes up in front of the chest, its side turned toward the face, and swings
+	# slowly from one side to the other.
+	var ins := _inspect * _inspect * (3.0 - 2.0 * _inspect)
+	var ins_turn := Basis(Vector3.UP, (0.9 + 0.6 * sin(_inspect_t * 2.1)) * ins) * Basis(Vector3.BACK, 0.45 * ins) \
+		* Basis(Vector3.RIGHT, 0.3 * ins)
+	var mount := Transform3D(inv * aim * Basis(Vector3.RIGHT, 0.2 * _recoil) * reload_tilt * ins_turn,
+		inv * (center + aim * (_grip + bob + Vector3(-0.05, -0.08, 0.1) * r + Vector3(-0.12, 0.12, 0.14) * ins)))
 	var slash := _slash_amount()
 	if slash.x != 0.0 or slash.y != 0.0:
 		# Swing the whole hold around the right shoulder: across the body and downward.

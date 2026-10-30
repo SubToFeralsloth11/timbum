@@ -39,7 +39,8 @@ const GAME_ID := "timbum"
 ## 14: the pre-match lobby (Net lobby RPCs) and the results screen's next-map vote.
 ## 15: spectators (`spectator` in peer_info, Net spectate RPCs).
 ## 16: loadout presets (World._s_loadout: a loadout picked while dead applies at the respawn).
-const PROTOCOL_VERSION := 16
+## 17: weapon inspect (Player.FLAG_INSPECT, bit 20 of the state flags).
+const PROTOCOL_VERSION := 17
 const CONNECT_TIMEOUT := 8.0
 ## A room-code join first tries a direct (NAT punch-through) link this long, then the relay.
 const NAT_CONNECT_TIMEOUT := 6.0

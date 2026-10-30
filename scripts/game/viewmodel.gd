@@ -95,6 +95,28 @@ const THROW_TIME := 0.5
 const SLASH_START := [Vector3(0.07, 0.07, 0.05), Vector3(0.35, -0.55, -0.55)]
 const SLASH_END := [Vector3(-0.2, -0.1, -0.1), Vector3(-0.5, 0.8, 0.75)]
 const TRAIL_POINTS := 7
+## Weapon inspect (Player.inspect_left): INSPECT_TIME seconds. A gun is raised and turned to show
+## its left side (skin, charm), rolled over to show the top and the other side, then brought back
+## to ready; the knife does a flourish instead (two flips over the hand, a spin, then the blade
+## turned to the camera). Keyframes are [progress, pivot offset, pivot rotation], eased between
+## neighbours (inspect_pose).
+const INSPECT_TIME := 3.0
+const INSPECT_GUN_KEYS := [
+	[0.0, Vector3.ZERO, Vector3.ZERO],
+	[0.17, Vector3(-0.1, 0.06, 0.06), Vector3(0.12, 1.0, 0.3)],
+	[0.42, Vector3(-0.11, 0.07, 0.05), Vector3(0.2, 1.12, 0.38)],
+	[0.6, Vector3(-0.08, 0.08, 0.03), Vector3(0.5, -0.45, -0.95)],
+	[0.83, Vector3(-0.07, 0.09, 0.03), Vector3(0.58, -0.55, -1.05)],
+	[1.0, Vector3.ZERO, Vector3.ZERO],
+]
+const INSPECT_KNIFE_KEYS := [
+	[0.0, Vector3.ZERO, Vector3.ZERO],
+	[0.12, Vector3(-0.09, 0.07, 0.02), Vector3(0.25, 0.3, 0.2)],
+	[0.6, Vector3(-0.1, 0.08, 0.02), Vector3(0.3, 0.35, 0.25)],
+	[0.72, Vector3(-0.12, 0.08, 0.04), Vector3(0.2, 1.2, 0.5)],
+	[0.88, Vector3(-0.12, 0.08, 0.04), Vector3(0.25, 1.3, 0.55)],
+	[1.0, Vector3.ZERO, Vector3.ZERO],
+]
 
 const TRAIL_SHADER := """
 shader_type spatial;
@@ -160,6 +182,7 @@ var _mag_box: BoxMesh
 var _mag_weapon := ""
 ## True while a reload animation has the left hand off its support point.
 var _hand_busy := false
+var _inspect_t := 0.0
 
 
 func setup(outfit_id: String, skin_id: String, charm_id := "none", draw_style := "standard", camos: Array = []) -> void:
@@ -231,6 +254,11 @@ func _compute_ads_pos() -> Vector3:
 
 func muzzle_position() -> Vector3:
 	return _muzzle.global_position if _muzzle != null else global_position
+
+
+## The muzzle's world transform (-Z along the barrel), for the laser during an inspect.
+func muzzle_transform() -> Transform3D:
+	return _muzzle.global_transform if _muzzle != null else global_transform
 
 
 func add_sway(rel: Vector2) -> void:
@@ -334,6 +362,20 @@ func play_throw() -> void:
 	_throw_t = THROW_TIME
 
 
+## Starts the INSPECT_TIME weapon inspect (Player.start_inspect).
+func play_inspect() -> void:
+	_inspect_t = INSPECT_TIME
+
+
+## Ends an inspect at once (fire, aim, reload, switch, sprint, melee, a throw cancel it).
+func stop_inspect() -> void:
+	_inspect_t = 0.0
+
+
+func is_inspecting() -> bool:
+	return _inspect_t > 0.0
+
+
 ## Takes the gun out over `length` seconds (the switch time) in the equipped draw style. Every
 ## style ends exactly at `length`, so none of them delays the first shot.
 func play_draw(length := 0.3) -> void:
@@ -358,6 +400,7 @@ func pose(delta: float, ads: float, sprinting: bool, sliding: bool, grappling: b
 	_draw_t = maxf(0.0, _draw_t - delta)
 	_melee_t = maxf(0.0, _melee_t - delta)
 	_throw_t = maxf(0.0, _throw_t - delta)
+	_inspect_t = maxf(0.0, _inspect_t - delta)
 	_land_kick = move_toward(_land_kick, 0.0, delta * 4.0)
 	_breath_t += delta
 	_sprint_blend = move_toward(_sprint_blend, 1.0 if sprinting else 0.0, delta * 6.0)
@@ -423,6 +466,12 @@ func pose(delta: float, ads: float, sprinting: bool, sliding: bool, grappling: b
 		rot += dpose[1]
 		if _gun != null:
 			_gun.transform = dpose[2]
+	elif _inspect_t > 0.0:
+		var ipose := inspect_pose(_weapon == "knife", 1.0 - _inspect_t / INSPECT_TIME)
+		pos += ipose[0]
+		rot += ipose[1]
+		if _gun != null:
+			_gun.transform = ipose[2]
 	elif _gun != null and _gun.transform != Transform3D.IDENTITY:
 		_gun.transform = Transform3D.IDENTITY
 	if _melee_t > 0.0:
@@ -500,6 +549,30 @@ static func draw_pose(style: String, d: float) -> Array:
 			pos.y -= d * d * 0.28
 			rot.x -= d * 0.6
 			rot.z += d * d * 0.5
+	return [pos, rot, gun]
+
+
+## Inspect at progress `u` (0..1): [pivot offset, pivot rotation, gun transform under the hand].
+## Guns turn with the whole hold (both hands stay on); the knife also flips and spins in the hand.
+static func inspect_pose(knife: bool, u: float) -> Array:
+	var keys: Array = INSPECT_KNIFE_KEYS if knife else INSPECT_GUN_KEYS
+	var pos := Vector3.ZERO
+	var rot := Vector3.ZERO
+	for i in range(1, keys.size()):
+		if u <= float(keys[i][0]) or i == keys.size() - 1:
+			var a: Array = keys[i - 1]
+			var b: Array = keys[i]
+			var t := smoothstep(float(a[0]), float(b[0]), u)
+			pos = (a[1] as Vector3).lerp(b[1], t)
+			rot = (a[2] as Vector3).lerp(b[2], t)
+			break
+	var gun := Transform3D.IDENTITY
+	if knife:
+		# Two flips end over end with a little toss, then one spin around the blade.
+		var flips := smoothstep(0.14, 0.48, u)
+		var spin := smoothstep(0.5, 0.68, u)
+		var toss := sin(flips * PI) * 0.07
+		gun = Transform3D(Basis(Vector3.RIGHT, -TAU * 2.0 * flips) * Basis(Vector3.FORWARD, TAU * spin), Vector3(0.0, toss, 0.0))
 	return [pos, rot, gun]
 
 
