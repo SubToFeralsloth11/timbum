@@ -1604,8 +1604,9 @@ func _clear_intent() -> void:
 
 ## The camera rises behind the corpse, on the side away from the killer, and turns to keep the
 ## killer in frame (zooming in when they are far away) until respawn. Without a killer it
-## looks down at the corpse; so does it while a wall hides the killer from both the raised eye
-## and the corpse's own head, so the killer is never framed through scenery.
+## looks down at the corpse; so does it whenever a wall stands between the camera itself and the
+## killer (checked every frame from where the camera is, also while it moves between the raised
+## eye and the corpse's head), cutting away at once, so the killer is never framed through scenery.
 func _start_death_cam(killer: Player) -> void:
 	var start := camera.global_transform
 	camera.top_level = true
@@ -1632,24 +1633,27 @@ func _update_death_cam(delta: float) -> void:
 	var focus := global_position + Vector3.UP * 0.6
 	var base_fov := float(Profile.get_setting("fov"))
 	var target_fov := base_fov
-	var watching_killer := false
-	if _death_cam_target != null and is_instance_valid(_death_cam_target):
-		var killer_pos := _death_cam_target.global_position + Vector3.UP * 1.1
-		# Seen from the raised eye, else from where the player fell, else watch the corpse.
-		for from: Vector3 in [eye, global_position + Vector3.UP * 1.6]:
-			if _clear_line(from, killer_pos):
-				eye = from
-				focus = killer_pos
-				watching_killer = true
-				break
+	var has_killer := _death_cam_target != null and is_instance_valid(_death_cam_target)
+	var killer_pos := Vector3.ZERO
+	if has_killer:
+		killer_pos = _death_cam_target.global_position + Vector3.UP * 1.1
+		# Settle at the raised eye if it sees the killer, else where the player fell if that does.
+		var fell_eye := global_position + Vector3.UP * 1.6
+		if not _clear_line(eye, killer_pos) and _clear_line(fell_eye, killer_pos):
+			eye = fell_eye
 	var pos := camera.global_position.lerp(eye, k)
-	if watching_killer:
+	# The camera may be on its way between the two spots, so the line is checked from where it is.
+	var watching := has_killer and _clear_line(pos, killer_pos)
+	if watching:
+		focus = killer_pos
 		# Frame about 7 m around the killer vertically, so a distant one is still recognisable.
 		target_fov = clampf(rad_to_deg(2.0 * atan(3.5 / maxf(0.1, pos.distance_to(focus)))), 24.0, base_fov)
+	# A killer out of sight: look straight at the corpse instead of turning away through the wall.
+	var turn := k if watching or not has_killer else 1.0
 	if pos.distance_squared_to(focus) < 0.01:
 		return
 	var look := Transform3D(Basis.IDENTITY, pos).looking_at(focus, Vector3.UP)
-	var rot := camera.global_basis.get_rotation_quaternion().slerp(look.basis.get_rotation_quaternion(), k)
+	var rot := camera.global_basis.get_rotation_quaternion().slerp(look.basis.get_rotation_quaternion(), turn)
 	camera.global_transform = Transform3D(Basis(rot), pos)
 	camera.fov = lerpf(camera.fov, target_fov, minf(1.0, delta * 3.0))
 
