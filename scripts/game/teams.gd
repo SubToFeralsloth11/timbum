@@ -129,6 +129,9 @@ static func set_armbands(p: Player, col: Color) -> void:
 			mi.position = Vector3(0.0, -0.12, 0.0)
 			mount.add_child(mi)
 		mi.mesh = band
+	# New meshes join the avatar's geometry list so a first-person body (the local player, or the
+	# player a spectator follows) keeps them shadow-only instead of floating in front of the camera.
+	p.avatar._refresh_geoms()
 
 
 ## The local player's team is only known once its own entity arrives (after others may have),
