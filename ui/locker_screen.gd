@@ -15,6 +15,7 @@ const ROWS: Array = [
 	["charms", "GUN CHARM", "charm"],
 	["draws", "DRAW ANIMATION", "draw"],
 	["emotes", "WIN EMOTE", "emote"],
+	["sprays", "SPRAY", "spray"],
 ]
 ## ROWS before this index are loadout, the rest style.
 const STYLE_START := 3
@@ -229,7 +230,10 @@ func _fill_pickers() -> void:
 		o.clear()
 		var ids := owned_ids(row[0], key)
 		for id in ids:
-			o.add_item(String(Data.catalog(row[0])[id].name))
+			if row[0] == "sprays":
+				o.add_icon_item(SprayArt.icon(id), String(Data.SPRAYS[id].name))
+			else:
+				o.add_item(String(Data.catalog(row[0])[id].name))
 			o.set_item_metadata(o.item_count - 1, id)
 		o.select(ids.find(_current(key)))
 

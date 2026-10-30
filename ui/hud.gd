@@ -1424,6 +1424,13 @@ func _on_invite_changed() -> void:
 		announce("ROOM CODE READY  ·  ESC TO COPY IT")
 
 
+## A short line where pickups are announced (green, or red when `good` is false).
+func small_message(text: String, good := true) -> void:
+	_pickup_label.text = text
+	_pickup_label.add_theme_color_override("font_color", Color(0.6, 1.0, 0.6) if good else Color(1.0, 0.45, 0.4))
+	_pickup_t = 1.6
+
+
 func pickup_message(kind: String) -> void:
 	var color := Color(0.6, 1.0, 0.6)
 	match kind:

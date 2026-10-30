@@ -97,9 +97,9 @@ var loadout := DEFAULT_LOADOUT.duplicate()
 const LOADOUT_PRESET_COUNT := 3
 var loadout_presets: Array = fresh_presets(DEFAULT_LOADOUT)
 var active_preset := 0
-const DEFAULT_EQUIPPED := {"skin": "default", "hat": "none", "outfit": "classic", "charm": "none", "emote": "wave", "draw": "standard"}
+const DEFAULT_EQUIPPED := {"skin": "default", "hat": "none", "outfit": "classic", "charm": "none", "emote": "wave", "draw": "standard", "spray": "gg"}
 ## Equipped slot -> catalog category.
-const EQUIP_SLOTS := {"skin": "skins", "hat": "hats", "outfit": "outfits", "charm": "charms", "emote": "emotes", "draw": "draws"}
+const EQUIP_SLOTS := {"skin": "skins", "hat": "hats", "outfit": "outfits", "charm": "charms", "emote": "emotes", "draw": "draws", "spray": "sprays"}
 var equipped := DEFAULT_EQUIPPED.duplicate()
 ## Attachment id -> level bought (see Data.ATTACHMENTS); missing means 0.
 var upgrades := {}
@@ -251,6 +251,7 @@ func peer_info() -> Dictionary:
 		"charm": equipped.charm,
 		"emote": equipped.emote,
 		"draw": equipped.draw,
+		"spray": equipped.spray,
 		"mods": upgrades.duplicate(),
 		"primary": loadout.primary,
 		"secondary": loadout.secondary,
@@ -1240,7 +1241,7 @@ const DEFAULT_BINDINGS := {
 	"interact": ["k%d" % KEY_B], "tactical_map": ["k%d" % KEY_M],
 	"scoreboard": ["k%d" % KEY_TAB], "chat": ["k%d" % KEY_T, "k%d" % KEY_ENTER],
 	"skip_killcam": ["k%d" % KEY_K],
-	"spectate_view": ["k%d" % KEY_N], "photo_mode": ["k%d" % KEY_P], "inspect": ["k%d" % KEY_I],
+	"spectate_view": ["k%d" % KEY_N], "photo_mode": ["k%d" % KEY_P], "inspect": ["k%d" % KEY_I], "spray": ["k%d" % KEY_Y],
 	"pause": ["k%d" % KEY_ESCAPE],
 }
 ## Keyboard/mouse bindings per action; at most this many codes each.
@@ -1249,10 +1250,10 @@ const MAX_BINDINGS := 2
 ## Default controller bindings, action -> one code: "j<joypad button>", or "a<axis>+" / "a<axis>-"
 ## for a stick direction or a trigger. Godot's SDL layout (Xbox names): buttons A 0, B 1, X 2, Y 3,
 ## Back 4, Start 6, L3 7, R3 8, LB 9, RB 10, D-pad up/down/left/right 11-14; axes: left stick 0 (x)
-## and 1 (y, down is +), right stick 2 and 3, LT 4, RT 5. A pad has 24 inputs for 38 actions, so
-## the direct weapon slots, last/previous weapon, peeking, chat and weapon inspect have no default
-## (Y cycles the weapons; every button is taken and inspect can't share one); the player can bind
-## them. Start is the pause button and can't be rebound.
+## and 1 (y, down is +), right stick 2 and 3, LT 4, RT 5. A pad has 24 inputs for 39 actions, so
+## the direct weapon slots, last/previous weapon, peeking, chat, weapon inspect and spray have no
+## default (Y cycles the weapons; every button is taken and neither can share one); the player can
+## bind them. Start is the pause button and can't be rebound.
 const DEFAULT_PAD_BINDINGS := {
 	"move_forward": "a1-", "move_back": "a1+", "move_left": "a0-", "move_right": "a0+",
 	"look_up": "a3-", "look_down": "a3+", "look_left": "a2-", "look_right": "a2+",

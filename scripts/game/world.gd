@@ -51,6 +51,8 @@ var tactical: Tactical
 var streaks: Streaks
 ## Quick pings (child "Pings"; idle outside team modes).
 var pings: Pings
+## Sprays on the walls (child "Sprays").
+var sprays: Sprays
 ## Kill cam replay (records on every peer; plays when another player kills the local player).
 var killcam: KillCam
 ## Spectating: a spectator's free / follow camera, or a dead player following teammates (Tactical).
@@ -161,6 +163,9 @@ func _ready() -> void:
 	pings = Pings.new()
 	pings.world = self
 	add_child(pings)
+	sprays = Sprays.new()
+	sprays.world = self
+	add_child(sprays)
 	killcam = KillCam.new()
 	killcam.name = "KillCam"
 	killcam.world = self
@@ -1064,6 +1069,7 @@ func _c_ready() -> void:
 	for i in pickup_nodes.size():
 		if not pickup_nodes[i].active:
 			_s_pickup_state.rpc_id(pid, i, false, _pickup_ready_at[i] - now())
+	sprays.server_sync(pid)
 	if match_over:
 		_s_match_end.rpc_id(pid, results, next_up, maxf(0.0, _results_until - now()))
 		_server_tally_maps()

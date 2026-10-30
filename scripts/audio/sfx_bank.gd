@@ -15,7 +15,7 @@ const NAMES: Array[StringName] = [
 	&"shot_shotgun", &"shot_sniper", &"shot_lmg", &"shot_rocket", &"explosion",
 	&"shot_suppressed", &"shot_dmr", &"slide", &"grapple_fire", &"smoke_pop", &"flashbang",
 	&"streak_reward", &"radar_sweep", &"shield_hit", &"shield_break", &"bomber_warning",
-	&"ping", &"ping_enemy",
+	&"ping", &"ping_enemy", &"spray", &"jump_pad",
 ]
 
 ## Sounds rendered in several takes; one is picked at random per play.
@@ -35,7 +35,7 @@ const GAIN_DB := {
 	&"shot_suppressed": -6.0, &"shot_dmr": -1.0, &"slide": -9.0, &"grapple_fire": -6.0,
 	&"smoke_pop": -5.0, &"flashbang": 0.0,
 	&"streak_reward": -4.0, &"radar_sweep": -6.0, &"shield_hit": -7.0, &"shield_break": -4.0,
-	&"bomber_warning": -3.0, &"ping": -8.0, &"ping_enemy": -6.0,
+	&"bomber_warning": -3.0, &"ping": -8.0, &"ping_enemy": -6.0, &"spray": -8.0, &"jump_pad": -5.0,
 }
 
 ## Reference distance (m) for positional playback: loud sounds carry across a ~60 m map,
@@ -47,7 +47,7 @@ const UNIT_SIZE := {
 	&"whizz": 3.0, &"grenade_bounce": 6.0, &"reload": 4.0, &"dry_fire": 3.0, &"weapon_switch": 3.0,
 	&"shot_suppressed": 5.0, &"shot_dmr": 20.0, &"slide": 5.0, &"grapple_fire": 6.0,
 	&"smoke_pop": 10.0, &"flashbang": 24.0, &"shield_hit": 6.0, &"shield_break": 8.0,
-	&"bomber_warning": 30.0,
+	&"bomber_warning": 30.0, &"spray": 4.0, &"jump_pad": 12.0,
 }
 const DEFAULT_UNIT_SIZE := 7.0
 
@@ -430,6 +430,20 @@ static func _render_one(sound: StringName, v: int, rng: RandomNumberGenerator) -
 			for k in 2:
 				Synth.tone(b, k * 0.13, 0.11, 1760.0, 1480.0, 0.4, W.SQUARE, 0.002, 0.05, 0.3)
 			Synth.lowpass(b, 5000.0)
+			return b
+		&"jump_pad":
+			# A springy thump and a rising whoosh.
+			var b := Synth.make(0.5)
+			Synth.tone(b, 0.0, 0.12, 90.0, 180.0, 0.8, W.SINE, 0.001, 0.05)
+			Synth.tone(b, 0.0, 0.3, 300.0, 900.0, 0.3, W.TRIANGLE, 0.005, 0.12)
+			Synth.noise(b, rng, 0.02, 0.4, 0.4, 1500.0, 5000.0, 400.0, 0.03, 0.15)
+			return b
+		&"spray":
+			# A can rattled twice, then a short hiss of paint.
+			var b := Synth.make(0.62)
+			for k in 2:
+				Synth.click(b, rng, k * 0.07, 0.35, 3200.0)
+			Synth.noise(b, rng, 0.15, 0.45, 0.6, 9000.0, 7000.0, 2500.0, 0.02, 0.12)
 			return b
 	return Synth.make(0.01)
 

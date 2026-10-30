@@ -1,7 +1,7 @@
 extends Node
 ## Static game catalogs: weapons, cosmetics, maps. Pure data, no state.
 
-const CATEGORIES: Array[String] = ["weapons", "skins", "hats", "outfits", "charms", "emotes", "draws"]
+const CATEGORIES: Array[String] = ["weapons", "skins", "hats", "outfits", "charms", "emotes", "draws", "sprays"]
 
 ## Weapon fields:
 ##   slot: "primary" | "secondary" | "melee"
@@ -302,6 +302,21 @@ const DRAWS := {
 	"toss": {"name": "Toss & Catch", "price": 750, "desc": "Thrown up end over end and caught."},
 }
 
+## Sprays: pixel-art stickers a player paints on a wall with the `spray` key (Sprays, art in
+## SprayArt.ART). The free one is the default.
+const SPRAYS := {
+	"gg": {"name": "GG", "price": 0, "desc": "Good game. Say it on the wall."},
+	"heart": {"name": "Heart", "price": 150, "desc": "A little love for the map."},
+	"smile": {"name": "Smiley", "price": 150, "desc": "Have a nice day."},
+	"star": {"name": "Gold Star", "price": 200, "desc": "For a job well done."},
+	"bolt": {"name": "Bolt", "price": 250, "desc": "Fast in, fast out."},
+	"skull": {"name": "Skull", "price": 300, "desc": "Marks a spot nobody should walk through."},
+	"ghost": {"name": "Ghost", "price": 300, "desc": "You never saw who left it."},
+	"flame": {"name": "Flame", "price": 350, "desc": "On fire."},
+	"crown": {"name": "Crown", "price": 450, "desc": "King of the block."},
+	"cube": {"name": "Timbum Cube", "price": 600, "desc": "The block everything is built from."},
+}
+
 ## Attachment upgrades apply to every gun and are bought one level at a time; each level costs
 ## more than the last (Profile.upgrade_price). `per_level` is the fraction each level adds (or
 ## takes away for reductions); `max` levels. Effects are read through Player.mod().
@@ -581,6 +596,7 @@ func catalog(category: String) -> Dictionary:
 		"charms": return CHARMS
 		"emotes": return EMOTES
 		"draws": return DRAWS
+		"sprays": return SPRAYS
 	push_error("Unknown catalog category: %s" % category)
 	return {}
 

@@ -6,12 +6,14 @@ extends MenuScreen
 ## time, each dearer than the last, applying to every gun.
 
 const TABS: Array = [["weapons", "GUNS"], ["skins", "SKINS"], ["hats", "HATS"], ["outfits", "OUTFITS"],
-	["charms", "CHARMS"], ["emotes", "WIN EMOTES"], ["draws", "DRAWS"], ["attachments", "ATTACHMENTS"]]
+	["charms", "CHARMS"], ["emotes", "WIN EMOTES"], ["draws", "DRAWS"], ["sprays", "SPRAYS"], ["attachments", "ATTACHMENTS"]]
 const CARD_WIDTH := 200.0
 ## Gun pointing right, angled a little towards the camera.
 const GUN_YAW := -PI * 0.5 - 0.3
 ## Characters and hats face -Z; turn them to face the camera, three-quarter view.
 const FRONT_YAW := PI - 0.45
+## Spray tiles face the camera straight on.
+const SPRAY_YAW := PI
 ## Moment of each win emote shown on its card.
 const EMOTE_ICON_TIME := {"wave": 0.15, "flex": 0.3, "dance": 0.2, "salute": 1.0, "dab": 0.5,
 	"spin": 0.0, "jumps": 0.39, "backflip": 0.75, "chicken": 0.1}
@@ -245,6 +247,8 @@ func _thumb_builder(cat: String, id: String) -> Callable:
 				return a
 		"draws":
 			return func() -> Node3D: return DrawPreview.create(id, "revolver", "default", "none", 0.45)
+		"sprays":
+			return func() -> Node3D: return Models.build_spray(id)
 		"attachments":
 			return func() -> Node3D: return Models.build_attachment(id)
 	return Callable()
@@ -311,6 +315,8 @@ func _select(id: String) -> void:
 
 
 func _yaw_for(cat: String) -> float:
+	if cat == "sprays":
+		return SPRAY_YAW
 	return GUN_YAW if cat in ["weapons", "skins", "charms", "draws", "attachments"] else FRONT_YAW
 
 
@@ -338,6 +344,8 @@ func _preview_model(cat: String, id: String) -> Node3D:
 			return dancer
 		"draws":
 			return DrawPreview.create(id, Profile.loadout.secondary, Profile.gun_skin(Profile.loadout.secondary), Profile.equipped.charm)
+		"sprays":
+			return Models.build_spray(id)
 		"attachments":
 			return Models.build_attachment(id)
 	return null
@@ -383,6 +391,8 @@ func _refresh_detail() -> void:
 			_kind.text = "WIN EMOTE · PLAYED WHEN YOU WIN A MATCH"
 		"draws":
 			_kind.text = "DRAW ANIMATION · LOOKS ONLY, NEVER SLOWER"
+		"sprays":
+			_kind.text = "SPRAY · PAINT IT ON A WALL WITH %s" % Profile.key_text("spray")
 	var owned := Profile.is_owned(cat, id)
 	var equipped := _is_equipped(id)
 	var price := Profile.price_of(cat, id)

@@ -40,7 +40,9 @@ const GAME_ID := "timbum"
 ## 15: spectators (`spectator` in peer_info, Net spectate RPCs).
 ## 16: loadout presets (World._s_loadout: a loadout picked while dead applies at the respawn).
 ## 17: weapon inspect (Player.FLAG_INSPECT, bit 20 of the state flags).
-const PROTOCOL_VERSION := 17
+## 18: sprays (`spray` in peer_info, Sprays RPCs).
+## 19: jump pads on the deathmatch maps (map geometry and navigation links).
+const PROTOCOL_VERSION := 19
 const CONNECT_TIMEOUT := 8.0
 ## A room-code join first tries a direct (NAT punch-through) link this long, then the relay.
 const NAT_CONNECT_TIMEOUT := 6.0
@@ -898,6 +900,7 @@ static func sanitize_info(info: Dictionary) -> Dictionary:
 		"charm": str(info.get("charm", "none")),
 		"emote": str(info.get("emote", "wave")),
 		"draw": str(info.get("draw", "standard")),
+		"spray": str(info.get("spray", "gg")),
 		"mods": {},
 		"level": clampi(int(info.get("level", 1)), 1, 9999),
 		"prestige": clampi(int(info.get("prestige", 0)) if typeof(info.get("prestige", 0)) in [TYPE_INT, TYPE_FLOAT] else 0, 0, Data.PRESTIGE_MAX),
@@ -922,6 +925,7 @@ static func sanitize_info(info: Dictionary) -> Dictionary:
 	if not Data.CHARMS.has(clean.charm): clean.charm = "none"
 	if not Data.EMOTES.has(clean.emote): clean.emote = "wave"
 	if not Data.DRAWS.has(clean.draw): clean.draw = "standard"
+	if not Data.SPRAYS.has(clean.spray): clean.spray = "gg"
 	# Mastery camos: known weapon ids, each once (the Gold unlock is the player's own profile's).
 	var camos: Variant = info.get("camos", [])
 	if typeof(camos) == TYPE_ARRAY:

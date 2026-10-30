@@ -113,6 +113,30 @@ static func build_attachment(attachment_id: String) -> Node3D:
 	return root
 
 
+## Shop model of spray `id`: the sticker on a small concrete tile, facing -Z like the avatars.
+static func build_spray(id: String) -> Node3D:
+	var root := Node3D.new()
+	root.name = "Spray"
+	var tile := MeshInstance3D.new()
+	var box := BoxMesh.new()
+	box.size = Vector3(0.8, 0.8, 0.08)
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.55, 0.56, 0.58)
+	mat.roughness = 0.9
+	box.material = mat
+	tile.mesh = box
+	root.add_child(tile)
+	var art := Sprite3D.new()
+	art.texture = SprayArt.texture(id)
+	art.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+	art.pixel_size = 0.7 / (SprayArt.SIZE * SprayArt.UPSCALE)
+	art.shaded = true
+	art.rotation.y = PI
+	art.position.z = -0.045
+	root.add_child(art)
+	return root
+
+
 static func _attachment_mesh(attachment_id: String) -> ArrayMesh:
 	var key := "attachment/" + attachment_id
 	if _meshes.has(key):
