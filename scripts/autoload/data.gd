@@ -349,7 +349,7 @@ const MUTATORS := {
 	"big_heads": {"name": "Big Heads", "desc": "Huge heads, huge headshot targets."},
 	"vampire": {"name": "Vampire", "desc": "Every kill heals you to full."},
 	"rocket_party": {"name": "Rocket Party", "desc": "Everyone spawns with the Boom Block. Your own primary is the backup."},
-	"snipers": {"name": "Snipers Only", "desc": "Everyone's primary is the Voxel Longshot."},
+	"snipers": {"name": "Snipers Only", "desc": "Everyone spawns with the Voxel Longshot. Your own primary is the backup."},
 	"glass_cannon": {"name": "Glass Cannon", "desc": "All damage is doubled. Think fast."},
 }
 const TIMES_OF_DAY: Array[String] = ["day", "day", "sunset", "night"]

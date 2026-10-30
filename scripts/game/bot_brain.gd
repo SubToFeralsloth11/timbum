@@ -38,6 +38,11 @@ const SNIPER_SETTLE := [1.8, 1.3, 0.9]
 ## How fast (1/s, exponential) the aim error drifts toward its next goal: ~90% of the way in 0.33 s.
 const AIM_DRIFT_RATE := 7.0
 const DRIFT_ERROR_SCALE := 1.12
+## Long guns (the Snipers Only / Rocket Party primaries) are for range: inside this distance (m)
+## a bot switches to its secondary, the backup gun, and back once the target is this far plus
+## LONG_GUN_SLACK away (so it doesn't flip-flop at the edge).
+const LONG_GUN_CLOSE := {"sniper": 12.0, "rocket": 9.0}
+const LONG_GUN_SLACK := 3.0
 ## Flinch on taking damage: aim error jumps by FLINCH_PEAK (x2.1) and settles linearly over
 ## FLINCH_TIME, so the bot recovers its aim instead of snapping back.
 const FLINCH_TIME := 0.5
@@ -356,8 +361,14 @@ func _choose_weapon() -> void:
 		want = 1
 	if want == 1 and sa.x + sa.y == 0:
 		want = 2
-	if primary == "rocket" and dist < 6.0:
-		want = 1 if sa.x + sa.y > 0 else 2
+	var close: float = LONG_GUN_CLOSE.get(primary, -1.0)
+	if want == 0 and close > 0.0:
+		if p.current_slot == 1:
+			close += LONG_GUN_SLACK
+		if dist < close and sa.x + sa.y > 0:
+			want = 1
+		elif dist < 6.0 and primary == "rocket":
+			want = 2
 	var reacted := target != null and _target_visible and _reaction_left <= 0.0
 	if reacted and dist < 2.2 and difficulty > 0 and p.current_slot != 2 and target.protection_left() <= 0.0:
 		p.in_melee = p.melee_timer <= 0.0 and randf() < 0.06

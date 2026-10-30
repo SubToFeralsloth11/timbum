@@ -22,6 +22,8 @@ const PICKUP_RADIUS := 1.3
 const HEALTH_PICKUP := 50.0
 const MULTI_KILL_WINDOW := 3.5
 const MAX_CHAT_LENGTH := 100
+## Mutator id -> the gun it hands everyone as their primary (`_apply_loadout_mutator`).
+const LOADOUT_MUTATORS := {"rocket_party": "rocket", "snipers": "sniper"}
 
 var map_info: MapInfo
 ## entity id -> Player. Humans use their peer id; bots use negative ids.
@@ -1348,20 +1350,18 @@ func _s_skip_votes(votes: int, needed: int) -> void:
 
 # ================================================================ helpers
 
-## Rocket Party hands everyone the Boom Block and keeps their own primary as the backup in place
-## of the sidearm, so the gun they bought still matters. Snipers Only swaps the primary for the
-## Voxel Longshot and keeps the sidearm.
+## Loadout mutators hand everyone the mutator's gun as the primary and keep their own primary as
+## the backup in place of the sidearm, so the gun they bought still matters (a player whose own
+## primary already is that gun keeps their sidearm). Rocket Party: the Boom Block; Snipers Only:
+## the Voxel Longshot.
 static func _apply_loadout_mutator(info: Dictionary) -> Dictionary:
-	var out := info
-	match str(Net.config.mutator):
-		"rocket_party":
-			out = info.duplicate()
-			out.primary = "rocket"
-			if str(info.primary) != "rocket":
-				out.secondary = info.primary
-		"snipers":
-			out = info.duplicate()
-			out.primary = "sniper"
+	var gun: String = LOADOUT_MUTATORS.get(str(Net.config.mutator), "")
+	if gun.is_empty():
+		return info
+	var out := info.duplicate()
+	out.primary = gun
+	if str(info.primary) != gun:
+		out.secondary = info.primary
 	return out
 
 
