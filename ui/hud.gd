@@ -160,7 +160,6 @@ var _scores_dirty := true
 const FEAT_TOAST_LIFE := 5.0
 ## Last entity to hold the lead outright (0 before anyone has); lead changes involving us are announced.
 var _last_leader := 0
-var _crosshair_color := Color.WHITE
 ## Each entry: [label, anchor pos, age, total damage, any headshot].
 var _damage_numbers: Array = []
 const DAMAGE_NUMBER_LIFE := 0.8
@@ -246,8 +245,7 @@ func _ready() -> void:
 	# Tactical opens on its planning banner and floor plan instead.
 	if not Tactical.is_active():
 		_show_match_intro()
-	_refresh_crosshair_color()
-	Profile.changed.connect(_refresh_crosshair_color)
+	Profile.changed.connect(_crosshair.load_style)
 	_refresh_palette()
 	Profile.changed.connect(_refresh_palette)
 
@@ -258,11 +256,6 @@ func _ready() -> void:
 	_pause.process_mode = Node.PROCESS_MODE_ALWAYS
 	_pause.resume_requested.connect(_close_pause)
 	add_child(_pause)
-
-
-func _refresh_crosshair_color() -> void:
-	var html := str(Profile.get_setting("crosshair_color"))
-	_crosshair_color = Color.html(html) if Color.html_is_valid(html) else Color.WHITE
 
 
 ## Team colours and shapes in the top panel, and the shield colour. When the colour mode changes
@@ -894,7 +887,6 @@ func _process(delta: float) -> void:
 	_crosshair.show_lines = (not scoped and p.aim_blend < 0.6) or wid == "knife"
 	_crosshair.spread = p.current_spread()
 	_crosshair.fov = p.camera.fov if p.camera != null else 85.0
-	_crosshair.color = _crosshair_color
 	_crosshair.queue_redraw()
 	_damage_ring.update_view(p)
 

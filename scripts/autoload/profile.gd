@@ -39,7 +39,18 @@ const DEFAULT_SETTINGS := {
 	"killfeed": true,
 	## Accessibility colour mode (Palette.MODE_NAMES index).
 	"color_mode": 0,
+	## Crosshair editor (Settings > Crosshair, drawn by `Crosshair`): style (Crosshair.STYLE_NAMES
+	## index), line length, gap and thickness in pixels, outline, centre dot, dynamic spread (gap
+	## follows the spread cone), colour and opacity. The defaults are the original crosshair.
+	"crosshair_style": 0,
+	"crosshair_size": 9.0,
+	"crosshair_gap": 4.0,
+	"crosshair_thickness": 2.0,
+	"crosshair_outline": true,
+	"crosshair_dot": true,
+	"crosshair_dynamic": true,
 	"crosshair_color": "ffffff",
+	"crosshair_opacity": 1.0,
 	"last_ip": "127.0.0.1",
 	"last_port": 7777,
 	"last_code": "",
@@ -937,6 +948,11 @@ func load_from_dict(d: Dictionary) -> void:
 		settings[key] = clampf(float(settings[key]), 0.0, 1.0)
 	if not Color.html_is_valid(str(settings.crosshair_color)):
 		settings.crosshair_color = DEFAULT_SETTINGS.crosshair_color
+	settings.crosshair_style = clampi(int(settings.crosshair_style), 0, Crosshair.STYLE_NAMES.size() - 1)
+	settings.crosshair_size = clampf(float(settings.crosshair_size), 2.0, 30.0)
+	settings.crosshair_gap = clampf(float(settings.crosshair_gap), 0.0, 20.0)
+	settings.crosshair_thickness = clampf(float(settings.crosshair_thickness), 1.0, 6.0)
+	settings.crosshair_opacity = clampf(float(settings.crosshair_opacity), 0.1, 1.0)
 	stats = DEFAULT_STATS.duplicate()
 	var saved_stats: Variant = d.get("stats", {})
 	if typeof(saved_stats) == TYPE_DICTIONARY:

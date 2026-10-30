@@ -79,6 +79,47 @@ class PalettePreview extends Control:
 			x += 30.0 + font.get_string_size(z[1], HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x + 14.0
 
 
+## Crosshair tab preview: the player's crosshair (a real `Crosshair`, re-reading Profile every
+## frame while shown) at twice its size over a light and a dark half (split diagonally, so each
+## arm sits on one), measured against the game screen's height so gaps match a match. With
+## dynamic spread on, it fires bursts: the spread blooms and recovers.
+class CrosshairPreview extends Control:
+	const ZOOM := 2.0
+	var _xh: Crosshair
+	var _t := 0.0
+
+	func _init() -> void:
+		custom_minimum_size = Vector2(220, 220)
+		size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+		clip_contents = true
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_xh = Crosshair.new()
+		_xh.fov = 85.0
+		_xh.scale = Vector2(ZOOM, ZOOM)
+		add_child(_xh)
+		resized.connect(func() -> void:
+			_xh.size = size / ZOOM
+			_xh.position = Vector2.ZERO)
+
+	func _ready() -> void:
+		_xh.view_half_height = ProjectSettings.get_setting("display/window/size/viewport_height", 720) * 0.5
+
+	func _process(delta: float) -> void:
+		if not is_visible_in_tree():
+			return
+		_t = fmod(_t + delta, 2.0)
+		# 0.7 s of fire (spread climbs), then it settles back to the hip spread.
+		var bloom := _t / 0.7 if _t < 0.7 else maxf(0.0, 1.0 - (_t - 0.7) / 0.5)
+		_xh.spread = 1.0 + 2.0 * bloom
+		_xh.load_style()
+
+	func _draw() -> void:
+		draw_rect(Rect2(Vector2.ZERO, size), Color(0.16, 0.2, 0.15))
+		draw_colored_polygon(PackedVector2Array([Vector2.ZERO, Vector2(size.x, 0), size]), Color(0.62, 0.72, 0.8))
+		draw_rect(Rect2(Vector2.ZERO, size), Color(0, 0, 0, 0.6), false, 2.0)
+		draw_string(get_theme_default_font(), Vector2(8, size.y - 8), "x2", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.85, 0.88, 0.92))
+
+
 var _pages: Array[Control] = []
 var _tabs: Array[Button] = []
 var _pending := {}
@@ -93,7 +134,7 @@ var _bind_buttons: Array[Button] = []
 func _ready() -> void:
 	theme = UITheme.get_theme()
 	if custom_minimum_size == Vector2.ZERO:
-		custom_minimum_size = Vector2(760, 500)
+		custom_minimum_size = Vector2(800, 500)
 	_save_timer = Timer.new()
 	_save_timer.one_shot = true
 	_save_timer.wait_time = SAVE_DELAY
@@ -109,8 +150,10 @@ func _ready() -> void:
 	var tab_row := UIKit.hbox(6)
 	root.add_child(tab_row)
 	var group := ButtonGroup.new()
-	for tab_name in ["GAMEPLAY", "VIDEO", "AUDIO", "CONTROLS", "ACCESSIBILITY"]:
+	for tab_name in ["GAMEPLAY", "CROSSHAIR", "VIDEO", "AUDIO", "CONTROLS", "ACCESSIBILITY"]:
 		var t := UIKit.button(tab_name, &"TabButton")
+		# Six tabs fit the pause menu's panel at this size.
+		t.add_theme_font_size_override("font_size", 15)
 		t.toggle_mode = true
 		t.button_group = group
 		t.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -131,10 +174,28 @@ func _ready() -> void:
 	_slider_row(gameplay, "ads_sens_mult", "Aim sensitivity", 0.2, 1.5, 0.05, "%.2fx")
 	_check_row(gameplay, "invert_y", "Invert mouse Y")
 	_slider_row(gameplay, "fov", "Field of view", 60.0, 110.0, 1.0, "%d°")
-	_color_row(gameplay, "crosshair_color", "Crosshair colour")
 	_check_row(gameplay, "show_fps", "Show FPS counter")
 	_check_row(gameplay, "damage_numbers", "Show damage numbers")
 	_check_row(gameplay, "killfeed", "Show kill feed")
+
+	var crosshair := _preview_page(pages, CrosshairPreview.new())
+	_option_row(crosshair, "crosshair_style", "Style", Crosshair.STYLE_NAMES)
+	_slider_row(crosshair, "crosshair_size", "Size", 2.0, 30.0, 1.0, "%d px")
+	_slider_row(crosshair, "crosshair_gap", "Gap", 0.0, 20.0, 1.0, "%d px")
+	_slider_row(crosshair, "crosshair_thickness", "Thickness", 1.0, 6.0, 1.0, "%d px")
+	_check_row(crosshair, "crosshair_outline", "Outline")
+	_check_row(crosshair, "crosshair_dot", "Centre dot")
+	_check_row(crosshair, "crosshair_dynamic", "Dynamic spread")
+	_color_row(crosshair, "crosshair_color", "Colour")
+	_slider_row(crosshair, "crosshair_opacity", "Opacity", 0.1, 1.0, 0.05, "pct")
+	# Narrower controls than other tabs, so the rows fit beside the preview.
+	for row in crosshair.get_children():
+		for c in row.get_children().slice(1):
+			if not (c is Label):
+				(c as Control).custom_minimum_size.x = minf((c as Control).custom_minimum_size.x, 230.0)
+	var xh_tip := UIKit.label("Dynamic spread opens the gap as your shots spread (moving, jumping, firing); off, the gap stays where you set it. Aiming down sights hides the crosshair either way. Dot uses only size, outline, colour and opacity; Circle's ring sits half its size past the gap.", &"DimLabel")
+	xh_tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	crosshair.add_child(xh_tip)
 
 	var video := _page(pages)
 	_check_row(video, "fullscreen", "Fullscreen")
@@ -272,6 +333,23 @@ func _page(parent: Control) -> VBoxContainer:
 	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(v)
 	_pages.append(scroll)
+	return v
+
+
+## A page whose rows scroll beside a fixed `preview` (kept in view while any row is edited).
+func _preview_page(parent: Control, preview: Control) -> VBoxContainer:
+	var split := UIKit.hbox(14)
+	split.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	parent.add_child(split)
+	var scroll := UIKit.pad_friendly(ScrollContainer.new())
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	split.add_child(scroll)
+	var v := UIKit.vbox(14)
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(v)
+	split.add_child(preview)
+	_pages.append(split)
 	return v
 
 
