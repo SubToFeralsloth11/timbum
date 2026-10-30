@@ -256,6 +256,7 @@ const MAPS := {
 	"harbor": {"name": "Harbor Docks", "desc": "Stacked containers, cranes and warehouses by the water."},
 	"temple": {"name": "Jungle Temple", "desc": "A stepped pyramid, vine-choked ruins and a river gorge."},
 	"rooftops": {"name": "City Rooftops", "desc": "High-rise roofs linked by bridges. Mind the drop."},
+	"building": {"name": "Block HQ", "desc": "A three-storey office block: room lattice, stairwells, an atrium and flanking alleys."},
 }
 ## Match modifiers. When mutators are on, each match rolls one (or none) so matches feel different.
 const MUTATORS := {
@@ -271,6 +272,13 @@ const MUTATORS := {
 const TIMES_OF_DAY: Array[String] = ["day", "day", "sunset", "night"]
 
 const MAP_ROTATION: Array[String] = ["village", "desert", "factory", "sky", "snow", "harbor", "temple", "rooftops"]
+
+## Game modes (`Net.config.mode`). Tactical always plays TACTICAL_MAP, outside the rotation.
+const MODES := {
+	"ffa": {"name": "Deathmatch", "desc": "Free-for-all. First to the kill limit wins."},
+	"tactical": {"name": "Tactical", "desc": "25 v 25 in an office block. Plan, find your weapons, one life each."},
+}
+const TACTICAL_MAP := "building"
 
 const BOT_NAMES: Array[String] = [
 	"Blocky", "Cubert", "Pixel Pete", "Voxelina", "Sir Squares", "Brickle",

@@ -70,6 +70,8 @@ const GRAPPLE_AIM_TIME := 1.2
 const PERCEIVE_INTERVAL := 0.15
 const REPATH_INTERVAL := 0.9
 const WAYPOINT_REACH := 0.7
+## Tactical: how often a roaming bot rereads its squad's orders.
+const ORDER_INTERVAL := 0.3
 const MEMORY_TIME := 4.0
 const HEARING_DISTANCE := 7.0
 ## Catch-up pressure: per kill of score gap between the target and this bot, and per kill of the
@@ -124,6 +126,11 @@ var _has_goal := false
 var _goal_pickup: PickupNode
 ## Last-seen position already searched; _roam heads to a last-seen spot once per new sighting.
 var _chase_pos := NO_POS
+## Tactical: heading for _chase_pos (a fresh sighting) before returning to squad orders.
+var _chasing := false
+## Tactical: the squad order last read (Tactical.bot_order) and seconds until it is read again.
+var _order := {}
+var _order_timer := 0.0
 var _repath_timer := 0.0
 var _perceive_timer := 0.0
 
@@ -263,7 +270,7 @@ func _perceive() -> void:
 	var best_score := INF
 	for eid: int in p.world.entities:
 		var other: Player = p.world.entities[eid]
-		if other == p or not other.alive:
+		if not p.world.is_enemy(p, other) or not other.alive:
 			continue
 		var d := p.global_position.distance_to(other.global_position)
 		if d > VIEW_DISTANCE[difficulty]:
@@ -298,7 +305,7 @@ func _perceive() -> void:
 		# Turn toward whoever hurt us even if we can't see them yet.
 		if target == null and now - p.last_hurt_time < 1.0 and p.world.entities.has(p.last_attacker):
 			var attacker: Player = p.world.entities[p.last_attacker]
-			if attacker.alive and attacker != p:
+			if attacker.alive and p.world.is_enemy(p, attacker):
 				_last_seen_pos = attacker.global_position
 				_last_seen_time = now
 				_has_goal = false
@@ -338,8 +345,9 @@ func _pressure_against(other: Player) -> float:
 func _choose_weapon() -> void:
 	var primary := p.slots[0]
 	var secondary := p.slots[1]
-	var pa: Vector2i = p.ammo[primary]
-	var sa: Vector2i = p.ammo[secondary]
+	# Tactical slots can be empty (""): no ammo to speak of, so the bot falls through to the knife.
+	var pa: Vector2i = p.ammo.get(primary, Vector2i.ZERO)
+	var sa: Vector2i = p.ammo.get(secondary, Vector2i.ZERO)
 	var dist := INF
 	if target != null:
 		dist = p.global_position.distance_to(target.global_position)
@@ -622,6 +630,9 @@ func _turn_toward(point: Vector3, delta: float) -> void:
 # ---------------------------------------------------------------- roaming
 
 func _roam(delta: float) -> void:
+	if p.world.tactical != null:
+		_roam_tactical(delta)
+		return
 	var now := World.now()
 	# A pickup we were heading for got taken: pick something else instead of visiting the empty pad.
 	if _goal_pickup != null and not _goal_pickup.active:
@@ -646,6 +657,8 @@ func _roam(delta: float) -> void:
 
 
 func _pick_roam_goal() -> Vector3:
+	if p.world.tactical != null:
+		return p.world.tactical.bot_order(p).pos
 	_goal_pickup = null
 	var info := p.world.map_info
 	var needs_health := p.health < 60.0
@@ -676,6 +689,41 @@ func _pick_roam_goal() -> Vector3:
 			_goal_pickup = pads.pick_random()
 			return _goal_pickup.position
 	return info.spawns.pick_random()
+
+
+## Tactical: the squad's orders (Tactical.bot_order) instead of free roaming. A target that just
+## ducked out of sight close by is still chased; otherwise the bot walks to its spot in the squad
+## formation (sprinting only when told to rush or loot) and, once there, holds: crouched while
+## its squad holds a position, watching where the squad goes next.
+func _roam_tactical(delta: float) -> void:
+	var now := World.now()
+	if now - _last_seen_time < MEMORY_TIME and _last_seen_pos.distance_to(p.global_position) < 18.0 \
+			and _last_seen_pos.distance_to(_chase_pos) > 3.0:
+		_chase_pos = _last_seen_pos
+		_chasing = true
+	if _chasing:
+		_go_toward(_chase_pos, delta)
+		if _path_index >= _path.size():
+			_chasing = false
+		return
+	_order_timer -= delta
+	if _order_timer <= 0.0 or _order.is_empty():
+		_order_timer = ORDER_INTERVAL
+		_order = p.world.tactical.bot_order(p)
+	var order := _order
+	var pos: Vector3 = order.pos
+	var off := pos - p.global_position
+	if Vector2(off.x, off.z).length() < 1.2 and absf(off.y) < 2.0:
+		p.in_crouch = bool(order.hold)
+		_turn_toward(order.look, delta * 0.5)
+		return
+	_go_toward(pos, delta)
+	p.in_sprint = bool(order.sprint) and difficulty > 0
+
+
+## World.now() when the current target was last seen (Tactical squads track contact).
+func last_seen_time() -> float:
+	return _last_seen_time
 
 
 func _set_goal(point: Vector3) -> void:
@@ -794,6 +842,9 @@ func _decide_peek(delta: float, dist: float) -> void:
 ## While sprinting with a clear straight run ahead, sometimes crouches into a slide (holding
 ## crouch for the slide's length).
 func _maybe_slide(delta: float) -> void:
+	# Tactical has no sliding (Player ignores it there).
+	if p.world.tactical != null:
+		return
 	if _slide_hold > 0.0:
 		_slide_hold -= delta
 		p.in_crouch = true
@@ -825,6 +876,8 @@ func _maybe_slide(delta: float) -> void:
 ## toward `toward`. Once a point is chosen the bot turns onto it and fires when lined up.
 ## Returns true while it is turning onto a grapple point (the caller should not steer the view).
 func _maybe_grapple(delta: float, toward: Vector3) -> bool:
+	if p.world.tactical != null:
+		return false
 	if p.grappling:
 		_grapple_aim = NO_POS
 		return false

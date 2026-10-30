@@ -227,6 +227,8 @@ func setup(p_world: World, p_id: int, p_info: Dictionary, p_mode: Mode, p_is_bot
 	is_bot = p_is_bot
 	name = "P%d" % p_id
 	slots = [str(info.primary), str(info.secondary), "knife"]
+	# Tactical: slots start empty ("") until a weapon is picked up; hold the first one there is.
+	current_slot = _first_armed_slot()
 	refill_ammo()
 
 
@@ -403,9 +405,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed("weapon_3"):
 		in_slot = 2
 	elif event.is_action_pressed("next_weapon"):
-		in_slot = (current_slot + 1) % slots.size()
+		in_slot = _cycle_slot(1)
 	elif event.is_action_pressed("prev_weapon"):
-		in_slot = (current_slot + slots.size() - 1) % slots.size()
+		in_slot = _cycle_slot(-1)
 	elif event.is_action_pressed("quick_swap"):
 		in_slot = previous_slot
 	elif event.is_action_pressed("reload"):
@@ -475,7 +477,7 @@ func _simulate(delta: float) -> void:
 		in_grapple = false
 		if grappling:
 			release_grapple()
-		elif grapple_cooldown <= 0.0 and not world.match_over and not prone:
+		elif grapple_cooldown <= 0.0 and not world.match_over and not prone and world.tactical == null:
 			_fire_grapple()
 	if in_prone:
 		in_prone = false
@@ -490,7 +492,7 @@ func _simulate(delta: float) -> void:
 		# The press that got us up must not also jump; wait for jump to be released.
 		_jump_spent = jump_pressed
 	_jump_spent = _jump_spent and in_jump
-	if not sliding and not grappling and not prone and crouch_pressed and on_floor and _was_sprinting \
+	if not sliding and not grappling and not prone and crouch_pressed and on_floor and _was_sprinting and world.tactical == null \
 			and horiz.length() > SLIDE_MIN_ENTRY * speed_scale and _slide_cooldown <= 0.0:
 		_start_slide(horiz)
 
@@ -748,11 +750,14 @@ func _update_rope(delta: float) -> void:
 func refill_ammo() -> void:
 	ammo.clear()
 	for wid in slots:
-		ammo[wid] = Vector2i(int(Data.WEAPONS[wid].mag), _reserve(wid))
+		if not wid.is_empty():
+			ammo[wid] = Vector2i(int(Data.WEAPONS[wid].mag), _reserve(wid))
 
 
 func add_ammo_pickup() -> void:
 	for wid in slots:
+		if wid.is_empty():
+			continue
 		var a: Vector2i = ammo[wid]
 		a.y = mini(a.y + int(Data.WEAPONS[wid].mag) * 2 * _ammo_scale(wid), _reserve(wid) * 2)
 		ammo[wid] = a
@@ -763,9 +768,49 @@ func needs_ammo() -> bool:
 	if mode == Mode.REMOTE:
 		return (_remote_flags & FLAG_NEEDS_AMMO) != 0
 	for wid in slots:
-		if int(Data.WEAPONS[wid].mag) > 0 and (ammo[wid] as Vector2i).y < _reserve(wid) * 2:
+		if not wid.is_empty() and int(Data.WEAPONS[wid].mag) > 0 and (ammo[wid] as Vector2i).y < _reserve(wid) * 2:
 			return true
 	return false
+
+
+## Tactical weapon pickups (every peer, from the server's event): puts `wid` in `slot` with a
+## full magazine and the standard reserve, replacing whatever was there ("" empties the slot).
+## A player holding the knife (or the replaced gun) draws the new weapon.
+func give_weapon(slot: int, wid: String) -> void:
+	var old := slots[slot]
+	slots[slot] = wid
+	info[["primary", "secondary"][slot]] = wid
+	if not old.is_empty() and not slots.has(old):
+		ammo.erase(old)
+	if not wid.is_empty():
+		ammo[wid] = Vector2i(int(Data.WEAPONS[wid].mag), _reserve(wid))
+	if wid.is_empty() and current_slot == slot:
+		current_slot = _first_armed_slot()
+		_cancel_reload()
+		_refresh_weapon_visual()
+	elif mode != Mode.REMOTE and not wid.is_empty() and (current_slot == slot or weapon_id() == "knife"):
+		switch_to(slot)
+		# switch_to set the replaced gun as the "last weapon"; X should go back to the knife.
+		if previous_slot == slot:
+			previous_slot = 2
+
+
+## Lowest slot holding a weapon (the knife slot always does).
+func _first_armed_slot() -> int:
+	for i in slots.size():
+		if not slots[i].is_empty():
+			return i
+	return slots.size() - 1
+
+
+## Next (step 1) or previous (-1) slot holding a weapon, for the mouse wheel.
+func _cycle_slot(step: int) -> int:
+	var i := current_slot
+	for n in slots.size():
+		i = posmod(i + step, slots.size())
+		if not slots[i].is_empty():
+			return i
+	return current_slot
 
 
 ## Rocket Party is built around the Boom Block, so it carries (and crates refill) twice the usual
@@ -789,7 +834,7 @@ func _tick_weapon(delta: float) -> void:
 	recoil = move_toward(recoil, 0.0, delta * (6.0 + recoil * 5.0))
 	if not in_fire:
 		_trigger_down = false
-	if world.match_over:
+	if world.match_over or world.attacks_blocked():
 		in_reload = false
 		in_grenade = false
 		in_tactical = false
@@ -801,7 +846,7 @@ func _tick_weapon(delta: float) -> void:
 	if in_slot >= 0:
 		var wanted := in_slot
 		in_slot = -1
-		if wanted != current_slot and wanted < slots.size():
+		if wanted != current_slot and wanted < slots.size() and not slots[wanted].is_empty():
 			switch_to(wanted)
 	if in_grenade and grenades > 0 and grenade_cooldown > GRENADE_BUFFER:
 		in_grenade = false
@@ -1461,7 +1506,7 @@ func respawn(pos: Vector3, p_yaw: float) -> void:
 	refill_ammo()
 	if current_slot != 0:
 		previous_slot = current_slot
-		current_slot = 0
+		current_slot = _first_armed_slot()
 	_refresh_weapon_visual()
 	collision_layer = 2
 	_hit_head.collision_layer = MASK_HITBOX

@@ -14,10 +14,12 @@ const HEALTH_SEGMENTS := 10
 
 
 ## Heading strip across the top of the screen: N/E/S/W letters and ticks every 15 degrees,
-## centred on where the player is looking.
+## centred on where the player is looking. `pips` ([heading degrees, Color]) mark directions to
+## points of interest (Tactical team markers).
 class Compass extends Control:
 	const SPAN := 120.0
 	var heading := 0.0
+	var pips: Array = []
 
 	func _ready() -> void:
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -44,6 +46,11 @@ class Compass extends Control:
 			else:
 				draw_line(Vector2(x, 20), Vector2(x, 27), Color(1, 1, 1, a * 0.6), 2.0)
 		draw_line(Vector2(mid, 0), Vector2(mid, 8), Color(1, 0.85, 0.4), 3.0)
+		for pip: Array in pips:
+			var off := wrapf(float(pip[0]) - deg, -180.0, 180.0)
+			var px := clampf(mid + off / SPAN * w, 6.0, w - 6.0)
+			var c: Color = pip[1]
+			draw_colored_polygon(PackedVector2Array([Vector2(px, 9), Vector2(px + 6, 16), Vector2(px, 23), Vector2(px - 6, 16)]), c)
 
 var world: World
 
@@ -65,6 +72,11 @@ var _grenade_label: Label
 var _tactical_label: Label
 var _grapple_label: Label
 var _grapple_bar: ProgressBar
+## Tactical: living players per team (bar and count, ALPHA then BRAVO).
+var _team_bars: Array[ProgressBar] = []
+var _team_counts: Array[Label] = []
+var _hook_box: Control
+var _results_prep: Array[Control] = []
 var _you_bar: ProgressBar
 var _lead_bar: ProgressBar
 var _compass: Compass
@@ -259,6 +271,26 @@ func _build_top() -> void:
 	race.add_child(_label("LEAD", 13, Color(1, 0.55, 0.5)))
 	_lead_bar = _bar(Color(1, 0.4, 0.35), Vector2(200, 7))
 	race.add_child(_lead_bar)
+	# Tactical replaces the race with each team's living players.
+	var teams := GridContainer.new()
+	teams.columns = 3
+	teams.add_theme_constant_override("h_separation", 8)
+	teams.add_theme_constant_override("v_separation", 2)
+	v.add_child(teams)
+	for t in 2:
+		var c := Tactical.team_color(t)
+		teams.add_child(_label(Tactical.team_name(t), 15, c))
+		var bar := _bar(c, Vector2(200, 9))
+		teams.add_child(bar)
+		_team_bars.append(bar)
+		var count := _label("25", 20, c.lightened(0.2))
+		count.custom_minimum_size.x = 30
+		count.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		teams.add_child(count)
+		_team_counts.append(count)
+	var tactical_mode := Tactical.is_active()
+	race.visible = not tactical_mode
+	teams.visible = tactical_mode
 	_goal_label = _label("", 15, Color(1, 0.85, 0.4))
 	_goal_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(_goal_label)
@@ -374,6 +406,7 @@ func _build_bottom() -> void:
 	_tactical_label = _label("", 15, Color(0.7, 0.85, 1.0))
 	gear.add_child(_tactical_label)
 	var hook := HBoxContainer.new()
+	_hook_box = hook
 	hook.add_theme_constant_override("separation", 4)
 	gear.add_child(hook)
 	_grapple_label = _label("", 15, Color(1.0, 0.8, 0.5))
@@ -557,8 +590,11 @@ func _build_results() -> void:
 	# The next match (announced now so nobody is surprised by it) beside a loadout swap for it.
 	var prep := HBoxContainer.new()
 	prep.add_theme_constant_override("separation", 30)
-	v.add_child(HSeparator.new())
+	var prep_sep := HSeparator.new()
+	v.add_child(prep_sep)
 	v.add_child(prep)
+	_results_prep.append(prep_sep)
+	_results_prep.append(prep)
 	var next_box := VBoxContainer.new()
 	next_box.add_theme_constant_override("separation", 2)
 	next_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -595,7 +631,10 @@ func _build_results() -> void:
 	_results_skip.pressed.connect(func() -> void:
 		Sfx.play(&"ui_click")
 		_results_skip.disabled = true
-		world.vote_skip())
+		if world.tactical != null:
+			world.tactical.request_new_game()
+		else:
+			world.vote_skip())
 	var leave := Button.new()
 	leave.text = "Leave to Menu"
 	leave.custom_minimum_size = Vector2(220, 44)
@@ -651,9 +690,13 @@ func _process(delta: float) -> void:
 		_age_list(_chat_log, delta, CHAT_LIFE)
 
 	if _death_panel.visible:
-		_death_left = maxf(0.0, _death_left - delta)
-		_death_timer_label.text = "Respawning in %d" % int(ceil(_death_left)) if _death_left > 0.0 else "Respawning..."
-	if _results.visible:
+		if _death_left >= 0.0:
+			_death_left = maxf(0.0, _death_left - delta)
+		if _death_left < 0.0:
+			_death_timer_label.text = "No respawns in Tactical  ·  spectating your team next"
+		else:
+			_death_timer_label.text = "Respawning in %d" % int(ceil(_death_left)) if _death_left > 0.0 else "Respawning..."
+	if _results.visible and world.tactical == null:
 		_results_left = maxf(0.0, _results_left - delta)
 		_results_timer.text = "Next match in %d" % int(ceil(_results_left))
 
@@ -681,6 +724,7 @@ func _process(delta: float) -> void:
 	_status_label.text = _movement_status(p)
 	_compass.heading = -p.yaw
 	_compass.queue_redraw()
+	_update_team_hud()
 
 	var wid := p.weapon_id()
 	var w := p.weapon_data()
@@ -718,7 +762,8 @@ func _process(delta: float) -> void:
 	for i in _slot_labels.size():
 		var key := Profile.key_text("weapon_%d" % (i + 1))
 		var label := _slot_labels[i]
-		label.text = "%s %s" % [key, str(Data.WEAPONS[p.slots[i]].name).to_upper()]
+		var held := p.slots[i]
+		label.text = "%s %s" % [key, "EMPTY" if held.is_empty() else str(Data.WEAPONS[held].name).to_upper()]
 		label.self_modulate = Color(1, 0.85, 0.4) if i == p.current_slot else Color(0.65, 0.68, 0.75)
 	_grenade_label.text = "%s FRAG %s" % [Profile.key_text("grenade"),
 		"■".repeat(p.grenades) + "□".repeat(maxi(0, int(Data.GRENADE.per_life) - p.grenades))]
@@ -728,6 +773,7 @@ func _process(delta: float) -> void:
 	_grapple_label.text = "%s HOOK" % Profile.key_text("grapple")
 	_grapple_label.self_modulate = Color.WHITE if hook_ready or p.grappling else Color(0.6, 0.6, 0.65)
 	_grapple_bar.value = 1.0 if p.grappling else 1.0 - clampf(p.grapple_cooldown / Player.GRAPPLE_COOLDOWN, 0.0, 1.0)
+	_hook_box.visible = world.tactical == null
 
 	var scoped: bool = w.get("scope", false) and p.aim_blend > 0.85 and p.alive
 	_scope.visible = scoped
@@ -752,11 +798,17 @@ func _age_list(list: Container, delta: float, life: float) -> void:
 # ---------------------------------------------------------------- world events
 
 func is_blocking() -> bool:
-	return _pause.visible or _chat_input.visible or _results.visible
+	return _pause.visible or _chat_input.visible or _results.visible \
+		or (world.tactical != null and world.tactical.overlay.is_blocking())
 
 
 func refresh_scores() -> void:
 	_scores_dirty = true
+	if world.tactical != null:
+		var team := world.tactical.my_team()
+		_goal_label.text = "" if team < 0 else "Your team: %s  ·  last team standing wins" % Tactical.team_name(team)
+		_rank_label.text = ""
+		return
 	var rows := _sorted_rows()
 	var me := world.my_id()
 	var my_rank := 0
@@ -797,6 +849,16 @@ func _sorted_rows() -> Array:
 	for eid: int in world.scores:
 		var s: Dictionary = world.scores[eid]
 		rows.append({"id": eid, "name": s.name, "level": s.get("level", 1), "kills": s.kills, "deaths": s.deaths, "headshots": s.headshots, "bot": s.bot})
+	if world.tactical != null:
+		for r: Dictionary in rows:
+			var p: Player = world.entities.get(int(r.id))
+			r.team = Tactical.team_of_player(p)
+			r.alive = p != null and p.alive
+		rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+			if a.team != b.team:
+				return a.team < b.team
+			return a.kills > b.kills if a.kills != b.kills else a.deaths < b.deaths)
+		return rows
 	rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 		return a.kills > b.kills if a.kills != b.kills else a.deaths < b.deaths)
 	return rows
@@ -810,8 +872,14 @@ func _fill_rows(container: VBoxContainer, rows: Array) -> void:
 		var r: Dictionary = rows[i]
 		var player_name := "%s  Lv %d%s" % [r.name, int(r.get("level", 1)), "  [BOT]" if r.bot else ""]
 		var mine := int(r.id) == me
-		container.add_child(_score_row([i + 1, player_name, r.kills, r.deaths, r.headshots],
-			Color(1, 0.95, 0.8) if mine else Color.WHITE, mine))
+		var color := Color(1, 0.95, 0.8) if mine else Color.WHITE
+		if r.has("team"):
+			# Tactical: team colours; the fallen are dimmed.
+			color = Tactical.team_color(int(r.team)).lightened(0.35 if mine else 0.15)
+			if not bool(r.get("alive", true)):
+				color = color.darkened(0.45)
+				player_name += "  KIA"
+		container.add_child(_score_row([i + 1, player_name, r.kills, r.deaths, r.headshots], color, mine))
 
 
 func show_damage(from_pos: Vector3) -> void:
@@ -863,9 +931,12 @@ func _update_damage_numbers(delta: float) -> void:
 		l.modulate.a = clampf((DAMAGE_NUMBER_LIFE - entry[2]) / 0.3, 0.0, 1.0)
 
 
-## Big centred card announcing the map, mutator and time of day; fades after a few seconds.
+## Big centred card announcing the map, mutator (or Tactical's rules) and time of day; fades
+## after a few seconds.
 func _show_match_intro() -> void:
 	var mut: Dictionary = Data.MUTATORS[str(Net.config.mutator)]
+	if Tactical.is_active():
+		mut = {"name": "%s  ·  25 v 25  ·  one life" % Data.MODES.tactical.name, "desc": Data.MODES.tactical.desc}
 	var box := VBoxContainer.new()
 	box.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
 	box.grow_horizontal = Control.GROW_DIRECTION_BOTH
@@ -876,7 +947,7 @@ func _show_match_intro() -> void:
 	map_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(map_label)
 	var sub := "%s  ·  %s" % [str(mut.name).to_upper(), str(Net.config.time_of_day).to_upper()]
-	var sub_label := _label(sub, 24, Color(0.6, 0.9, 1.0) if Net.config.mutator != "none" else Color.WHITE)
+	var sub_label := _label(sub, 24, Color(0.6, 0.9, 1.0) if Net.config.mutator != "none" or Tactical.is_active() else Color.WHITE)
 	sub_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(sub_label)
 	var desc := _label(str(mut.desc), 18, Color(0.85, 0.85, 0.9))
@@ -886,6 +957,25 @@ func _show_match_intro() -> void:
 	tw.tween_interval(4.0)
 	tw.tween_property(box, "modulate:a", 0.0, 0.8)
 	tw.tween_callback(box.queue_free)
+
+
+## Tactical: living players per team in the top panel, and the team's markers on the compass.
+func _update_team_hud() -> void:
+	var t := world.tactical
+	if t == null:
+		return
+	var counts := t.alive_counts()
+	for i in 2:
+		_team_bars[i].value = float(counts[i]) / float(Tactical.TEAM_SIZE)
+		_team_counts[i].text = str(counts[i])
+	var cam := get_viewport().get_camera_3d()
+	_compass.pips.clear()
+	if cam == null:
+		return
+	for m: Dictionary in t.team_markers:
+		var to: Vector3 = m.pos - cam.global_position
+		var heading := rad_to_deg(-atan2(-to.x, -to.z))
+		_compass.pips.append([heading, TacticalMap.MARKER_COLORS.get(str(m.kind), Color.WHITE)])
 
 
 ## Short state line under the health number: what the player's movement is doing.
@@ -943,7 +1033,8 @@ func _show_controls_hint() -> void:
 			"%s  sprint   %s  crouch (slide while sprinting)   %s  prone" % [k.call("sprint"), k.call("crouch"), k.call("prone")],
 			"%s / %s  peek left / right" % [k.call("lean_left"), k.call("lean_right")],
 			"%s  aim   %s  reload" % [k.call("aim"), k.call("reload")],
-			"%s  frag   %s  tactical   %s  grapple hook" % [k.call("grenade"), k.call("tactical"), k.call("grapple")],
+			("%s  frag   %s  tactical   %s  swap weapon   %s  floor plan" % [k.call("grenade"), k.call("tactical"), k.call("interact"), k.call("tactical_map")]) if Tactical.is_active() \
+				else "%s  frag   %s  tactical   %s  grapple hook" % [k.call("grenade"), k.call("tactical"), k.call("grapple")],
 			"%s  quick melee   %s/%s/%s  weapons" % [k.call("melee"), k.call("weapon_1"), k.call("weapon_2"), k.call("weapon_3")],
 			"%s  scores   %s  chat   Esc  menu (rebind keys in Settings)" % [k.call("scoreboard"), k.call("chat")]]:
 		v.add_child(_label(line, 15))
@@ -1055,7 +1146,9 @@ func show_results(rows: Array, placement: int, rewards: Dictionary, wait: float,
 	# Above the intro card and controls hint, which a joiner arriving mid-results also gets.
 	_results.move_to_front()
 	_results_left = wait
-	if placement == 1:
+	if world.tactical != null:
+		_tactical_results_title(rows, int(next.get("winner", -1)))
+	elif placement == 1:
 		_results_title.text = "VICTORY!"
 	elif placement > 0:
 		_results_title.text = "YOU PLACED #%d" % placement
@@ -1076,12 +1169,34 @@ func show_results(rows: Array, placement: int, rewards: Dictionary, wait: float,
 	_fill_results_loadout()
 	_results_skip.disabled = false
 	_results_skip.text = "Start Next Match"
+	# Tactical has no next match on a timer: the host (or offline player) starts a new game.
+	for c in _results_prep:
+		c.visible = world.tactical == null
+	if world.tactical != null:
+		_results_timer.text = "" if multiplayer.is_server() else "Waiting for the host"
+		_results_skip.text = "NEW GAME"
+		_results_skip.visible = multiplayer.is_server()
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+
+## "VICTORY" / "DEFEAT" / "DRAW" for this player's team, and who won.
+func _tactical_results_title(rows: Array, winner: int) -> void:
+	var mine := -1
+	for r: Dictionary in rows:
+		if int(r.id) == world.my_id():
+			mine = int(r.get("team", -1))
+	if winner < 0:
+		_results_title.text = "DRAW"
+	elif winner == mine:
+		_results_title.text = "VICTORY!  %s WINS" % Tactical.team_name(winner)
+	else:
+		_results_title.text = "DEFEAT  ·  %s WINS" % Tactical.team_name(winner)
+	_results_title.add_theme_color_override("font_color", Tactical.team_color(winner) if winner >= 0 else Color(0.85, 0.85, 0.85))
 
 
 ## Map, mutator and time of day of the coming match, with what the mutator does.
 func _fill_next(next: Dictionary) -> void:
-	if next.is_empty():
+	if not next.has("map"):
 		_results_next.text = ""
 		_results_next_desc.text = ""
 		return
@@ -1181,6 +1296,8 @@ func _input(event: InputEvent) -> void:
 	get_viewport().set_input_as_handled()
 	if _chat_input.visible:
 		_close_chat()
+	elif world.tactical != null and world.tactical.overlay.close_map():
+		pass
 	elif _pause.visible:
 		_close_pause()
 	elif not _results.visible:

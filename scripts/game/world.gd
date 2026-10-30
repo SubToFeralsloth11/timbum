@@ -38,6 +38,8 @@ var results: Array = []
 var next_up: Dictionary = {}
 ## Active smoke clouds on every peer: [centre, radius, World.now() when it clears].
 var smokes: Array = []
+## Tactical mode controller (child "Tactical"); null in deathmatch.
+var tactical: Tactical
 
 var _entities_root: Node3D
 var _shake := 0.0
@@ -98,6 +100,9 @@ func _ready() -> void:
 	_entities_root.name = "Entities"
 	add_child(_entities_root)
 	for pick: Dictionary in map_info.pickups:
+		# Tactical weapon spots are Tactical's (WeaponPickup), not timed pickups.
+		if pick.kind == "weapon":
+			continue
 		var node := PickupNode.new()
 		node.setup(str(pick.kind))
 		node.position = pick.pos
@@ -108,13 +113,18 @@ func _ready() -> void:
 	hud.name = "Hud"
 	hud.setup(self)
 	add_child(hud)
+	if Tactical.is_active():
+		tactical = Tactical.new()
+		tactical.setup(self)
+		add_child(tactical)
 	time_left = float(Net.config.time_limit)
 	Sfx.play_music(&"match")
 	Sfx.play(&"match_start")
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	if multiplayer.is_server():
 		multiplayer.peer_disconnected.connect(_on_peer_disconnected)
-		_server_add_entity(multiplayer.get_unique_id(), Net.players[multiplayer.get_unique_id()], false)
+		var me := multiplayer.get_unique_id()
+		_server_add_entity(me, Net.players[me], false, tactical.server_team_for(false) if tactical != null else -1)
 		_balance_bots()
 	else:
 		_c_ready.rpc_id(1)
@@ -159,6 +169,23 @@ func input_blocked() -> bool:
 	return hud.is_blocking() or match_over
 
 
+## Tactical planning phase: nobody can shoot, knife or throw yet.
+func attacks_blocked() -> bool:
+	return tactical != null and tactical.is_planning()
+
+
+## Whether `a` may fight `b`: anyone else in deathmatch, only the other team in Tactical.
+func is_enemy(a: Player, b: Player) -> bool:
+	if a == b:
+		return false
+	return tactical == null or Tactical.team_of_player(a) != Tactical.team_of_player(b)
+
+
+## Peers that have loaded this world (server), for modules sending their own RPCs.
+func ready_peer_ids() -> Array:
+	return _ready_peers.keys()
+
+
 func display_name(entity_id: int) -> String:
 	if scores.has(entity_id):
 		return str(scores[entity_id].name)
@@ -169,7 +196,7 @@ func display_name(entity_id: int) -> String:
 
 func _process(delta: float) -> void:
 	if not multiplayer.is_server():
-		if not match_over:
+		if not match_over and (tactical == null or tactical.fighting()):
 			time_left = maxf(0.0, time_left - delta)
 		if not _welcomed:
 			_ready_retry -= delta
@@ -202,7 +229,7 @@ func _physics_process(delta: float) -> void:
 	if not multiplayer.is_server():
 		return
 	var t := now()
-	if not match_over:
+	if not match_over and (tactical == null or tactical.fighting()):
 		time_left -= delta
 		if time_left <= 0.0:
 			time_left = 0.0
@@ -250,15 +277,56 @@ func _server_send_snapshots() -> void:
 
 # ================================================================ server: entities
 
-func _server_add_entity(eid: int, info: Dictionary, is_bot: bool) -> void:
-	var spawn := _pick_spawn(eid)
+## `team` (Tactical only) puts the player on that side, in its staging room with empty slots.
+func _server_add_entity(eid: int, info: Dictionary, is_bot: bool, team := -1, is_alive := true) -> void:
+	var spawn := _pick_spawn(eid) if tactical == null else tactical.spawn_point(team)
+	if tactical != null:
+		info = Tactical.prepare_info(info, team)
 	scores[eid] = {"name": str(info.name), "level": int(info.get("level", 1)), "kills": 0, "deaths": 0,
 		"headshots": 0, "streak": 0, "best_streak": 0, "bot": is_bot}
 	_grenades[eid] = int(Data.GRENADE.per_life)
 	_tacticals[eid] = Data.TACTICAL_PER_LIFE
-	_broadcast(&"_s_spawn_entity", [eid, _apply_loadout_mutator(info), is_bot, spawn[0], spawn[1], Data.MAX_HEALTH, true])
-	_server_protect(eid)
+	_broadcast(&"_s_spawn_entity", [eid, _apply_loadout_mutator(info), is_bot, spawn[0], spawn[1], Data.MAX_HEALTH, is_alive])
+	# Tactical teams wait out the planning phase behind barriers instead.
+	if tactical == null:
+		_server_protect(eid)
 	_broadcast(&"_s_scores", [scores])
+
+
+## Tactical: a bot joins `team`; returns its entity id.
+func server_add_bot(team: int) -> int:
+	var eid := _next_bot_id
+	_next_bot_id -= 1
+	_server_add_entity(eid, _make_bot_info(), true, team)
+	return eid
+
+
+## Tactical: a human (peer `pid`) joins `team`, alive or (joining too late) as a spectator.
+func server_add_human(pid: int, team: int, is_alive: bool) -> void:
+	_server_add_entity(pid, Net.players[pid], false, team, is_alive)
+
+
+func server_remove_bot(eid: int) -> void:
+	_bot_names_used.erase(entities[eid].info.name)
+	_server_remove_entity(eid)
+
+
+func server_remove_entity(eid: int) -> void:
+	_server_remove_entity(eid)
+
+
+## Moves `eid` to `pos` (a Tactical takeover); like a respawn, stale client state is ignored briefly.
+func server_place(eid: int, pos: Vector3, p_yaw: float) -> void:
+	_respawned_at[eid] = now()
+	_broadcast(&"_s_respawn", [eid, pos, p_yaw])
+
+
+func server_set_health(eid: int, hp: float) -> void:
+	_broadcast(&"_s_health", [eid, hp])
+
+
+func server_end_match() -> void:
+	_server_end_match()
 
 
 func _server_remove_entity(eid: int) -> void:
@@ -277,6 +345,9 @@ func _server_remove_entity(eid: int) -> void:
 ## disturbs the match least: dead bots first, then bots out of combat, then the lowest scorer.
 func _balance_bots() -> void:
 	if not multiplayer.is_server() or match_over:
+		return
+	if tactical != null:
+		tactical.server_balance()
 		return
 	var want := maxi(0, int(Net.config.bots_fill) - Net.players.size())
 	var bots: Array[int] = []
@@ -310,7 +381,12 @@ func _bot_leave_cost(eid: int) -> int:
 
 func _make_bot_info() -> Dictionary:
 	var names := Data.BOT_NAMES.filter(func(n: String) -> bool: return not _bot_names_used.has(n))
-	var bot_name: String = names.pick_random() if not names.is_empty() else "Bot %d" % (-_next_bot_id)
+	var bot_name: String = names.pick_random() if not names.is_empty() else ""
+	# More bots than names (Tactical's 49): numbered copies, still unique.
+	var n := 2
+	while bot_name.is_empty() or _bot_names_used.has(bot_name):
+		bot_name = "%s %d" % [Data.BOT_NAMES.pick_random(), n]
+		n += 1
 	_bot_names_used[bot_name] = true
 	var primaries := Data.weapon_ids_for_slot("primary")
 	var secondaries := Data.weapon_ids_for_slot("secondary")
@@ -385,7 +461,10 @@ func _on_peer_disconnected(pid: int) -> void:
 	_ready_peers.erase(pid)
 	if entities.has(pid):
 		_server_chat_system("%s left the game" % display_name(pid))
-		_server_remove_entity(pid)
+		if tactical != null:
+			tactical.server_human_left(pid)
+		else:
+			_server_remove_entity(pid)
 	_balance_bots.call_deferred()
 	# A leaver lowers the majority needed on the results screen (Net already dropped them).
 	_skip_votes.erase(pid)
@@ -397,7 +476,7 @@ func _on_peer_disconnected(pid: int) -> void:
 
 func _server_shot(shooter_id: int, wid: String, ends: PackedVector3Array, normals: PackedVector3Array, hit_list: Array) -> void:
 	var shooter: Player = entities.get(shooter_id)
-	if shooter == null or not shooter.alive or match_over or not Data.WEAPONS.has(wid):
+	if shooter == null or not shooter.alive or match_over or not Data.WEAPONS.has(wid) or attacks_blocked():
 		return
 	if wid != "knife" and not shooter.slots.has(wid):
 		return
@@ -460,6 +539,9 @@ func _server_damage(target: Player, amount: float, attacker_id: int, wid: String
 		return
 	if attacker_id != target.id and _protection_left(target.id) > 0.0:
 		return
+	# Tactical: no friendly fire (your own grenade still hurts you).
+	if tactical != null and attacker_id != target.id and tactical.same_team(attacker_id, target.id):
+		return
 	if Net.config.mutator == "glass_cannon":
 		amount *= 2.0
 	var hp := maxf(0.0, target.health - amount)
@@ -504,16 +586,19 @@ func _server_kill(victim_id: int, killer_id: int, wid: String, head: bool) -> vo
 			k.headshots += 1
 		if Net.config.mutator == "vampire" and entities.has(killer_id) and entities[killer_id].alive:
 			_broadcast(&"_s_health", [killer_id, Data.MAX_HEALTH])
-	_respawn_at[victim_id] = now() + Data.RESPAWN_TIME
+	if tactical == null:
+		_respawn_at[victim_id] = now() + Data.RESPAWN_TIME
 	_broadcast(&"_s_killed", [victim_id, killer_id, wid, head, killer_hp, killer_dist])
 	_broadcast(&"_s_scores", [scores])
-	if scores.has(killer_id) and int(scores[killer_id].kills) >= int(Net.config.kill_limit):
+	if tactical != null:
+		tactical.server_on_kill(victim_id)
+	elif scores.has(killer_id) and int(scores[killer_id].kills) >= int(Net.config.kill_limit):
 		_server_end_match()
 
 
 func _server_projectile(owner_id: int, kind: String, origin: Vector3, vel: Vector3) -> void:
 	var shooter: Player = entities.get(owner_id)
-	if shooter == null or not shooter.alive or match_over:
+	if shooter == null or not shooter.alive or match_over or attacks_blocked():
 		return
 	if origin.distance_to(shooter.global_position + Vector3.UP * 1.4) > 3.0:
 		return
@@ -614,11 +699,31 @@ func _server_end_match() -> void:
 		var s: Dictionary = scores[eid]
 		rows.append({"id": eid, "name": s.name, "kills": s.kills, "deaths": s.deaths,
 			"headshots": s.headshots, "best_streak": s.best_streak, "bot": s.bot, "level": s.level})
+	if tactical != null:
+		_server_end_tactical(rows)
+		return
 	rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 		return a.kills > b.kills if a.kills != b.kills else a.deaths < b.deaths)
 	_results_until = now() + RESULTS_TIME
 	_broadcast(&"_s_match_end", [rows, Net.plan_next_match(), RESULTS_TIME])
 	get_tree().create_timer(RESULTS_TIME).timeout.connect(_server_advance)
+
+
+## Tactical results: rows carry each player's team and whether they survived, the winning team
+## first; `next` carries {winner} (0, 1, or -1 for a draw) instead of a next match, and nothing
+## advances on its own: the results screen offers NEW GAME (Tactical.request_new_game).
+func _server_end_tactical(rows: Array) -> void:
+	var winner := tactical.server_winner()
+	tactical.server_match_over()
+	for r: Dictionary in rows:
+		var p: Player = entities.get(int(r.id))
+		r.team = Tactical.team_of_player(p)
+		r.alive = p != null and p.alive
+	rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		if a.team != b.team:
+			return a.team == winner or (winner < 0 and a.team < b.team)
+		return a.kills > b.kills if a.kills != b.kills else (a.alive and not b.alive))
+	_broadcast(&"_s_match_end", [rows, {"winner": winner}, 0.0])
 
 
 ## Moves everyone to the next match, once: when the results delay runs out or a skip vote passes.
@@ -766,7 +871,10 @@ func _c_ready() -> void:
 		_s_match_end.rpc_id(pid, results, next_up, maxf(0.0, _results_until - now()))
 		_server_tally_skip()
 		return
-	_server_add_entity(pid, Net.players[pid], false)
+	if tactical != null:
+		tactical.server_human_joined(pid)
+	else:
+		_server_add_entity(pid, Net.players[pid], false)
 	_server_chat_system("%s joined the game" % Net.players[pid].name)
 	_balance_bots()
 
@@ -829,6 +937,10 @@ func _s_spawn_entity(eid: int, info: Dictionary, is_bot: bool, pos: Vector3, p_y
 		local_player = p
 	if not is_alive:
 		p.die()
+	if tactical != null:
+		tactical.on_player_added(p)
+		if p == local_player:
+			tactical.refresh_tags()
 
 
 @rpc("authority", "call_remote", "reliable")
@@ -935,7 +1047,9 @@ func _s_killed(victim_id: int, killer_id: int, wid: String, head: bool, killer_h
 	if victim_id == me:
 		_my_streak = 0
 		_my_multi = 0
-		hud.show_death(display_name(killer_id) if killer_id != me else "", weapon_label(wid), Data.RESPAWN_TIME, _death_detail(killer_id, killer_hp, killer_dist))
+		hud.show_death(display_name(killer_id) if killer_id != me else "", weapon_label(wid), -1.0 if tactical != null else Data.RESPAWN_TIME, _death_detail(killer_id, killer_hp, killer_dist))
+		if tactical != null:
+			tactical.on_local_death()
 		_my_damage_taken.clear()
 
 
@@ -1135,11 +1249,19 @@ func _s_match_end(rows: Array, next: Dictionary, wait: float) -> void:
 		if int(rows[i].id) == me:
 			placement = i + 1
 			mine = rows[i]
+	# Tactical: a team result. A win pays like first place, a draw like second.
+	var won := placement == 1
+	var reward_place := placement
+	if tactical != null:
+		tactical.phase = Tactical.Phase.OVER
+		var winner := int(next.get("winner", -1))
+		won = not mine.is_empty() and int(mine.get("team", -2)) == winner
+		reward_place = 1 if won else (2 if winner < 0 else 0)
 	var rewards := {}
 	if not mine.is_empty():
 		rewards = Profile.record_match({
 			"kills": mine.kills, "deaths": mine.deaths, "headshots": mine.headshots,
-			"placement": placement, "players": rows.size(), "won": placement == 1,
+			"placement": reward_place, "players": rows.size(), "won": won,
 			"best_streak": mine.best_streak,
 		})
 	Sfx.play(&"match_end")

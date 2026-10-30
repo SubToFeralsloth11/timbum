@@ -7,7 +7,10 @@ const TIME_LIMITS: Array[int] = [5, 8, 10, 15]
 const ROTATION := "rotation"
 
 ## Last choices this session, shared by both modes.
-static var _choice := {"map": ROTATION, "bots_fill": 8, "difficulty": 1, "kill_limit": 20, "time_minutes": 8, "mutators": true, "link": Net.Link.DIRECT}
+static var _choice := {"mode": "ffa", "map": ROTATION, "bots_fill": 8, "difficulty": 1, "kill_limit": 20, "time_minutes": 8, "mutators": true, "link": Net.Link.DIRECT}
+const MODE_IDS: Array[String] = ["ffa", "tactical"]
+const FFA_HINT := "Bots fill every empty slot up to the player count."
+const TACTICAL_HINT := "25 v 25 in Block HQ, bots fill every slot. 30 s of planning behind barriers, then find your weapons: everyone starts with a knife. One life; the last team standing wins."
 
 const LINK_HINTS := {
 	Net.Link.DIRECT: "Wi-Fi friends see it under Join; others use the room code.",
@@ -34,6 +37,10 @@ var _time_row: HBoxContainer
 var _mutator_row: HBoxContainer
 ## Map preview rects still waiting for their texture.
 var _preview_queue: Array[TextureRect] = []
+var _mode_row: HBoxContainer
+## Rule rows (name label and control) that only apply to deathmatch.
+var _ffa_rules: Array[Control] = []
+var _rules_hint: Label
 
 
 func _init(host_mode: bool) -> void:
@@ -68,6 +75,8 @@ func _ready() -> void:
 	_add_map_card(grid, group, ROTATION, "Rotation", "Play every map in turn.")
 	for id: String in Data.MAP_ROTATION:
 		_add_map_card(grid, group, id, Data.MAPS[id].name, Data.MAPS[id].desc)
+	# Tactical's map; the only card shown in that mode.
+	_add_map_card(grid, group, Data.TACTICAL_MAP, Data.MAPS[Data.TACTICAL_MAP].name, Data.MAPS[Data.TACTICAL_MAP].desc)
 	_map_desc = UIKit.label("", &"DimLabel")
 	_map_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	mv.add_child(_map_desc)
@@ -84,6 +93,14 @@ func _ready() -> void:
 	rules.add_theme_constant_override("h_separation", 14)
 	rules.add_theme_constant_override("v_separation", 12)
 	rv.add_child(rules)
+
+	var mode_names: Array[String] = []
+	for id in MODE_IDS:
+		mode_names.append(str(Data.MODES[id].name).to_upper())
+	_mode_row = _segmented(mode_names, MODE_IDS.find(_choice.mode), func(i: int) -> void:
+		_choice.mode = MODE_IDS[i]
+		_apply_mode())
+	_rule(rules, "MODE", _mode_row)
 
 	var players_row := UIKit.hbox(10)
 	var players := HSlider.new()
@@ -106,6 +123,7 @@ func _ready() -> void:
 	_players_label.custom_minimum_size.x = 104
 	players_row.add_child(_players_label)
 	_rule(rules, "PLAYERS", players_row)
+	_ffa_rules.append_array([rules.get_child(rules.get_child_count() - 2), players_row])
 	_update_players_label()
 
 	var difficulty_names: Array[String] = []
@@ -119,6 +137,7 @@ func _ready() -> void:
 	_kill_row = _segmented(kill_names, KILL_LIMITS.find(_choice.kill_limit),
 		func(i: int) -> void: _choice.kill_limit = KILL_LIMITS[i])
 	_rule(rules, "KILL LIMIT", _kill_row)
+	_ffa_rules.append_array([rules.get_child(rules.get_child_count() - 2), _kill_row])
 	var time_names: Array[String] = []
 	for t in TIME_LIMITS:
 		time_names.append("%d MIN" % t)
@@ -129,9 +148,10 @@ func _ready() -> void:
 	_mutator_row = _segmented(mutator_names, 0 if _choice.mutators else 1,
 		func(i: int) -> void: _choice.mutators = i == 0)
 	_rule(rules, "MUTATORS", _mutator_row)
-	var hint := UIKit.label("Bots fill every empty slot up to the player count.", &"DimLabel")
-	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	rv.add_child(hint)
+	_ffa_rules.append_array([rules.get_child(rules.get_child_count() - 2), _mutator_row])
+	_rules_hint = UIKit.label(FFA_HINT, &"DimLabel")
+	_rules_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	rv.add_child(_rules_hint)
 
 	if hosting:
 		rv.add_child(HSeparator.new())
@@ -152,6 +172,7 @@ func _ready() -> void:
 		if _host_pending:
 			Net.leave())
 	_select_map(_choice.map)
+	_apply_mode()
 
 
 func on_shown() -> void:
@@ -165,6 +186,25 @@ func on_shown() -> void:
 	_pick_segment(_time_row, TIME_LIMITS.find(_choice.time_minutes))
 	_pick_segment(_mutator_row, 0 if _choice.mutators else 1)
 	_select_map(_choice.map)
+	_pick_segment(_mode_row, MODE_IDS.find(_choice.mode))
+	_apply_mode()
+
+
+## Tactical fixes the map, player count, kill rule and mutators: only its own map card and the
+## rules that still apply are shown. The deathmatch choices are kept for switching back.
+func _apply_mode() -> void:
+	var tactical: bool = _choice.mode == "tactical"
+	for c in _ffa_rules:
+		c.visible = not tactical
+	_rules_hint.text = TACTICAL_HINT if tactical else FFA_HINT
+	for b in _map_group.get_buttons():
+		b.visible = (b.name == Data.TACTICAL_MAP) == tactical
+	if tactical:
+		for b in _map_group.get_buttons():
+			b.set_pressed_no_signal(b.name == Data.TACTICAL_MAP)
+		_map_desc.text = Data.MAPS[Data.TACTICAL_MAP].desc
+	else:
+		_select_map(_choice.map)
 
 
 func _pick_segment(row: HBoxContainer, selected: int) -> void:
@@ -265,7 +305,9 @@ func _process(_delta: float) -> void:
 
 
 func _select_map(id: String) -> void:
-	_choice.map = id
+	# The Tactical card is fixed by the mode; the deathmatch pick stays for switching back.
+	if id != Data.TACTICAL_MAP:
+		_choice.map = id
 	# set_pressed_no_signal skips the ButtonGroup, so release the other cards here.
 	for b in _map_group.get_buttons():
 		b.set_pressed_no_signal(b.name == id)
@@ -346,6 +388,7 @@ func _update_link_rows() -> void:
 
 func _config() -> Dictionary:
 	return {
+		"mode": _choice.mode,
 		"map": _choice.map,
 		"bots_fill": _choice.bots_fill,
 		"difficulty": _choice.difficulty,

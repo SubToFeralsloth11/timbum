@@ -22,7 +22,8 @@ const DISCOVERY_PORT := 47777
 const GAME_ID := "timbum"
 ## 5: tacticals, grapple relay, _s_explode carries the kind, lean/slide state flags, new weapons.
 ## 6: prone state flag.
-const PROTOCOL_VERSION := 6
+## 7: Tactical mode (config `mode`, team/weapon-pickup/marker RPCs).
+const PROTOCOL_VERSION := 7
 const CONNECT_TIMEOUT := 8.0
 ## A room-code join first tries a direct (NAT punch-through) link this long, then the relay.
 const NAT_CONNECT_TIMEOUT := 6.0
@@ -32,6 +33,8 @@ const WORLD_SCENE := "res://scenes/world.tscn"
 const MENU_SCENE := "res://scenes/main_menu.tscn"
 
 const DEFAULT_CONFIG := {
+	## "ffa" (deathmatch) or "tactical" (see Data.MODES and scripts/game/tactical.gd).
+	"mode": "ffa",
 	"map": "rotation",
 	"bots_fill": 8,
 	"difficulty": 1,
@@ -312,8 +315,10 @@ func _start_server(cfg: Dictionary) -> void:
 
 static func sanitize_config(cfg: Dictionary) -> Dictionary:
 	var out := DEFAULT_CONFIG.duplicate()
+	var mode := str(cfg.get("mode", out.mode))
+	out.mode = mode if Data.MODES.has(mode) else "ffa"
 	var map_id := str(cfg.get("map", out.map))
-	out.map = map_id if (map_id == "rotation" or Data.MAPS.has(map_id)) else "rotation"
+	out.map = map_id if (map_id == "rotation" or Data.MAP_ROTATION.has(map_id)) else "rotation"
 	out.bots_fill = clampi(int(cfg.get("bots_fill", out.bots_fill)), 1, Data.MAX_PLAYERS)
 	out.difficulty = clampi(int(cfg.get("difficulty", out.difficulty)), 0, 2)
 	out.kill_limit = clampi(int(cfg.get("kill_limit", out.kill_limit)), 1, 200)
@@ -323,6 +328,12 @@ static func sanitize_config(cfg: Dictionary) -> Dictionary:
 	out.mutator = mut if Data.MUTATORS.has(mut) else "none"
 	var tod := str(cfg.get("time_of_day", out.time_of_day))
 	out.time_of_day = tod if tod in Data.TIMES_OF_DAY else "day"
+	if out.mode == "tactical":
+		# Tactical is always 25 v 25 in the building, with no mutators.
+		out.map = Data.TACTICAL_MAP
+		out.bots_fill = Tactical.PLAYERS
+		out.mutators = false
+		out.mutator = "none"
 	return out
 
 

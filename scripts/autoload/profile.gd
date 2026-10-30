@@ -430,6 +430,7 @@ const DEFAULT_BINDINGS := {
 	"next_weapon": ["m%d" % MOUSE_BUTTON_WHEEL_DOWN], "prev_weapon": ["m%d" % MOUSE_BUTTON_WHEEL_UP],
 	"grenade": ["k%d" % KEY_G], "tactical": ["k%d" % KEY_H], "melee": ["k%d" % KEY_V],
 	"grapple": ["k%d" % KEY_F],
+	"interact": ["k%d" % KEY_B], "tactical_map": ["k%d" % KEY_M],
 	"scoreboard": ["k%d" % KEY_TAB], "chat": ["k%d" % KEY_T, "k%d" % KEY_ENTER],
 	"pause": ["k%d" % KEY_ESCAPE],
 }
