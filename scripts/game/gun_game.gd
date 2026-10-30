@@ -219,14 +219,14 @@ func extra_highlights(rows: Array) -> Array:
 	var out: Array = []
 	var me := world.my_id()
 	if not rows.is_empty() and bool(rows[0].get("knife_win", false)):
-		out.append(["Won it with the knife:  %s" % rows[0].name, int(rows[0].id) == me])
+		out.append(["Won it with the knife:  %s" % rows[0].name, int(rows[0].id) == me, "knife_finish"])
 	var best: Dictionary = {}
 	for r: Dictionary in rows:
 		if int(r.get("demotions", 0)) > 0 and (best.is_empty() or int(r.demotions) > int(best.demotions)):
 			best = r
 	if not best.is_empty():
 		var n := int(best.demotions)
-		out.append(["Most knife setbacks:  %s  (%d)" % [best.name, n], int(best.id) == me])
+		out.append(["Most knife setbacks:  %s  (%d)" % [best.name, n], int(best.id) == me, "setbacks"])
 	return out
 
 

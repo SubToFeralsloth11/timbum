@@ -266,7 +266,40 @@ func win_banner(next: Dictionary) -> String:
 	return "%s WINS!" % Teams.name_of(winner) if winner >= 0 else ""
 
 
-## Extra results highlights: [[text, is this player], ...].
+## The results screen's match highlights, which are also the medals (Data.MEDALS):
+## [[text, is this player, medal id], ...]. Best streak, most headshots and fewest deaths of the
+## match (ties go to the higher finisher), then the mode's extra_highlights.
+func highlights(rows: Array) -> Array:
+	var out: Array = []
+	if rows.is_empty():
+		return out
+	# [medal, stat, higher is better, minimum to award, unit (singular), unit (plural)]
+	var awards := [
+		["best_streak", "best_streak", true, 2, "in a row", "in a row"],
+		["sharpshooter", "headshots", true, 1, "headshot", "headshots"],
+		["survivor", "deaths", false, 0, "death", "deaths"],
+	]
+	for a: Array in awards:
+		if hides_award(str(a[1])):
+			continue
+		var best: Dictionary = {}
+		for r: Dictionary in rows:
+			# Fewest deaths only counts for someone who actually fought.
+			if not a[2] and int(r.kills) == 0:
+				continue
+			var v := int(r.get(a[1], 0))
+			if best.is_empty() or (v > int(best[a[1]]) if a[2] else v < int(best[a[1]])):
+				best = r
+		if best.is_empty() or (a[2] and int(best[a[1]]) < int(a[3])):
+			continue
+		var value := int(best[a[1]])
+		var amount := "%d %s" % [value, a[4] if value == 1 else a[5]]
+		out.append(["%s:  %s  (%s)" % [Data.MEDALS[a[0]].name, best.name, amount], int(best.id) == world.my_id(), a[0]])
+	out.append_array(extra_highlights(rows))
+	return out
+
+
+## The mode's own highlights: [[text, is this player, medal id], ...].
 func extra_highlights(_rows: Array) -> Array:
 	return []
 

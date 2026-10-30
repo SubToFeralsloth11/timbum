@@ -1,6 +1,7 @@
 extends Control
 ## Main menu root: 3D backdrop, persistent top bar (coins, level), home screen and the
-## sub-screens (match setup, join, shop, locker, stats, settings) with tweened transitions.
+## sub-screens (match setup, join, shop, locker, stats, challenges, achievements, settings) with
+## tweened transitions.
 
 const TRANSITION := 0.22
 const SLIDE := 36.0
@@ -163,6 +164,8 @@ func _get_screen(screen_name: String) -> Control:
 			s = StatsScreen.new()
 		"challenges":
 			s = ChallengesScreen.new()
+		"achievements":
+			s = AchievementsScreen.new()
 		"settings":
 			s = _build_settings_screen()
 	s.visible = false
@@ -338,6 +341,7 @@ func _build_home() -> MenuScreen:
 	var row4 := UIKit.hbox(10)
 	buttons.add_child(row4)
 	_challenges_button = _add_grid_button(row4, "CHALLENGES", "challenges")
+	_add_grid_button(row4, "ACHIEVEMENTS", "achievements")
 	var quit := UIKit.button("QUIT", &"DangerButton")
 	quit.pressed.connect(func() -> void: get_tree().quit())
 	buttons.add_child(quit)
@@ -423,7 +427,7 @@ func _refresh_profile() -> void:
 		_xp_bar.value = Profile.xp
 		_xp_label.text = "LVL %d  ·  %s / %s XP" % [Profile.level, UIKit.format_int(Profile.xp), UIKit.format_int(need)]
 	var to_claim := Profile.claimable_challenges()
-	_challenges_button.text = "CHALLENGES  ·  %d TO CLAIM" % to_claim if to_claim > 0 else "CHALLENGES"
+	_challenges_button.text = "CHALLENGES (%d)" % to_claim if to_claim > 0 else "CHALLENGES"
 	_refresh_daily()
 
 

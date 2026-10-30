@@ -473,6 +473,57 @@ const CHALLENGE_REWARDS := {
 ## Distance at or above which a kill counts for "long_kills".
 const LONG_KILL_DISTANCE := 40.0
 
+## Medals: the results screen's match highlights (MatchMode.highlights), counted for life in
+## Profile.feats ("medal:<id>"). `mode`: the mode that awards it ("" every mode).
+const MEDALS := {
+	"best_streak": {"name": "Best Streak", "desc": "Longest kill streak of the match.", "mode": ""},
+	"sharpshooter": {"name": "Sharpshooter", "desc": "Most headshot kills of the match.", "mode": ""},
+	"survivor": {"name": "Survivor", "desc": "Fewest deaths of the match (with a kill).", "mode": ""},
+	"team_top": {"name": "Team MVP", "desc": "Most kills on your team.", "mode": "tdm"},
+	"knife_finish": {"name": "Blade Finish", "desc": "Won Gun Game with the knife.", "mode": "gungame"},
+	"setbacks": {"name": "Setback Artist", "desc": "Most knife setbacks dealt in Gun Game.", "mode": "gungame"},
+	"survived": {"name": "Still Standing", "desc": "Survived Infected to the end.", "mode": "infected"},
+	"top_infector": {"name": "Patient Zero", "desc": "Most survivors infected.", "mode": "infected"},
+	"longest_hold": {"name": "Zone Keeper", "desc": "Longest hold of the zone.", "mode": "koth"},
+}
+
+## Permanent achievements (Profile.achievements: id -> unlock time). `key` is a lifetime value
+## Profile.achievement_value reads (stats, weapon_stats, Profile.feats or a count over them);
+## `target` the value that unlocks it, ACHIEVE_ALL meaning "every one" (every gun, deathmatch map
+## or mode; Profile.achievement_target).
+const ACHIEVE_ALL := -1
+const ACHIEVEMENTS := {
+	"first_blood": {"name": "First Blood", "desc": "Get your first kill.", "key": "kills", "target": 1},
+	"centurion": {"name": "Centurion", "desc": "Get 100 kills.", "key": "kills", "target": 100},
+	"block_buster": {"name": "Block Buster", "desc": "Get 1,000 kills.", "key": "kills", "target": 1000},
+	"headhunter": {"name": "Headhunter", "desc": "Get 100 headshot kills.", "key": "headshots", "target": 100},
+	"rampage": {"name": "Rampage", "desc": "Get a 5-kill streak.", "key": "best_streak", "target": 5},
+	"godlike": {"name": "Godlike", "desc": "Get a 10-kill streak.", "key": "best_streak", "target": 10},
+	"triple": {"name": "Triple Threat", "desc": "Get a triple kill (three kills within a few seconds).", "key": "best_multi", "target": 3},
+	"arsenal": {"name": "Full Arsenal", "desc": "Get a kill with every gun (Gun Game hands them all out).", "key": "guns_with_kill", "target": ACHIEVE_ALL},
+	"world_tour": {"name": "World Tour", "desc": "Win a match on every deathmatch map.", "key": "maps_won", "target": ACHIEVE_ALL},
+	"all_rounder": {"name": "All-Rounder", "desc": "Win a match in every mode.", "key": "modes_won", "target": ACHIEVE_ALL},
+	"slide_in": {"name": "Slide In", "desc": "Get a kill while sliding.", "key": "slide_kills", "target": 1},
+	"hooked": {"name": "Hooked", "desc": "Get a kill while grappling.", "key": "grapple_kills", "target": 1},
+	"snake": {"name": "Snake in the Grass", "desc": "Get a kill while prone.", "key": "prone_kills", "target": 1},
+	"airborne": {"name": "Airborne", "desc": "Get 10 kills in mid-air.", "key": "air_kills", "target": 10},
+	"long_shot": {"name": "Long Shot", "desc": "Get 25 kills from 40 m or more.", "key": "long_kills", "target": 25},
+	"cutthroat": {"name": "Cutthroat", "desc": "Get 25 knife kills.", "key": "w_kills:knife", "target": 25},
+	"demolition": {"name": "Demolition Expert", "desc": "Get 25 frag grenade kills.", "key": "w_kills:grenade", "target": 25},
+	"air_support": {"name": "Air Support", "desc": "Get a kill with the Block Bomber.", "key": "w_kills:bomber", "target": 1},
+	"dm_win": {"name": "Last Block Standing", "desc": "Win a Deathmatch.", "key": "wins_mode:ffa", "target": 1},
+	"tdm_win": {"name": "Team Player", "desc": "Win a Team Deathmatch.", "key": "wins_mode:tdm", "target": 1},
+	"gungame_win": {"name": "Top of the Ladder", "desc": "Win a Gun Game.", "key": "wins_mode:gungame", "target": 1},
+	"koth_win": {"name": "King of the Block", "desc": "Win King of the Block.", "key": "wins_mode:koth", "target": 1},
+	"infected_win": {"name": "Outbreak", "desc": "Win a game of Infected (either side).", "key": "wins_mode:infected", "target": 1},
+	"tactical_win": {"name": "Breach and Clear", "desc": "Win a Tactical match.", "key": "wins_mode:tactical", "target": 1},
+	"regular": {"name": "Regular", "desc": "Play 50 matches.", "key": "matches", "target": 50},
+	"champion": {"name": "Champion", "desc": "Win 25 matches.", "key": "wins", "target": 25},
+	"decorated": {"name": "Decorated", "desc": "Earn 25 medals (match highlights).", "key": "medals", "target": 25},
+	"gold_standard": {"name": "Gold Standard", "desc": "Reach Gold mastery with a gun.", "key": "gold_guns", "target": 1},
+	"grinder": {"name": "Daily Grinder", "desc": "Complete 10 challenges.", "key": "challenges_done", "target": 10},
+}
+
 
 ## Badge shown before a prestiged player's name (scoreboard, kill feed, nametags); "" at rank 0.
 static func prestige_badge(rank: int) -> String:

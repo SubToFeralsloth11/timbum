@@ -1377,7 +1377,12 @@ func _s_match_end(rows: Array, next: Dictionary, wait: float) -> void:
 	pings.on_match_over()
 	var rewards := {}
 	if not mine.is_empty():
-		rewards = Profile.record_match(my_facts.result(mine, my_weapon_stats, reward_place, rows.size(), won))
+		# The highlights this player earned are their medals.
+		var medals: Array = []
+		for h: Array in rules.highlights(rows):
+			if h[1]:
+				medals.append(h[2])
+		rewards = Profile.record_match(my_facts.result(mine, my_weapon_stats, reward_place, rows.size(), won, medals))
 		_toast_feats(rewards.get("feats", []))
 	my_weapon_stats = {}
 	my_facts = MatchFacts.new()

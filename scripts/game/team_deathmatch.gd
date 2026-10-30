@@ -163,5 +163,5 @@ func extra_highlights(rows: Array) -> Array:
 			if int(r.get("team", -1)) == team and (best.is_empty() or int(r.kills) > int(best.kills)):
 				best = r
 		if not best.is_empty() and int(best.kills) > 0:
-			out.append(["Top of %s:  %s  (%d kills)" % [Teams.name_of(team), best.name, int(best.kills)], int(best.id) == world.my_id()])
+			out.append(["Top of %s:  %s  (%d kills)" % [Teams.name_of(team), best.name, int(best.kills)], int(best.id) == world.my_id(), "team_top"])
 	return out

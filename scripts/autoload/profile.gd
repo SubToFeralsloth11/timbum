@@ -82,6 +82,12 @@ var prestige := 0
 ## Daily and weekly challenges: "daily" / "weekly" -> {period (Challenges.period_of), list
 ## (Challenges entries)}; refresh_challenges rolls them over.
 var challenges := {}
+## Lifetime counters from MatchFacts.tally that stats and weapon_stats don't already hold:
+## movement and range kills, per-mode and per-map kills / matches / wins, the best multi-kill,
+## medals ("medal:<id>" and "medals") and "challenges_done". See _is_feat_key.
+var feats := {}
+## Unlocked achievement id (Data.ACHIEVEMENTS) -> unlock time (Unix seconds).
+var achievements := {}
 
 ## Set to false by tests so they never touch the real save file.
 var persist := true
@@ -267,8 +273,9 @@ func claim_daily() -> int:
 ## Returns {coins, xp, levels_gained, breakdown, accuracy, shots, hits, most_used, mastery, feats};
 ## breakdown is [[label, coins, xp], ...], one row per source, in the order the results screen
 ## lists them. accuracy is hits / shots of the match (-1 without shots), most_used the weapon
-## fired most ("" if none), mastery the [weapon id, tier] pairs reached this match, feats what this
-## match completed ([key, title, text], see preview_feats).
+## fired most ("" if none), mastery the [weapon id, tier] pairs reached this match, feats the
+## challenges it completed and achievements it unlocked ([key, title, text], see preview_feats).
+## The tally also goes into feats (medals included) for the achievements.
 ## At Data.LEVEL_CAP XP stops: the match pays no XP until the player prestiges.
 func record_match(result: Dictionary) -> Dictionary:
 	var kills := int(result.get("kills", 0))
@@ -296,7 +303,9 @@ func record_match(result: Dictionary) -> Dictionary:
 	var match_weapons := clean_weapon_stats(result.get("weapons", {}))
 	var summary := match_summary(match_weapons)
 	_add_weapon_stats(match_weapons)
-	var feats := _advance_challenges(MatchFacts.tally(result))
+	var tally := MatchFacts.tally(result)
+	var done_feats := _advance_challenges(tally)
+	_add_feats(tally)
 	var reached := _pay_mastery(match_weapons.keys(), breakdown)
 	var capped := level >= Data.LEVEL_CAP
 	if capped:
@@ -320,9 +329,10 @@ func record_match(result: Dictionary) -> Dictionary:
 	stats.wins += 1 if won else 0
 	stats.best_streak = maxi(int(stats.best_streak), int(result.get("best_streak", 0)))
 	stats.coins_earned += earned
+	done_feats.append_array(_unlock_achievements())
 	save()
 	changed.emit()
-	var out := {"coins": earned, "xp": gained_xp, "levels_gained": levels, "breakdown": breakdown, "mastery": reached, "feats": feats}
+	var out := {"coins": earned, "xp": gained_xp, "levels_gained": levels, "breakdown": breakdown, "mastery": reached, "feats": done_feats}
 	out.merge(summary)
 	return out
 
@@ -440,6 +450,7 @@ func _advance_challenges(tally: Dictionary) -> Array:
 			ch.progress = mini(int(ch.target), int(ch.progress) + Challenges.amount(ch, tally))
 			if Challenges.is_complete(ch):
 				done.append(_challenge_feat(kind, i, ch))
+				feats.challenges_done = int(feats.get("challenges_done", 0)) + 1
 	return done
 
 
@@ -447,8 +458,8 @@ static func _challenge_feat(kind: String, index: int, ch: Dictionary) -> Array:
 	return ["%s:%d:%s" % [kind, index, ch.id], "%s CHALLENGE COMPLETE" % kind.to_upper(), Challenges.text(ch)]
 
 
-## What a match result so far (MatchFacts.result) would complete if the match ended now, as
-## [key, title, text] (the key is stable, so the HUD toasts each once); changes nothing.
+## What a match result so far (MatchFacts.result) would complete or unlock if the match ended now,
+## as [key, title, text] (the key is stable, so the HUD toasts each once); changes nothing.
 func preview_feats(result: Dictionary) -> Array:
 	var tally := MatchFacts.tally(result)
 	var out: Array = []
@@ -458,7 +469,123 @@ func preview_feats(result: Dictionary) -> Array:
 			var ch: Dictionary = list[i]
 			if not Challenges.is_complete(ch) and int(ch.progress) + Challenges.amount(ch, tally) >= int(ch.target):
 				out.append(_challenge_feat(kind, i, ch))
+	for id: String in Data.ACHIEVEMENTS:
+		if not achievements.has(id) and achievement_value(str(Data.ACHIEVEMENTS[id].key), tally) >= achievement_target(id):
+			out.append(_achievement_feat(id))
 	return out
+
+
+# ---------------------------------------------------------------- achievements and medals
+
+## Lifetime value of an achievement key (Data.ACHIEVEMENTS), with one match's `tally`
+## (MatchFacts.tally) added when given. Keys: the stats ones (kills, headshots, deaths, matches,
+## wins, best_streak), w_kills:<id> / w_heads:<id> (weapon_stats), the counts guns_with_kill,
+## maps_won, modes_won and gold_guns, or a feats counter.
+func achievement_value(key: String, tally: Dictionary = {}) -> int:
+	var n := 0
+	match key:
+		"guns_with_kill":
+			for id: String in Data.WEAPONS:
+				if Data.WEAPONS[id].slot != "melee" and weapon_stat(id, "kills") + int(tally.get("w_kills:" + id, 0)) > 0:
+					n += 1
+			return n
+		"gold_guns":
+			for id: String in Data.WEAPONS:
+				if Data.mastery_tier_for(weapon_stat(id, "kills") + int(tally.get("w_kills:" + id, 0))) >= Data.MASTERY_TIERS.size():
+					n += 1
+			return n
+		"maps_won":
+			for m: String in Data.MAP_ROTATION:
+				if int(feats.get("wins_map:" + m, 0)) + int(tally.get("wins_map:" + m, 0)) > 0:
+					n += 1
+			return n
+		"modes_won":
+			for m: String in Data.MODES:
+				if int(feats.get("wins_mode:" + m, 0)) + int(tally.get("wins_mode:" + m, 0)) > 0:
+					n += 1
+			return n
+	var base := 0
+	if key.begins_with("w_kills:"):
+		base = weapon_stat(key.trim_prefix("w_kills:"), "kills")
+	elif key.begins_with("w_heads:"):
+		base = weapon_stat(key.trim_prefix("w_heads:"), "headshots")
+	elif stats.has(key):
+		base = int(stats[key])
+	else:
+		base = int(feats.get(key, 0))
+	if MatchFacts.MAX_KEYS.has(key):
+		return maxi(base, int(tally.get(key, 0)))
+	return base + int(tally.get(key, 0))
+
+
+## The value that unlocks achievement `id` (Data.ACHIEVE_ALL resolved to how many there are).
+func achievement_target(id: String) -> int:
+	var a: Dictionary = Data.ACHIEVEMENTS[id]
+	if int(a.target) != Data.ACHIEVE_ALL:
+		return int(a.target)
+	match str(a.key):
+		"guns_with_kill":
+			return Data.WEAPONS.keys().filter(func(w: String) -> bool: return Data.WEAPONS[w].slot != "melee").size()
+		"maps_won":
+			return Data.MAP_ROTATION.size()
+		"modes_won":
+			return Data.MODES.size()
+	return 1
+
+
+## [value so far (capped at the target), target] of achievement `id`.
+func achievement_progress(id: String) -> Array:
+	var target := achievement_target(id)
+	return [mini(achievement_value(str(Data.ACHIEVEMENTS[id].key)), target), target]
+
+
+## Lifetime count of medal `id` (Data.MEDALS).
+func medal_count(id: String) -> int:
+	return int(feats.get("medal:" + id, 0))
+
+
+## Unlocks every achievement whose target is reached (each once). Returns them as feats.
+func _unlock_achievements() -> Array:
+	var out: Array = []
+	var now := int(Time.get_unix_time_from_system())
+	for id: String in Data.ACHIEVEMENTS:
+		if not achievements.has(id) and achievement_value(str(Data.ACHIEVEMENTS[id].key)) >= achievement_target(id):
+			achievements[id] = now
+			out.append(_achievement_feat(id))
+	return out
+
+
+static func _achievement_feat(id: String) -> Array:
+	return ["ach:" + id, "ACHIEVEMENT UNLOCKED", str(Data.ACHIEVEMENTS[id].name)]
+
+
+## Adds one match's tally to feats (keys stats / weapon_stats already count are skipped).
+func _add_feats(tally: Dictionary) -> void:
+	for key: String in tally:
+		if not _is_feat_key(key):
+			continue
+		if MatchFacts.MAX_KEYS.has(key):
+			feats[key] = maxi(int(feats.get(key, 0)), int(tally[key]))
+		else:
+			feats[key] = int(feats.get(key, 0)) + int(tally[key])
+
+
+## Keys feats keeps: MatchFacts.MOVE_KEYS, best_multi, medals, challenges_done, and
+## mode_kills|mode_matches|wins_mode:<mode>, map_kills|map_matches|wins_map:<map>, medal:<id>.
+static func _is_feat_key(key: String) -> bool:
+	if MatchFacts.MOVE_KEYS.has(key) or key in ["best_multi", "medals", "challenges_done"]:
+		return true
+	var parts := key.split(":")
+	if parts.size() != 2:
+		return false
+	match parts[0]:
+		"mode_kills", "mode_matches", "wins_mode":
+			return Data.MODES.has(parts[1])
+		"map_kills", "map_matches", "wins_map":
+			return Data.MAPS.has(parts[1])
+		"medal":
+			return Data.MEDALS.has(parts[1])
+	return false
 
 
 # ---------------------------------------------------------------- per-weapon stats and mastery
@@ -685,7 +812,7 @@ func _payload() -> Dictionary:
 		"owned": owned, "loadout": loadout, "equipped": equipped, "upgrades": upgrades,
 		"settings": settings, "stats": stats, "last_daily": last_daily, "bindings": bindings,
 		"weapon_stats": weapon_stats, "mastery_paid": mastery_paid, "camos": camos, "prestige": prestige,
-		"challenges": challenges,
+		"challenges": challenges, "feats": feats, "achievements": achievements,
 	}
 
 
@@ -850,6 +977,22 @@ func load_from_dict(d: Dictionary) -> void:
 				if not ch.is_empty():
 					list.append(ch)
 			challenges[kind] = {"period": _num(c.get("period"), 0), "list": list}
+	feats = {}
+	var saved_feats: Variant = d.get("feats", {})
+	if typeof(saved_feats) == TYPE_DICTIONARY:
+		for key: Variant in saved_feats:
+			var v := _num(saved_feats[key], 0)
+			if _is_feat_key(str(key)) and v > 0:
+				feats[str(key)] = v
+	achievements = {}
+	var saved_ach: Variant = d.get("achievements", {})
+	if typeof(saved_ach) == TYPE_DICTIONARY:
+		for id: Variant in saved_ach:
+			var at := _num(saved_ach[id], 0)
+			if Data.ACHIEVEMENTS.has(str(id)) and at > 0:
+				achievements[str(id)] = at
+	# Saves from before achievements: what their stats already reach unlocks now.
+	_unlock_achievements()
 	_load_bindings(d.get("bindings", {}))
 
 

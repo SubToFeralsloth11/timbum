@@ -1367,41 +1367,15 @@ func set_skip_votes(votes: int) -> void:
 	_skip_votes = votes
 
 
-## Best streak, most headshots and fewest deaths of the match; ties go to the higher finisher.
+## The mode's match highlights (MatchMode.highlights); this player's (their medals) in gold.
 func _fill_highlights(rows: Array) -> void:
 	for c in _results_highlights.get_children():
 		c.queue_free()
 	if rows.is_empty():
 		return
 	_results_highlights.add_child(_label("MATCH HIGHLIGHTS", 16, Color(0.7, 0.75, 0.85)))
-	# [title, stat, higher is better, minimum to award, unit (singular), unit (plural)]
-	var awards := [
-		["Best streak", "best_streak", true, 2, "in a row", "in a row"],
-		["Sharpshooter", "headshots", true, 1, "headshot", "headshots"],
-		["Survivor", "deaths", false, 0, "death", "deaths"],
-	]
-	var me := world.my_id()
-	for a: Array in awards:
-		if world.rules.hides_award(str(a[1])):
-			continue
-		var best: Dictionary = {}
-		for r: Dictionary in rows:
-			# Fewest deaths only counts for someone who actually fought.
-			if not a[2] and int(r.kills) == 0:
-				continue
-			var v := int(r.get(a[1], 0))
-			if best.is_empty() or (v > int(best[a[1]]) if a[2] else v < int(best[a[1]])):
-				best = r
-		if best.is_empty() or (a[2] and int(best[a[1]]) < int(a[3])):
-			continue
-		var value := int(best[a[1]])
-		var mine := int(best.id) == me
-		var amount := "%d %s" % [value, a[4] if value == 1 else a[5]]
-		var l := _label("%s:  %s  (%s)" % [a[0], best.name, amount], 18,
-			Color(1, 0.82, 0.25) if mine else Color.WHITE)
-		_results_highlights.add_child(l)
-	for extra: Array in world.rules.extra_highlights(rows):
-		_results_highlights.add_child(_label(str(extra[0]), 18, Color(1, 0.82, 0.25) if extra[1] else Color.WHITE))
+	for h: Array in world.rules.highlights(rows):
+		_results_highlights.add_child(_label(str(h[0]), 18, Color(1, 0.82, 0.25) if h[1] else Color.WHITE))
 
 
 ## The local player's match accuracy and most-used weapon (Profile.record_match), under the

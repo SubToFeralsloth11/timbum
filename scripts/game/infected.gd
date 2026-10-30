@@ -235,14 +235,14 @@ func extra_highlights(rows: Array) -> Array:
 			survivors.append(str(r.name))
 			mine = mine or int(r.id) == me
 	if not survivors.is_empty():
-		out.append(["Survived:  %s" % ", ".join(survivors), mine])
+		out.append(["Survived:  %s" % ", ".join(survivors), mine, "survived"])
 	var best: Dictionary = {}
 	for r: Dictionary in rows:
 		if int(r.get("infections", 0)) > 0 and (best.is_empty() or int(r.infections) > int(best.infections)):
 			best = r
 	if not best.is_empty():
 		var n := int(best.infections)
-		out.append(["Most infections:  %s  (%d survivor%s)" % [best.name, n, "" if n == 1 else "s"], int(best.id) == me])
+		out.append(["Most infections:  %s  (%d survivor%s)" % [best.name, n, "" if n == 1 else "s"], int(best.id) == me, "top_infector"])
 	return out
 
 

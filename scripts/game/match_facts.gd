@@ -1,7 +1,8 @@
 class_name MatchFacts
 extends RefCounted
-## The local player's facts for one match: the one source challenges (Challenges, Profile.challenges)
-## read. World keeps one per match on every peer (offline, host and client alike) and fills in what
+## The local player's facts for one match: the one source challenges (Challenges,
+## Profile.challenges) and achievements (Profile.achievements, Profile.feats) read. World keeps one
+## per match on every peer (offline, host and client alike) and fills in what
 ## only this peer knows: how the player moved at each of their kills (sliding, prone, grappling,
 ## mid-air), how far away the victim was and the best multi-kill. Kills and headshots per weapon stay
 ## in World.my_weapon_stats (the per-weapon stats) and the scoreboard row gives kills, deaths,
@@ -63,21 +64,22 @@ func on_kill(p: Player, wid: String, dist: float, multi: int, t: float) -> void:
 
 
 ## The record_match dictionary for this match so far: `row` is the local player's scoreboard row
-## (kills, deaths, headshots, best_streak), `weapons` World.my_weapon_stats.
-func result(row: Dictionary, weapons: Dictionary, placement: int, players: int, won: bool) -> Dictionary:
+## (kills, deaths, headshots, best_streak), `weapons` World.my_weapon_stats, `medals` the
+## Data.MEDALS ids of the match highlights this player earned (only known at the end).
+func result(row: Dictionary, weapons: Dictionary, placement: int, players: int, won: bool, medals: Array = []) -> Dictionary:
 	return {
 		"kills": int(row.get("kills", 0)), "deaths": int(row.get("deaths", 0)), "headshots": int(row.get("headshots", 0)),
 		"best_streak": int(row.get("best_streak", 0)), "placement": placement, "players": players, "won": won,
 		"weapons": weapons, "mode": str(Net.config.mode), "map": Net.current_map,
-		"moves": moves.duplicate(), "best_multi": best_multi,
+		"moves": moves.duplicate(), "best_multi": best_multi, "medals": medals,
 	}
 
 
 ## Named counters of one match result (see result()), only those above 0:
 ## kills, headshots, deaths, matches, wins (a win needs someone to beat, as in record_match),
 ## best_streak / best_multi (per-match bests, MAX_KEYS), w_kills:<source> / w_heads:<source> (per
-## weapon, grenade and Bomber), the MOVE_KEYS, mode_kills|mode_matches|wins_mode:<mode> and
-## map_kills|map_matches|wins_map:<map>.
+## weapon, grenade and Bomber), the MOVE_KEYS, mode_kills|mode_matches|wins_mode:<mode>,
+## map_kills|map_matches|wins_map:<map>, and medal:<id> per medal plus medals (their count).
 static func tally(result: Dictionary) -> Dictionary:
 	var t := {}
 	var kills := maxi(0, int(result.get("kills", 0)))
@@ -108,6 +110,12 @@ static func tally(result: Dictionary) -> Dictionary:
 		_put(t, "map_kills:" + map, kills)
 		_put(t, "map_matches:" + map, 1)
 		_put(t, "wins_map:" + map, 1 if won else 0)
+	var medals: Variant = result.get("medals", [])
+	if typeof(medals) == TYPE_ARRAY:
+		for m: Variant in medals:
+			if Data.MEDALS.has(str(m)):
+				t["medal:" + str(m)] = int(t.get("medal:" + str(m), 0)) + 1
+				t["medals"] = int(t.get("medals", 0)) + 1
 	return t
 
 

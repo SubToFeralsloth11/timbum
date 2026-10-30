@@ -364,7 +364,7 @@ func extra_highlights(rows: Array) -> Array:
 			best = r
 	if best.is_empty():
 		return []
-	return [["Longest hold:  %s  (%d s)" % [best.name, int(best.best_hold)], int(best.id) == world.my_id()]]
+	return [["Longest hold:  %s  (%d s)" % [best.name, int(best.best_hold)], int(best.id) == world.my_id(), "longest_hold"]]
 
 
 # ================================================================ bots
