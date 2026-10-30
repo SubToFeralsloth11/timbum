@@ -104,6 +104,10 @@ func prepare_info(info: Dictionary, _team: int) -> Dictionary:
 	return step_info(info, 0)
 
 
+func uses_loadout(_p: Player) -> bool:
+	return false
+
+
 func weapon_allowed(shooter: Player, wid: String) -> bool:
 	if super(shooter, wid):
 		return true

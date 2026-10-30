@@ -26,11 +26,15 @@ var _summary: Label
 var _name_tag: Label
 ## Mastery rows (primary, secondary, knife): progress and the camo switch, refilled on show.
 var _mastery_box: VBoxContainer
+## Loadout presets: one tab per preset (the pressed one is active, and the pickers below edit it)
+## and a name field with RENAME.
+var _preset_tabs: Array[Button] = []
+var _preset_name: LineEdit
 
 
 func _ready() -> void:
 	var page := make_page()
-	page.add_child(make_header("LOCKER", "Your loadout and style. Everyone in the match sees it."))
+	page.add_child(make_header("LOCKER", "Your loadout presets and style. Everyone in the match sees them."))
 	var body := UIKit.hbox(18)
 	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	page.add_child(body)
@@ -47,6 +51,34 @@ func _ready() -> void:
 	v.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.add_child(v)
 	v.add_child(UIKit.label("LOADOUT", &"SubheaderLabel"))
+	# One full-width button per preset, so a 16-character name fits.
+	var tabs := UIKit.vbox(4)
+	v.add_child(tabs)
+	var group := ButtonGroup.new()
+	for i in Profile.LOADOUT_PRESET_COUNT:
+		var b := UIKit.button("", &"TabButton")
+		b.toggle_mode = true
+		b.button_group = group
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.pressed.connect(func() -> void: _on_preset_tab(i))
+		tabs.add_child(b)
+		_preset_tabs.append(b)
+	var name_row := UIKit.hbox(6)
+	v.add_child(name_row)
+	_preset_name = LineEdit.new()
+	_preset_name.placeholder_text = "Preset name"
+	_preset_name.max_length = 16
+	_preset_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_preset_name.text_submitted.connect(func(_t: String) -> void: _on_preset_rename())
+	name_row.add_child(_preset_name)
+	var rename := UIKit.button("RENAME", &"IconButton")
+	rename.tooltip_text = "Give the active preset the name typed here."
+	rename.pressed.connect(_on_preset_rename)
+	name_row.add_child(rename)
+	var preset_help := UIKit.label("The ACTIVE preset is the one you spawn with. Switch while dead with %s / %s / %s, or on the results screen."
+		% [Profile.key_text("weapon_1"), Profile.key_text("weapon_2"), Profile.key_text("weapon_3")], &"DimLabel")
+	preset_help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(preset_help)
 	for i in ROWS.size():
 		if i == STYLE_START:
 			v.add_child(UIKit.label("MASTERY", &"SubheaderLabel"))
@@ -108,9 +140,39 @@ func _ready() -> void:
 
 
 func on_shown() -> void:
+	_fill_presets()
 	_fill_pickers()
 	_fill_mastery()
 	_rebuild_models()
+
+
+## Preset buttons ("1  NAME  ✓ ACTIVE" on the active one) and the name field (the active
+## preset's name).
+func _fill_presets() -> void:
+	for i in _preset_tabs.size():
+		var active := i == Profile.active_preset
+		_preset_tabs[i].text = "%d   %s%s" % [i + 1, str(Profile.loadout_presets[i].name).to_upper(), "   ✓ ACTIVE" if active else ""]
+		_preset_tabs[i].tooltip_text = Profile.preset_summary(i)
+		_preset_tabs[i].set_pressed_no_signal(active)
+	_preset_name.text = str(Profile.loadout_presets[Profile.active_preset].name)
+
+
+## A preset tab makes that preset active: the pickers show and edit its guns.
+func _on_preset_tab(index: int) -> void:
+	if not Profile.select_preset(index):
+		return
+	_fill_presets()
+	_fill_pickers()
+	_fill_mastery()
+	_rebuild_models()
+
+
+func _on_preset_rename() -> void:
+	if Profile.rename_preset(Profile.active_preset, _preset_name.text):
+		Sfx.play(&"ui_click")
+	else:
+		Sfx.play(&"ui_error")
+	_fill_presets()
 
 
 ## Mastery progress of the equipped guns and the knife, each with a CAMO switch once it reached
@@ -181,6 +243,8 @@ func _on_pick(key: String, idx: int) -> void:
 	if Profile.equip(category, id):
 		if key in ["primary", "secondary"]:
 			_fill_mastery()
+		if key in ["primary", "secondary", "tactical"]:
+			_fill_presets()
 		_rebuild_models()
 
 

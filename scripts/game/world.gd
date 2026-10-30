@@ -518,12 +518,29 @@ func pick_spawn(for_id: int, team := -1) -> Array:
 
 func _server_respawn(eid: int) -> void:
 	var p: Player = entities[eid]
+	_server_next_loadout(p)
 	var spawn := rules.spawn_point(eid, Teams.of(p))
 	_respawned_at[eid] = now()
 	_refill_equipment(eid, p.info)
 	_broadcast(&"_s_respawn", [eid, spawn[0], spawn[1]])
 	if rules.spawn_protection():
 		_server_protect(eid)
+
+
+## A human respawns with the loadout their peer_info holds now (a preset or gun picked while dead,
+## Net.update_my_info), where the mode uses loadouts; a change mid-life waits for this. The loadout
+## mutator applies to it as at the first spawn.
+func _server_next_loadout(p: Player) -> void:
+	if p.is_bot or not Net.players.has(p.id) or not rules.uses_loadout(p):
+		return
+	var want: Dictionary = Net.players[p.id]
+	var next := p.info.duplicate()
+	for k: String in Profile.LOADOUT_KEYS:
+		next[k] = str(want.get(k, next[k]))
+	next = _apply_loadout_mutator(next)
+	if Profile.LOADOUT_KEYS.all(func(k: String) -> bool: return str(next[k]) == str(p.info.get(k, ""))):
+		return
+	_broadcast(&"_s_loadout", [p.id, str(next.primary), str(next.secondary), str(next.tactical)])
 
 
 ## Starts `eid`'s SPAWN_PROTECTION window and shows it on every peer.
@@ -1287,6 +1304,19 @@ func _death_detail(killer_id: int, killer_hp: float, killer_dist: float) -> Stri
 		var shield := killer.shield if killer != null and killer.alive else 0.0
 		parts.append("they had %d HP%s left" % [ceili(killer_hp), " + %d shield" % ceili(shield) if shield > 0.0 else ""])
 	return "  ·  ".join(parts)
+
+
+## `eid` respawns (the `_s_respawn` that follows) with this loadout (World._server_next_loadout).
+@rpc("authority", "call_remote", "reliable")
+func _s_loadout(eid: int, primary: String, secondary: String, tactical: String) -> void:
+	var p: Player = entities.get(eid)
+	if p == null:
+		return
+	var next := p.info.duplicate()
+	next.primary = primary
+	next.secondary = secondary
+	next.tactical = tactical
+	p.apply_info(next)
 
 
 @rpc("authority", "call_remote", "reliable")

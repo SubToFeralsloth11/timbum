@@ -172,6 +172,13 @@ func weapon_allowed(shooter: Player, wid: String) -> bool:
 	return wid == "knife" or shooter.slots.has(wid)
 
 
+## Whether `p` respawns with its own loadout, so a preset picked while dead (Profile.select_preset,
+## the results screen) applies at its next spawn. Gun Game hands out the ladder's gun, Tactical has
+## found weapons and no respawns, an Infected has the knife only.
+func uses_loadout(_p: Player) -> bool:
+	return true
+
+
 # ================================================================ HUD, scoreboard, results
 
 ## Adds what this mode's scoreboard shows to rows built from World.scores: `team` and `alive`

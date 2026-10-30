@@ -83,6 +83,11 @@ func prepare_info(info: Dictionary, team: int) -> Dictionary:
 	return infect_info(info) if team == INFECTED else super(info, team)
 
 
+## A Survivor (before the infection starts, a Survivor who dies respawns as one) keeps a loadout.
+func uses_loadout(p: Player) -> bool:
+	return not is_infected(p)
+
+
 ## A human joining an Infected-heavy match pushes an Infected bot out first; never the last
 ## Survivor or the last Infected.
 func bot_drop_team() -> int:

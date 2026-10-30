@@ -217,6 +217,10 @@ func spot_near(pos: Vector3, radius: float) -> int:
 
 # ================================================================ server: match flow (World hooks)
 
+func uses_loadout(_p: Player) -> bool:
+	return false
+
+
 ## The info a player spawns with in Tactical: on `team`, with empty weapon slots.
 func prepare_info(info: Dictionary, team: int) -> Dictionary:
 	var out := info.duplicate()

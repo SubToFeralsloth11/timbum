@@ -86,7 +86,17 @@ var coins := 500
 var xp := 0
 var level := 1
 var owned := {}
-var loadout := {"primary": "smg", "secondary": "pistol", "tactical": "flash"}
+const DEFAULT_LOADOUT := {"primary": "smg", "secondary": "pistol", "tactical": "flash"}
+## Loadout slot keys a preset holds (besides its name).
+const LOADOUT_KEYS: Array[String] = ["primary", "secondary", "tactical"]
+## The loadout the player spawns with: always a copy of the active preset's guns
+## (`loadout_presets[active_preset]`); equip() edits both, select_preset() copies a preset here.
+var loadout := DEFAULT_LOADOUT.duplicate()
+## Loadout presets: LOADOUT_PRESET_COUNT of {name, primary, secondary, tactical}, picked in the
+## locker, on the death screen and on the results screen (see select_preset).
+const LOADOUT_PRESET_COUNT := 3
+var loadout_presets: Array = fresh_presets(DEFAULT_LOADOUT)
+var active_preset := 0
 const DEFAULT_EQUIPPED := {"skin": "default", "hat": "none", "outfit": "classic", "charm": "none", "emote": "wave", "draw": "standard"}
 ## Equipped slot -> catalog category.
 const EQUIP_SLOTS := {"skin": "skins", "hat": "hats", "outfit": "outfits", "charm": "charms", "emote": "emotes", "draw": "draws"}
@@ -180,8 +190,10 @@ func equip(category: String, id: String) -> bool:
 			if slot == "melee":
 				return false
 			loadout[slot] = id
+			loadout_presets[active_preset][slot] = id
 		"tacticals":
 			loadout.tactical = id
+			loadout_presets[active_preset].tactical = id
 		_:
 			var slot := ""
 			for s: String in EQUIP_SLOTS:
@@ -822,6 +834,68 @@ func delete_match_preset(index: int) -> bool:
 	return true
 
 
+# ---------------------------------------------------------------- loadout presets
+
+static func default_preset_name(index: int) -> String:
+	return "Loadout %d" % (index + 1)
+
+
+## LOADOUT_PRESET_COUNT presets, each holding the guns of `base`, with the default names.
+static func fresh_presets(base: Dictionary) -> Array:
+	var out: Array = []
+	for i in LOADOUT_PRESET_COUNT:
+		var p := {"name": default_preset_name(i)}
+		for k: String in LOADOUT_KEYS:
+			p[k] = str(base[k])
+		out.append(p)
+	return out
+
+
+## Makes preset `index` the active one: its guns become `loadout` (what peer_info sends, so
+## Net.update_my_info() hands it to the server for the next spawn). False for a bad index.
+func select_preset(index: int) -> bool:
+	if index < 0 or index >= loadout_presets.size():
+		return false
+	active_preset = index
+	for k: String in LOADOUT_KEYS:
+		loadout[k] = str(loadout_presets[index][k])
+	save()
+	changed.emit()
+	return true
+
+
+## False for a bad index or an empty name (names may repeat: presets are picked by number).
+func rename_preset(index: int, new_name: String) -> bool:
+	new_name = sanitize_name(new_name)
+	if index < 0 or index >= loadout_presets.size() or new_name.is_empty():
+		return false
+	loadout_presets[index].name = new_name
+	save()
+	changed.emit()
+	return true
+
+
+## "Bit-SMG · Block 9 · Flash Cube" for preset `index`.
+func preset_summary(index: int) -> String:
+	var p: Dictionary = loadout_presets[index]
+	return "%s  ·  %s  ·  %s" % [Data.WEAPONS[p.primary].name, Data.WEAPONS[p.secondary].name, Data.TACTICALS[p.tactical].name]
+
+
+## Repairs saved loadout slots over `base`: a gun the player doesn't own or that doesn't fit the
+## slot, or an unknown tactical, keeps base's.
+func _clean_loadout(saved: Variant, base: Dictionary) -> Dictionary:
+	var out := base.duplicate()
+	if typeof(saved) != TYPE_DICTIONARY:
+		return out
+	for slot: String in ["primary", "secondary"]:
+		var id := str(saved.get(slot, ""))
+		if is_owned("weapons", id) and Data.WEAPONS[id].slot == slot:
+			out[slot] = id
+	if Data.TACTICALS.has(str(saved.get("tactical", ""))):
+		out.tactical = str(saved.tactical)
+	return out
+
+
 # ---------------------------------------------------------------- settings
 
 func get_setting(key: String) -> Variant:
@@ -894,6 +968,7 @@ func _payload() -> Dictionary:
 		"settings": settings, "stats": stats, "last_daily": last_daily, "bindings": bindings, "pad_bindings": pad_bindings,
 		"weapon_stats": weapon_stats, "mastery_paid": mastery_paid, "camos": camos, "prestige": prestige,
 		"challenges": challenges, "feats": feats, "achievements": achievements, "match_presets": match_presets,
+		"loadout_presets": loadout_presets, "active_preset": active_preset,
 	}
 
 
@@ -1015,15 +1090,24 @@ func load_from_dict(d: Dictionary) -> void:
 		for key: Variant in saved_stats:
 			if stats.has(key):
 				stats[key] = maxi(0, _num(saved_stats[key], 0))
-	var saved_loadout: Variant = d.get("loadout", {})
-	loadout = {"primary": "smg", "secondary": "pistol", "tactical": "flash"}
-	if typeof(saved_loadout) == TYPE_DICTIONARY:
-		for slot in ["primary", "secondary"]:
-			var id := str(saved_loadout.get(slot, ""))
-			if is_owned("weapons", id) and Data.WEAPONS[id].slot == slot:
-				loadout[slot] = id
-		if Data.TACTICALS.has(str(saved_loadout.get("tactical", ""))):
-			loadout.tactical = str(saved_loadout.tactical)
+	loadout = _clean_loadout(d.get("loadout", {}), DEFAULT_LOADOUT)
+	# Loadout presets: a save from before them gets the loadout it had in every preset (so preset 1
+	# is the current loadout); a broken entry falls back to that loadout and its default name.
+	var saved_lp: Variant = d.get("loadout_presets", [])
+	var base := loadout.duplicate()
+	loadout_presets = fresh_presets(base)
+	if typeof(saved_lp) == TYPE_ARRAY:
+		for i in mini((saved_lp as Array).size(), LOADOUT_PRESET_COUNT):
+			var raw: Variant = saved_lp[i]
+			if typeof(raw) != TYPE_DICTIONARY:
+				continue
+			var entry := _clean_loadout(raw, base)
+			var preset_name := sanitize_name(str((raw as Dictionary).get("name", "")))
+			entry.name = preset_name if not preset_name.is_empty() else default_preset_name(i)
+			loadout_presets[i] = entry
+	active_preset = clampi(_num(d.get("active_preset"), 0), 0, LOADOUT_PRESET_COUNT - 1)
+	for k: String in LOADOUT_KEYS:
+		loadout[k] = str(loadout_presets[active_preset][k])
 	var saved_eq: Variant = d.get("equipped", {})
 	equipped = DEFAULT_EQUIPPED.duplicate()
 	if typeof(saved_eq) == TYPE_DICTIONARY:

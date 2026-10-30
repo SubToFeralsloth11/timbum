@@ -127,6 +127,17 @@ var _death_title: Label
 var _death_sub: Label
 var _death_detail: Label
 var _death_timer_label: Label
+## Loadout preset picker (Profile.loadout_presets) under the clock panel while the local player
+## is dead and respawns with a loadout (`_preset_pick_open`), over the kill cam too:
+## weapon_1-3 pick a preset, next / prev weapon (pad Y) cycle; it applies at the next spawn.
+var _preset_bar: VBoxContainer
+var _preset_hint: Label
+var _preset_cards: Array[PanelContainer] = []
+var _preset_labels: Array[Label] = []
+## What the picker last drew (active preset and device), so it only rebuilds its text on a change.
+var _preset_drawn := ""
+## Results screen: the loadout preset for the next match, above the primary / secondary pickers.
+var _results_preset: OptionButton
 var _scoreboard: PanelContainer
 var _score_rows: VBoxContainer
 ## "SPECTATORS (n) · names" under the scoreboard rows (hidden without spectators).
@@ -225,6 +236,7 @@ func _ready() -> void:
 	_build_center()
 	_build_chat()
 	_build_death()
+	_build_preset_picker()
 	_build_scoreboard()
 	_build_results()
 	_win_banner = _label("", 54, Color(1.0, 0.85, 0.3))
@@ -606,6 +618,73 @@ func _build_death() -> void:
 	v.add_child(_death_timer_label)
 
 
+func _build_preset_picker() -> void:
+	_preset_bar = VBoxContainer.new()
+	# Under the clock panel: clear of the death screen's text, the health and weapon cards and the
+	# kill cam's banner and skip hint.
+	_preset_bar.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+	_preset_bar.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_preset_bar.offset_top = 196.0
+	_preset_bar.add_theme_constant_override("separation", 6)
+	_preset_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_preset_bar.visible = false
+	_root.add_child(_preset_bar)
+	_preset_hint = _label("", 16, Color(0.85, 0.87, 0.92))
+	_preset_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_preset_bar.add_child(_preset_hint)
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 10)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_preset_bar.add_child(row)
+	for i in Profile.LOADOUT_PRESET_COUNT:
+		var card := _panel(0.7)
+		card.custom_minimum_size.x = 230
+		row.add_child(card)
+		var l := _label("", 15)
+		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		card.add_child(l)
+		_preset_cards.append(card)
+		_preset_labels.append(l)
+
+
+## Whether the death screen's preset picker is up: the local player is dead, will respawn, and
+## the mode gives them their own loadout (not Gun Game, Tactical or an Infected).
+func _preset_pick_open() -> bool:
+	var p := world.local_player
+	return p != null and not p.alive and not world.match_over and not _results.visible \
+		and world.rules.respawn_delay() >= 0.0 and world.rules.uses_loadout(p)
+
+
+func _refresh_preset_bar() -> void:
+	var drawn := "%d %s" % [Profile.active_preset, Profile.using_pad]
+	if drawn == _preset_drawn:
+		return
+	_preset_drawn = drawn
+	var keys := "%s next" % Profile.key_text("next_weapon") if Profile.using_pad else "%s / %s / %s to pick" % [
+		Profile.key_text("weapon_1"), Profile.key_text("weapon_2"), Profile.key_text("weapon_3")]
+	_preset_hint.text = "LOADOUT FOR YOUR NEXT LIFE  ·  %s" % keys
+	for i in _preset_cards.size():
+		var active := i == Profile.active_preset
+		var key := "" if Profile.using_pad else "%s  " % Profile.key_text("weapon_%d" % (i + 1))
+		_preset_labels[i].text = "%s%s%s\n%s" % [key, str(Profile.loadout_presets[i].name).to_upper(),
+			"  ✓" if active else "", Profile.preset_summary(i)]
+		_preset_labels[i].add_theme_color_override("font_color", Color(1, 0.85, 0.4) if active else Color(0.8, 0.82, 0.88))
+		var sb := _preset_cards[i].get_theme_stylebox("panel") as StyleBoxFlat
+		sb.border_color = Color(1, 0.8, 0.3) if active else Color(1, 1, 1, 0.08)
+
+
+## Makes loadout preset `index` active and tells the server (Net.update_my_info): the next spawn
+## uses it (World._server_next_loadout), this life keeps its guns. The death screen and the
+## results screen both call this.
+func pick_preset(index: int) -> void:
+	if index == Profile.active_preset or not Profile.select_preset(index):
+		return
+	Sfx.play(&"weapon_switch")
+	Net.update_my_info()
+
+
+
 func _build_scoreboard() -> void:
 	_scoreboard = _panel(0.82)
 	_scoreboard.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
@@ -755,6 +834,15 @@ func _build_results() -> void:
 	loadout.add_theme_constant_override("h_separation", 12)
 	loadout.add_theme_constant_override("v_separation", 6)
 	prep.add_child(loadout)
+	# The preset picks which loadout preset the next match starts with; the gun pickers edit it.
+	loadout.add_child(_label("LOADOUT", 16, Color(0.7, 0.75, 0.85)))
+	_results_preset = OptionButton.new()
+	_results_preset.custom_minimum_size.x = 200
+	_results_preset.fit_to_longest_item = false
+	_results_preset.item_selected.connect(func(idx: int) -> void:
+		pick_preset(idx)
+		_fill_results_loadout())
+	loadout.add_child(_results_preset)
 	for slot: String in ["primary", "secondary"]:
 		loadout.add_child(_label(slot.to_upper(), 16, Color(0.7, 0.75, 0.85)))
 		var o := OptionButton.new()
@@ -839,6 +927,9 @@ func _process(delta: float) -> void:
 	if not _chat_input.visible:
 		_age_list(_chat_log, delta, CHAT_LIFE)
 
+	_preset_bar.visible = _preset_pick_open()
+	if _preset_bar.visible:
+		_refresh_preset_bar()
 	if _death_left > 0.0:
 		_death_left = maxf(0.0, _death_left - delta)
 	if _death_panel.visible:
@@ -1463,6 +1554,11 @@ func _fill_next(next: Dictionary) -> void:
 
 
 func _fill_results_loadout() -> void:
+	_results_preset.clear()
+	for i in Profile.loadout_presets.size():
+		_results_preset.add_item("%d  %s" % [i + 1, Profile.loadout_presets[i].name])
+		_results_preset.set_item_tooltip(i, Profile.preset_summary(i))
+	_results_preset.select(Profile.active_preset)
 	for slot: String in _results_pickers:
 		var o: OptionButton = _results_pickers[slot]
 		o.clear()
@@ -1620,6 +1716,19 @@ func _on_spectate_requested(on: bool) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if _preset_bar.visible and not is_blocking():
+		var pick := -1
+		for i in Profile.LOADOUT_PRESET_COUNT:
+			if event.is_action_pressed("weapon_%d" % (i + 1)):
+				pick = i
+		if event.is_action_pressed("next_weapon"):
+			pick = posmod(Profile.active_preset + 1, Profile.LOADOUT_PRESET_COUNT)
+		elif event.is_action_pressed("prev_weapon"):
+			pick = posmod(Profile.active_preset - 1, Profile.LOADOUT_PRESET_COUNT)
+		if pick >= 0:
+			get_viewport().set_input_as_handled()
+			pick_preset(pick)
+			return
 	if event.is_action_pressed("chat") and not is_blocking():
 		get_viewport().set_input_as_handled()
 		_chat_input.visible = true

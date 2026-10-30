@@ -38,7 +38,8 @@ const GAME_ID := "timbum"
 ##     dropper's gun skin on Tactical weapon spots.
 ## 14: the pre-match lobby (Net lobby RPCs) and the results screen's next-map vote.
 ## 15: spectators (`spectator` in peer_info, Net spectate RPCs).
-const PROTOCOL_VERSION := 15
+## 16: loadout presets (World._s_loadout: a loadout picked while dead applies at the respawn).
+const PROTOCOL_VERSION := 16
 const CONNECT_TIMEOUT := 8.0
 ## A room-code join first tries a direct (NAT punch-through) link this long, then the relay.
 const NAT_CONNECT_TIMEOUT := 6.0
@@ -776,7 +777,8 @@ func next_match() -> void:
 
 
 ## Sends this player's current Profile.peer_info() (loadout and cosmetics changed between
-## matches) to the server; it takes effect from their next spawn in the next match.
+## matches, or a loadout preset picked while dead) to the server; the loadout takes effect from
+## their next spawn (World._server_next_loadout), never mid-life.
 func update_my_info() -> void:
 	if players.is_empty():
 		return
