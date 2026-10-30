@@ -23,6 +23,7 @@ var _xp_label: Label
 var _name_edit: LineEdit
 var _daily_button: Button
 var _play_button: Button
+var _challenges_button: Button
 
 
 func _ready() -> void:
@@ -56,6 +57,10 @@ func _ready() -> void:
 	tick.autostart = true
 	tick.timeout.connect(_refresh_daily)
 	add_child(tick)
+	# A new day or week starts new challenge sets; the old sets' unclaimed rewards are paid.
+	var carried := Profile.refresh_challenges()
+	if int(carried.coins) > 0:
+		toast.call_deferred("UNCLAIMED CHALLENGES PAID: +%d COINS" % int(carried.coins), UITheme.ACCENT)
 	_refresh_profile()
 	_play_button.grab_focus.call_deferred()
 
@@ -156,6 +161,8 @@ func _get_screen(screen_name: String) -> Control:
 			s = locker
 		"stats":
 			s = StatsScreen.new()
+		"challenges":
+			s = ChallengesScreen.new()
 		"settings":
 			s = _build_settings_screen()
 	s.visible = false
@@ -328,6 +335,9 @@ func _build_home() -> MenuScreen:
 	buttons.add_child(row3)
 	_add_grid_button(row3, "STATS", "stats")
 	_add_grid_button(row3, "SETTINGS", "settings")
+	var row4 := UIKit.hbox(10)
+	buttons.add_child(row4)
+	_challenges_button = _add_grid_button(row4, "CHALLENGES", "challenges")
 	var quit := UIKit.button("QUIT", &"DangerButton")
 	quit.pressed.connect(func() -> void: get_tree().quit())
 	buttons.add_child(quit)
@@ -347,13 +357,14 @@ func _build_home() -> MenuScreen:
 	return home
 
 
-func _add_grid_button(parent: Container, text: String, screen: String, variation: StringName = &"") -> void:
+func _add_grid_button(parent: Container, text: String, screen: String, variation: StringName = &"") -> Button:
 	var b := UIKit.button(text, variation)
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	b.size_flags_stretch_ratio = 1.0
 	b.custom_minimum_size.y = 50
 	b.pressed.connect(func() -> void: go(screen))
 	parent.add_child(b)
+	return b
 
 
 func _build_profile_card() -> Control:
@@ -411,6 +422,8 @@ func _refresh_profile() -> void:
 	else:
 		_xp_bar.value = Profile.xp
 		_xp_label.text = "LVL %d  ·  %s / %s XP" % [Profile.level, UIKit.format_int(Profile.xp), UIKit.format_int(need)]
+	var to_claim := Profile.claimable_challenges()
+	_challenges_button.text = "CHALLENGES  ·  %d TO CLAIM" % to_claim if to_claim > 0 else "CHALLENGES"
 	_refresh_daily()
 
 

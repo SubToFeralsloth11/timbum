@@ -414,6 +414,65 @@ const LEVEL_CAP := 50
 const PRESTIGE_MAX := 10
 const PRESTIGE_COINS := 500
 
+## Daily and weekly challenges (Challenges generates them, Profile.challenges keeps them). Each
+## template: `text` [one, many] with {n} (the target or threshold) and {p} (the param's name);
+## `key` the MatchFacts.tally counter that advances it ("%s" is the param id); `param` what fills
+## {p}: "gun" (a gun the player owns), "gun_hs" (an owned gun that can land headshots), "mode", "map"
+## or ""; `group` the slot it may fill (CHALLENGE_SLOTS); `daily` / `weekly` the [min, max] target
+## (missing: not offered for that kind). `per_match`: the rolled number is a threshold the counter
+## must reach in one match, and the challenge needs that once. Every template can be done offline vs
+## bots (Gun Game hands out every gun, match setup picks any mode and map).
+const CHALLENGE_TEMPLATES := {
+	"kills": {"text": ["Get a kill", "Get {n} kills"], "key": "kills", "param": "", "group": "combat",
+		"daily": [15, 30], "weekly": [100, 150]},
+	"headshots": {"text": ["Get a headshot kill", "Get {n} headshot kills"], "key": "headshots", "param": "", "group": "combat",
+		"daily": [4, 8], "weekly": [30, 50]},
+	"gun_kills": {"text": ["Get a kill with the {p}", "Get {n} kills with the {p}"], "key": "w_kills:%s", "param": "gun", "group": "combat",
+		"daily": [8, 15], "weekly": [40, 60]},
+	"gun_heads": {"text": ["Get a headshot kill with the {p}", "Get {n} headshot kills with the {p}"], "key": "w_heads:%s", "param": "gun_hs",
+		"group": "combat", "daily": [2, 4], "weekly": [12, 20]},
+	"slide_kills": {"text": ["Slide-kill a player", "Slide-kill {n} players"], "key": "slide_kills", "param": "", "group": "style",
+		"daily": [2, 3], "weekly": [10, 15]},
+	"prone_kills": {"text": ["Get a kill while prone", "Get {n} kills while prone"], "key": "prone_kills", "param": "", "group": "style",
+		"daily": [2, 3], "weekly": [8, 12]},
+	"grapple_kills": {"text": ["Get a kill while grappling", "Get {n} kills while grappling"], "key": "grapple_kills", "param": "",
+		"group": "style", "daily": [1, 2], "weekly": [5, 8]},
+	"air_kills": {"text": ["Get a kill in mid-air", "Get {n} kills in mid-air"], "key": "air_kills", "param": "", "group": "style",
+		"daily": [2, 4], "weekly": [10, 15]},
+	"knife_kills": {"text": ["Get a knife kill", "Get {n} knife kills"], "key": "w_kills:knife", "param": "", "group": "style",
+		"daily": [2, 4], "weekly": [12, 20]},
+	"grenade_kills": {"text": ["Get a frag grenade kill", "Get {n} frag grenade kills"], "key": "w_kills:grenade", "param": "",
+		"group": "style", "daily": [2, 3], "weekly": [8, 12]},
+	"long_kills": {"text": ["Get a kill from 40 m or more", "Get {n} kills from 40 m or more"], "key": "long_kills", "param": "",
+		"group": "style", "daily": [2, 4], "weekly": [10, 15]},
+	"streak": {"text": ["Get a {n}-kill streak in one match", "Get a {n}-kill streak in one match"], "key": "best_streak", "param": "",
+		"group": "style", "per_match": true, "daily": [4, 6], "weekly": [7, 9]},
+	"mode_kills": {"text": ["Get a kill in {p}", "Get {n} kills in {p}"], "key": "mode_kills:%s", "param": "mode", "group": "mode",
+		"daily": [10, 20], "weekly": [60, 100]},
+	"mode_play": {"text": ["Play a match of {p}", "Play {n} matches of {p}"], "key": "mode_matches:%s", "param": "mode", "group": "mode",
+		"daily": [2, 3], "weekly": [6, 10]},
+	"mode_win": {"text": ["Win a match of {p}", "Win {n} matches of {p}"], "key": "wins_mode:%s", "param": "mode", "group": "mode",
+		"daily": [1, 1], "weekly": [2, 4]},
+	"map_win": {"text": ["Win a match on {p}", "Win {n} matches on {p}"], "key": "wins_map:%s", "param": "map", "group": "mode",
+		"daily": [1, 1], "weekly": [2, 3]},
+	"map_kills": {"text": ["Get a kill on {p}", "Get {n} kills on {p}"], "key": "map_kills:%s", "param": "map", "group": "mode",
+		"daily": [10, 20], "weekly": [60, 90]},
+	"wins": {"text": ["Win a match", "Win {n} matches"], "key": "wins", "param": "", "group": "mode",
+		"daily": [1, 2], "weekly": [5, 8]},
+}
+## Groups each challenge slot draws from, so every set mixes guns, movement and modes/maps.
+const CHALLENGE_SLOTS := {
+	"daily": [["combat"], ["style"], ["mode"]],
+	"weekly": [["mode"], ["combat", "style"]],
+}
+## What claiming a challenge pays (no XP at LEVEL_CAP, like matches).
+const CHALLENGE_REWARDS := {
+	"daily": {"coins": 150, "xp": 400},
+	"weekly": {"coins": 600, "xp": 1500},
+}
+## Distance at or above which a kill counts for "long_kills".
+const LONG_KILL_DISTANCE := 40.0
+
 
 ## Badge shown before a prestiged player's name (scoreboard, kill feed, nametags); "" at rank 0.
 static func prestige_badge(rank: int) -> String:

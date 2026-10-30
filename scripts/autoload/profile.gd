@@ -79,6 +79,9 @@ var mastery_paid := {}
 var camos: Array = []
 ## Prestige rank 0..Data.PRESTIGE_MAX.
 var prestige := 0
+## Daily and weekly challenges: "daily" / "weekly" -> {period (Challenges.period_of), list
+## (Challenges entries)}; refresh_challenges rolls them over.
+var challenges := {}
 
 ## Set to false by tests so they never touch the real save file.
 var persist := true
@@ -256,13 +259,16 @@ func claim_daily() -> int:
 	return Data.DAILY_REWARD
 
 
-## result: {kills, deaths, headshots, placement (1-based), players, won, best_streak, weapons}
-## `weapons` is the match's per-weapon numbers (World.my_weapon_stats: id -> {kills, headshots,
-## shots, hits, damage}); they are added to weapon_stats and pay any mastery tier reached.
-## Returns {coins, xp, levels_gained, breakdown, accuracy, shots, hits, most_used, mastery};
+## result: {kills, deaths, headshots, placement (1-based), players, won, best_streak, weapons,
+## mode, map, moves, best_multi} (MatchFacts.result). `weapons` is the match's per-weapon numbers
+## (World.my_weapon_stats: id -> {kills, headshots, shots, hits, damage}); they are added to
+## weapon_stats and pay any mastery tier reached. The whole result (MatchFacts.tally) advances the
+## challenges.
+## Returns {coins, xp, levels_gained, breakdown, accuracy, shots, hits, most_used, mastery, feats};
 ## breakdown is [[label, coins, xp], ...], one row per source, in the order the results screen
 ## lists them. accuracy is hits / shots of the match (-1 without shots), most_used the weapon
-## fired most ("" if none), mastery the [weapon id, tier] pairs reached this match.
+## fired most ("" if none), mastery the [weapon id, tier] pairs reached this match, feats what this
+## match completed ([key, title, text], see preview_feats).
 ## At Data.LEVEL_CAP XP stops: the match pays no XP until the player prestiges.
 func record_match(result: Dictionary) -> Dictionary:
 	var kills := int(result.get("kills", 0))
@@ -272,6 +278,10 @@ func record_match(result: Dictionary) -> Dictionary:
 	var contested := int(result.get("players", 1)) > 1
 	var won := bool(result.get("won", false)) and contested
 	var breakdown: Array = [["Match played", Data.COINS_PARTICIPATION, Data.XP_MATCH]]
+	# A period that ended during the match pays its completed, unclaimed challenges here.
+	var carried := refresh_challenges(-1, false)
+	if int(carried.coins) > 0 or int(carried.xp) > 0:
+		breakdown.append(["Unclaimed challenges", int(carried.coins), int(carried.xp)])
 	if kills > 0:
 		breakdown.append(["%d kill%s" % [kills, "" if kills == 1 else "s"], kills * Data.COINS_PER_KILL, kills * Data.XP_PER_KILL])
 	if heads > 0:
@@ -283,9 +293,10 @@ func record_match(result: Dictionary) -> Dictionary:
 		breakdown.append(["Victory", place_coins, 200])
 	elif place_coins > 0:
 		breakdown.append(["#%d place" % placement, place_coins, 0])
-	var match_weapons := _clean_weapon_stats(result.get("weapons", {}))
+	var match_weapons := clean_weapon_stats(result.get("weapons", {}))
 	var summary := match_summary(match_weapons)
 	_add_weapon_stats(match_weapons)
+	var feats := _advance_challenges(MatchFacts.tally(result))
 	var reached := _pay_mastery(match_weapons.keys(), breakdown)
 	var capped := level >= Data.LEVEL_CAP
 	if capped:
@@ -297,14 +308,7 @@ func record_match(result: Dictionary) -> Dictionary:
 	for row: Array in breakdown:
 		earned += int(row[1])
 		gained_xp += int(row[2])
-	xp += gained_xp
-	var levels := 0
-	while level < Data.LEVEL_CAP and xp >= xp_for_level(level):
-		xp -= xp_for_level(level)
-		level += 1
-		levels += 1
-	if level >= Data.LEVEL_CAP:
-		xp = 0
+	var levels := _add_xp(gained_xp)
 	if levels > 0:
 		breakdown.append(["Level up! Level %d" % level, levels * Data.COINS_PER_LEVEL, 0])
 		earned += levels * Data.COINS_PER_LEVEL
@@ -318,8 +322,142 @@ func record_match(result: Dictionary) -> Dictionary:
 	stats.coins_earned += earned
 	save()
 	changed.emit()
-	var out := {"coins": earned, "xp": gained_xp, "levels_gained": levels, "breakdown": breakdown, "mastery": reached}
+	var out := {"coins": earned, "xp": gained_xp, "levels_gained": levels, "breakdown": breakdown, "mastery": reached, "feats": feats}
 	out.merge(summary)
+	return out
+
+
+## Adds `amount` XP and levels up (no XP at Data.LEVEL_CAP). Returns the levels gained; the caller
+## pays their Data.COINS_PER_LEVEL.
+func _add_xp(amount: int) -> int:
+	if level >= Data.LEVEL_CAP:
+		xp = 0
+		return 0
+	xp += amount
+	var levels := 0
+	while level < Data.LEVEL_CAP and xp >= xp_for_level(level):
+		xp -= xp_for_level(level)
+		level += 1
+		levels += 1
+	if level >= Data.LEVEL_CAP:
+		xp = 0
+	return levels
+
+
+# ---------------------------------------------------------------- challenges
+
+## Gun ids the player owns (challenge params).
+func owned_guns() -> Array:
+	var out: Array = []
+	for id: String in Data.WEAPONS:
+		if is_owned("weapons", id):
+			out.append(id)
+	return out
+
+
+## Starts a new set for each kind whose period ended (local midnight for daily, Monday for
+## weekly; `day` overrides today's Challenges.day_number). Unfinished challenges of the old set are
+## dropped; completed ones not yet claimed are paid rather than lost. A clock moved back keeps the
+## current sets. Returns that payout {coins, xp}; with `pay` it is added now (coins, XP, level-ups),
+## else the caller pays it (record_match lists it in the breakdown).
+func refresh_challenges(day := -1, pay := true) -> Dictionary:
+	if day < 0:
+		day = Challenges.today()
+	var owed := {"coins": 0, "xp": 0}
+	var rolled := false
+	for kind: String in Challenges.KINDS:
+		var period := Challenges.period_of(kind, day)
+		var cur: Dictionary = challenges.get(kind, {})
+		if not cur.is_empty() and int(cur.period) >= period:
+			continue
+		for ch: Dictionary in cur.get("list", []):
+			if Challenges.is_complete(ch) and not ch.claimed:
+				owed.coins += int(Challenges.reward(kind).coins)
+				owed.xp += int(Challenges.reward(kind).xp)
+		challenges[kind] = {"period": period, "list": Challenges.generate(kind, period, owned_guns())}
+		rolled = true
+	if pay and (owed.coins > 0 or owed.xp > 0):
+		_grant(owed.coins, owed.xp)
+	if rolled:
+		save()
+		changed.emit()
+	return owed
+
+
+## The current `kind` set (entries as in Challenges); empty before the first refresh.
+func challenge_list(kind: String) -> Array:
+	return (challenges.get(kind, {}) as Dictionary).get("list", [])
+
+
+## Challenges ready to claim, for the menu badge.
+func claimable_challenges() -> int:
+	var n := 0
+	for kind: String in Challenges.KINDS:
+		for ch: Dictionary in challenge_list(kind):
+			if Challenges.is_complete(ch) and not ch.claimed:
+				n += 1
+	return n
+
+
+## Pays challenge `index` of `kind` once it is complete: {coins, xp, levels} (XP is 0 at the level
+## cap), or {} if it isn't complete or was already claimed.
+func claim_challenge(kind: String, index: int) -> Dictionary:
+	var list := challenge_list(kind)
+	if index < 0 or index >= list.size():
+		return {}
+	var ch: Dictionary = list[index]
+	if not Challenges.is_complete(ch) or ch.claimed:
+		return {}
+	ch.claimed = true
+	var reward := Challenges.reward(kind)
+	var gained_xp := 0 if level >= Data.LEVEL_CAP else int(reward.xp)
+	var levels := _grant(int(reward.coins), gained_xp)
+	save()
+	changed.emit()
+	return {"coins": int(reward.coins), "xp": gained_xp, "levels": levels}
+
+
+## Adds coins and XP outside a match (claims, carried rewards), level-up coins included. Returns
+## the levels gained.
+func _grant(add_coins: int, add_xp: int) -> int:
+	var levels := _add_xp(add_xp)
+	var paid := add_coins + levels * Data.COINS_PER_LEVEL
+	coins += paid
+	stats.coins_earned += paid
+	return levels
+
+
+## Advances every unfinished challenge by one match's tally. Returns the ones it completed as
+## [key, title, text].
+func _advance_challenges(tally: Dictionary) -> Array:
+	var done: Array = []
+	for kind: String in Challenges.KINDS:
+		var list := challenge_list(kind)
+		for i in list.size():
+			var ch: Dictionary = list[i]
+			if Challenges.is_complete(ch):
+				continue
+			ch.progress = mini(int(ch.target), int(ch.progress) + Challenges.amount(ch, tally))
+			if Challenges.is_complete(ch):
+				done.append(_challenge_feat(kind, i, ch))
+	return done
+
+
+static func _challenge_feat(kind: String, index: int, ch: Dictionary) -> Array:
+	return ["%s:%d:%s" % [kind, index, ch.id], "%s CHALLENGE COMPLETE" % kind.to_upper(), Challenges.text(ch)]
+
+
+## What a match result so far (MatchFacts.result) would complete if the match ended now, as
+## [key, title, text] (the key is stable, so the HUD toasts each once); changes nothing.
+func preview_feats(result: Dictionary) -> Array:
+	var tally := MatchFacts.tally(result)
+	var out: Array = []
+	for kind: String in Challenges.KINDS:
+		var list := challenge_list(kind)
+		for i in list.size():
+			var ch: Dictionary = list[i]
+			if not Challenges.is_complete(ch) and int(ch.progress) + Challenges.amount(ch, tally) >= int(ch.target):
+				out.append(_challenge_feat(kind, i, ch))
 	return out
 
 
@@ -357,7 +495,7 @@ static func match_summary(per_weapon: Dictionary) -> Dictionary:
 
 
 ## Keeps known ids and non-negative whole numbers, with hits never above shots.
-static func _clean_weapon_stats(raw: Variant) -> Dictionary:
+static func clean_weapon_stats(raw: Variant) -> Dictionary:
 	var out := {}
 	if typeof(raw) != TYPE_DICTIONARY:
 		return out
@@ -547,6 +685,7 @@ func _payload() -> Dictionary:
 		"owned": owned, "loadout": loadout, "equipped": equipped, "upgrades": upgrades,
 		"settings": settings, "stats": stats, "last_daily": last_daily, "bindings": bindings,
 		"weapon_stats": weapon_stats, "mastery_paid": mastery_paid, "camos": camos, "prestige": prestige,
+		"challenges": challenges,
 	}
 
 
@@ -682,7 +821,7 @@ func load_from_dict(d: Dictionary) -> void:
 			if lvl > 0:
 				upgrades[id] = lvl
 	# Per-weapon stats, mastery and prestige (saves from before them start empty / at rank 0).
-	weapon_stats = _clean_weapon_stats(d.get("weapon_stats", {}))
+	weapon_stats = clean_weapon_stats(d.get("weapon_stats", {}))
 	mastery_paid = {}
 	var saved_paid: Variant = d.get("mastery_paid", {})
 	if typeof(saved_paid) == TYPE_DICTIONARY:
@@ -697,6 +836,20 @@ func load_from_dict(d: Dictionary) -> void:
 			if has_camo(str(id)) and not camos.has(str(id)):
 				camos.append(str(id))
 	prestige = clampi(_num(d.get("prestige"), 0), 0, Data.PRESTIGE_MAX)
+	# Challenges (saves from before them get today's sets at the next refresh).
+	challenges = {}
+	var saved_ch: Variant = d.get("challenges", {})
+	if typeof(saved_ch) == TYPE_DICTIONARY:
+		for kind: String in Challenges.KINDS:
+			var c: Variant = (saved_ch as Dictionary).get(kind)
+			if typeof(c) != TYPE_DICTIONARY or typeof((c as Dictionary).get("list")) != TYPE_ARRAY:
+				continue
+			var list: Array = []
+			for raw: Variant in c.list:
+				var ch := Challenges.sanitize(raw, kind)
+				if not ch.is_empty():
+					list.append(ch)
+			challenges[kind] = {"period": _num(c.get("period"), 0), "list": list}
 	_load_bindings(d.get("bindings", {}))
 
 

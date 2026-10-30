@@ -117,6 +117,8 @@ var _kill_label: Label
 var _announce_label: Label
 var _pickup_label: Label
 var _protect_label: Label
+## Challenge / achievement toasts (feat_toast), stacked at the right edge.
+var _feat_box: VBoxContainer
 var _chat_log: VBoxContainer
 var _chat_input: LineEdit
 var _death_panel: Control
@@ -153,6 +155,7 @@ var _kill_label_t := 0.0
 var _announce_t := 0.0
 var _pickup_t := 0.0
 var _scores_dirty := true
+const FEAT_TOAST_LIFE := 5.0
 ## Last entity to hold the lead outright (0 before anyone has); lead changes involving us are announced.
 var _last_leader := 0
 var _crosshair_color := Color.WHITE
@@ -223,6 +226,14 @@ func _ready() -> void:
 	_flash_rect.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_flash_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_root.add_child(_flash_rect)
+	_feat_box = VBoxContainer.new()
+	_feat_box.set_anchors_and_offsets_preset(Control.PRESET_CENTER_RIGHT)
+	_feat_box.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	_feat_box.grow_vertical = Control.GROW_DIRECTION_BOTH
+	_feat_box.offset_right = -24
+	_feat_box.add_theme_constant_override("separation", 8)
+	_feat_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_root.add_child(_feat_box)
 
 	_fps_label = _label("", 16)
 	_fps_label.position = Vector2(10, 8)
@@ -742,6 +753,7 @@ func _process(delta: float) -> void:
 	_announce_label.modulate.a = clampf(_announce_t, 0.0, 1.0)
 	_pickup_t -= delta
 	_pickup_label.modulate.a = clampf(_pickup_t, 0.0, 1.0)
+	_age_list(_feat_box, delta, FEAT_TOAST_LIFE)
 	_age_list(_killfeed, delta, KILLFEED_LIFE)
 	if not _chat_input.visible:
 		_age_list(_chat_log, delta, CHAT_LIFE)
@@ -1178,6 +1190,28 @@ func announce(text: String) -> void:
 	_announce_t = 2.4
 	_announce_label.scale = Vector2(1.4, 1.4)
 	create_tween().tween_property(_announce_label, "scale", Vector2.ONE, 0.25).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+
+## A challenge completed or an achievement unlocked mid-match: a gold-edged card at the right edge
+## for a few seconds, over the results screen too.
+func feat_toast(title: String, text: String) -> void:
+	var p := _panel(0.82)
+	var sb := p.get_theme_stylebox("panel") as StyleBoxFlat
+	sb.border_color = Color(1, 0.82, 0.25, 0.9)
+	sb.set_content_margin_all(12)
+	var v := VBoxContainer.new()
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.add_child(_label(title, 15, Color(1, 0.82, 0.25)))
+	v.add_child(_label(text, 20))
+	p.add_child(v)
+	p.set_meta("age", 0.0)
+	_feat_box.add_child(p)
+	_feat_box.move_to_front()
+	while _feat_box.get_child_count() > 4:
+		var old := _feat_box.get_child(0)
+		_feat_box.remove_child(old)
+		old.queue_free()
+	Sfx.play(&"level_up", null, -4.0)
 
 
 func _on_invite_changed() -> void:

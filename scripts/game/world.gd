@@ -66,6 +66,11 @@ var _my_damage_taken := {}
 var my_weapon_stats := {}
 ## Frame of the last rocket hit counted, so one blast hitting several players is one hit.
 var _my_rocket_hit_frame := -1
+## The local player's movement/range kill facts this match (MatchFacts), with the scoreboard row
+## and my_weapon_stats the result challenges read. Counted on this peer.
+var my_facts := MatchFacts.new()
+## Keys of the feats (Profile.preview_feats) already toasted this match.
+var _feats_toasted := {}
 ## Profile.record_match's answer for this match (rewards, accuracy, most-used weapon); {} before.
 var match_rewards := {}
 ## End of match: the camera circling the winner while they emote (null otherwise).
@@ -149,6 +154,8 @@ func _ready() -> void:
 	pings.world = self
 	add_child(pings)
 	time_left = float(Net.config.time_limit)
+	# Today's challenges exist before the first kill (live toasts compare against them).
+	Profile.refresh_challenges()
 	Sfx.play_music(&"match")
 	Sfx.play(&"match_start")
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
@@ -251,6 +258,8 @@ func _process(delta: float) -> void:
 	if not smokes.is_empty():
 		var t := now()
 		smokes = smokes.filter(func(s: Array) -> bool: return float(s[2]) > t)
+	if local_player != null and not match_over:
+		my_facts.track(local_player, now())
 
 
 func shake(amount: float) -> void:
@@ -1042,6 +1051,18 @@ func _s_scores(all: Dictionary) -> void:
 	scores = all
 	_welcomed = true
 	hud.refresh_scores()
+	# Every kill ends with a scores update (after its _s_killed): see whether it completed anything.
+	if not match_over and scores.has(my_id()):
+		_toast_feats(Profile.preview_feats(my_facts.result(scores[my_id()], my_weapon_stats, 0, scores.size(), false)))
+
+
+## Toasts each feat ([key, title, text]) not toasted yet this match.
+func _toast_feats(feats: Array) -> void:
+	for f: Array in feats:
+		if _feats_toasted.has(f[0]):
+			continue
+		_feats_toasted[f[0]] = true
+		hud.feat_toast(str(f[1]), str(f[2]))
 
 
 @rpc("authority", "call_remote", "unreliable")
@@ -1121,6 +1142,8 @@ func _s_killed(victim_id: int, killer_id: int, wid: String, head: bool, killer_h
 		var t := now()
 		_my_multi = _my_multi + 1 if t - _my_last_kill < MULTI_KILL_WINDOW else 1
 		_my_last_kill = t
+		if not match_over:
+			my_facts.on_kill(local_player, wid, killer_dist, _my_multi, t)
 		# Like the server's streak: a killstreak reward's kills don't extend it.
 		if wid != Streaks.WEAPON:
 			_my_streak += 1
@@ -1354,12 +1377,11 @@ func _s_match_end(rows: Array, next: Dictionary, wait: float) -> void:
 	pings.on_match_over()
 	var rewards := {}
 	if not mine.is_empty():
-		rewards = Profile.record_match({
-			"kills": mine.kills, "deaths": mine.deaths, "headshots": mine.headshots,
-			"placement": reward_place, "players": rows.size(), "won": won,
-			"best_streak": mine.best_streak, "weapons": my_weapon_stats,
-		})
+		rewards = Profile.record_match(my_facts.result(mine, my_weapon_stats, reward_place, rows.size(), won))
+		_toast_feats(rewards.get("feats", []))
 	my_weapon_stats = {}
+	my_facts = MatchFacts.new()
+	_feats_toasted = {}
 	match_rewards = rewards
 	Sfx.play(&"match_end")
 	Sfx.play_music(&"results")
