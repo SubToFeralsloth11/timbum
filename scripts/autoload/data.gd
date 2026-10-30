@@ -14,7 +14,8 @@ const CATEGORIES: Array[String] = ["weapons", "skins", "hats", "outfits"]
 ##   spread_hip / spread_ads: cone half-angle in degrees
 ##   recoil: camera pitch kick in degrees per shot
 ##   falloff_start / falloff_end: metres; min_mult: damage multiplier past falloff_end
-##   ads_fov: field of view while aiming; scope: draws scope overlay
+##   ads_fov: field of view while aiming; scope: draws scope overlay (and hides the gun);
+##     scope_style: "sniper" (default) or "marksman" (wider low-power lens, chevron)
 ##   move_mult: movement speed multiplier while held
 ##   projectile: fires a rocket instead of hitscan; splash_radius / speed
 ##   burst / burst_rpm: shots per trigger pull and their rate inside the burst (rpm stays the
@@ -138,7 +139,7 @@ const WEAPONS := {
 		"mag": 12, "reserve": 60, "reload": 2.3, "pellets": 1,
 		"spread_hip": 3.5, "spread_ads": 0.1, "recoil": 2.6,
 		"falloff_start": 50.0, "falloff_end": 100.0, "min_mult": 0.8,
-		"ads_fov": 38.0, "move_mult": 0.93, "sound": "shot_dmr",
+		"ads_fov": 38.0, "scope": true, "scope_style": "marksman", "move_mult": 0.93, "sound": "shot_dmr",
 	},
 	"burst_rifle": {
 		"name": "Tri-Cube", "slot": "primary", "price": 700,
