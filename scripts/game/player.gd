@@ -161,6 +161,8 @@ var camera: Camera3D
 var viewmodel: Viewmodel
 var nametag: Label3D
 var brain: BotBrain
+## Laser Sight attachment beam (null without the upgrade).
+var laser: LaserSight
 
 var _shape: CapsuleShape3D
 var _collider: CollisionShape3D
@@ -217,6 +219,8 @@ var _rope: MeshInstance3D
 var _rope_out := 0.0
 ## Shots still to come in the current burst (burst weapons).
 var _burst_left := 0
+## Attachment id -> stat multiplier, from info.mods (see mod()).
+var _mods := {}
 
 
 func setup(p_world: World, p_id: int, p_info: Dictionary, p_mode: Mode, p_is_bot: bool) -> void:
@@ -227,7 +231,36 @@ func setup(p_world: World, p_id: int, p_info: Dictionary, p_mode: Mode, p_is_bot
 	is_bot = p_is_bot
 	name = "P%d" % p_id
 	slots = [str(info.primary), str(info.secondary), "knife"]
+	_mods.clear()
+	var levels: Variant = info.get("mods", {})
+	for mid: String in Data.ATTACHMENTS:
+		_mods[mid] = Data.attachment_mult(mid, int(levels.get(mid, 0)) if levels is Dictionary else 0)
 	refill_ammo()
+
+
+## Multiplier this player's attachment upgrade `mid` applies to its stat (1.0 without it).
+func mod(mid: String) -> float:
+	return _mods.get(mid, 1.0)
+
+
+## Magazine size of `wid` with the Extended Mag upgrade (guns holding fewer than 3 rounds keep theirs).
+func mag_size(wid: String) -> int:
+	var base := int(Data.WEAPONS[wid].mag)
+	return roundi(base * mod("mag")) if base >= 3 else base
+
+
+## Reload time of `wid` (per shell for shotguns) with the Speed Loader upgrade.
+func reload_time(wid: String) -> float:
+	return float(Data.WEAPONS[wid].reload) * mod("speed_loader")
+
+
+## Weapon switch time with the Quick Holster upgrade; draw animations always fit inside it.
+func switch_time() -> float:
+	return SWITCH_TIME * mod("holster")
+
+
+func grapple_cooldown_time() -> float:
+	return GRAPPLE_COOLDOWN * mod("grapple_motor")
 
 
 static func weapon_index(weapon_id: String) -> int:
@@ -257,7 +290,11 @@ func _ready() -> void:
 	add_child(_collider)
 
 	avatar = Models.build_avatar(str(info.outfit), str(info.hat))
+	avatar.charm_id = str(info.get("charm", "none"))
 	add_child(avatar)
+	if int((info.get("mods", {}) as Dictionary).get("laser", 0)) > 0:
+		laser = LaserSight.new()
+		add_child(laser)
 
 	head = Node3D.new()
 	head.name = "Head"
@@ -319,7 +356,7 @@ func _ready() -> void:
 		head.add_child(camera)
 		avatar.set_first_person(true)
 		viewmodel = Viewmodel.new()
-		viewmodel.setup(str(info.outfit), str(info.skin))
+		viewmodel.setup(str(info.outfit), str(info.skin), str(info.get("charm", "none")), str(info.get("draw", "standard")))
 		camera.add_child(viewmodel)
 	else:
 		nametag = Label3D.new()
@@ -503,7 +540,7 @@ func _simulate(delta: float) -> void:
 	_apply_crouch_shape()
 
 	var can_aim := in_aim and switch_timer <= 0.0 and not reloading and weapon_id() != "knife" and melee_timer <= 0.0
-	aim_blend = move_toward(aim_blend, 1.0 if can_aim else 0.0, delta / 0.16)
+	aim_blend = move_toward(aim_blend, 1.0 if can_aim else 0.0, delta / (0.16 * mod("optic")))
 
 	sprinting = in_sprint and in_move.y > 0.3 and not crouching and not prone and aim_blend < 0.2 and not in_fire \
 		and not reloading and not grappling
@@ -514,7 +551,7 @@ func _simulate(delta: float) -> void:
 		speed = CROUCH_SPEED
 	elif sprinting:
 		speed = SPRINT_SPEED
-	speed = lerpf(speed, minf(speed, ADS_SPEED), aim_blend) * float(w.move_mult) * speed_scale
+	speed = lerpf(speed, minf(speed, ADS_SPEED * mod("stock")), aim_blend) * float(w.move_mult) * speed_scale
 
 	var wish := Basis(Vector3.UP, yaw) * Vector3(in_move.x, 0.0, -in_move.y)
 	if wish.length_squared() > 1.0:
@@ -679,7 +716,7 @@ func release_grapple() -> void:
 	if not grappling:
 		return
 	grappling = false
-	grapple_cooldown = GRAPPLE_COOLDOWN
+	grapple_cooldown = grapple_cooldown_time()
 	if mode != Mode.REMOTE:
 		world.report_grapple(self, false, Vector3.ZERO)
 
@@ -748,13 +785,13 @@ func _update_rope(delta: float) -> void:
 func refill_ammo() -> void:
 	ammo.clear()
 	for wid in slots:
-		ammo[wid] = Vector2i(int(Data.WEAPONS[wid].mag), _reserve(wid))
+		ammo[wid] = Vector2i(mag_size(wid), _reserve(wid))
 
 
 func add_ammo_pickup() -> void:
 	for wid in slots:
 		var a: Vector2i = ammo[wid]
-		a.y = mini(a.y + int(Data.WEAPONS[wid].mag) * 2 * _ammo_scale(wid), _reserve(wid) * 2)
+		a.y = mini(a.y + mag_size(wid) * 2 * _ammo_scale(wid), _reserve(wid) * 2)
 		ammo[wid] = a
 
 
@@ -763,7 +800,7 @@ func needs_ammo() -> bool:
 	if mode == Mode.REMOTE:
 		return (_remote_flags & FLAG_NEEDS_AMMO) != 0
 	for wid in slots:
-		if int(Data.WEAPONS[wid].mag) > 0 and (ammo[wid] as Vector2i).y < _reserve(wid) * 2:
+		if mag_size(wid) > 0 and (ammo[wid] as Vector2i).y < _reserve(wid) * 2:
 			return true
 	return false
 
@@ -852,7 +889,7 @@ func _tick_weapon(delta: float) -> void:
 func switch_to(slot: int) -> void:
 	previous_slot = current_slot
 	current_slot = slot
-	switch_timer = SWITCH_TIME
+	switch_timer = switch_time()
 	_burst_left = 0
 	_cancel_reload()
 	_trigger_down = true
@@ -865,12 +902,12 @@ func start_reload() -> void:
 	var wid := weapon_id()
 	var w := weapon_data()
 	var a: Vector2i = ammo[wid]
-	if reloading or int(w.mag) == 0 or a.x >= int(w.mag) or a.y <= 0:
+	if reloading or mag_size(wid) == 0 or a.x >= mag_size(wid) or a.y <= 0:
 		return
 	reloading = true
-	reload_timer = float(w.reload)
+	reload_timer = reload_time(wid)
 	# Shotguns replay the animation per shell in _tick_reload.
-	_play_reload_anim(float(w.reload))
+	_play_reload_anim(reload_time(wid))
 	if mode == Mode.LOCAL:
 		Sfx.play(&"reload", null, -4.0)
 	else:
@@ -907,20 +944,20 @@ func _tick_reload(delta: float, wid: String, w: Dictionary) -> void:
 		return
 	var a: Vector2i = ammo[wid]
 	if w.get("reload_per_shell", false):
-		if a.y > 0 and a.x < int(w.mag):
+		if a.y > 0 and a.x < mag_size(wid):
 			a.x += 1
 			a.y -= 1
 			if mode == Mode.LOCAL:
 				Sfx.play(&"reload", null, -10.0, 1.3)
-			if a.y > 0 and a.x < int(w.mag):
-				_play_reload_anim(float(w.reload))
+			if a.y > 0 and a.x < mag_size(wid):
+				_play_reload_anim(reload_time(wid))
 		ammo[wid] = a
-		if a.y > 0 and a.x < int(w.mag):
-			reload_timer = float(w.reload)
+		if a.y > 0 and a.x < mag_size(wid):
+			reload_timer = reload_time(wid)
 		else:
 			reloading = false
 		return
-	var take := mini(int(w.mag) - a.x, a.y)
+	var take := mini(mag_size(wid) - a.x, a.y)
 	ammo[wid] = Vector2i(a.x + take, a.y - take)
 	reloading = false
 
@@ -985,7 +1022,7 @@ func _shoot(wid: String, w: Dictionary) -> void:
 	ammo[wid] = a
 	var aim := aim_transform()
 	if w.get("projectile", false):
-		var spread := lerpf(float(w.spread_hip), float(w.spread_ads), aim_blend)
+		var spread := lerpf(float(w.spread_hip) * mod("laser"), float(w.spread_ads), aim_blend)
 		var dir := _spread_dir(aim.basis, spread)
 		world.request_projectile(self, "rocket", _launch_origin(aim.origin, dir, 0.6), dir * float(w.speed))
 	else:
@@ -1004,7 +1041,7 @@ func aim_transform() -> Transform3D:
 
 func current_spread() -> float:
 	var w := weapon_data()
-	var s := lerpf(float(w.spread_hip), float(w.spread_ads), aim_blend) + bloom
+	var s := lerpf(float(w.spread_hip) * mod("laser"), float(w.spread_ads), aim_blend) + bloom
 	var hspeed := Vector2(velocity.x, velocity.z).length()
 	s += clampf(hspeed / WALK_SPEED, 0.0, 1.4) * float(w.spread_hip) * 0.35 * (1.0 - aim_blend * 0.6)
 	if not is_on_floor():
@@ -1046,26 +1083,27 @@ func _fire_hitscan(wid: String, w: Dictionary, aim: Transform3D) -> void:
 				continue
 			var is_head: bool = col.get_meta("part") == "head"
 			var dist: float = aim.origin.distance_to(r.position)
-			var dmg := damage_at(w, dist) * (float(w.head_mult) if is_head else 1.0)
+			var dmg := damage_at(w, dist, mod("barrel")) * (float(w.head_mult) if is_head else 1.0)
 			var entry: Array = hits.get(target.id, [0.0, false])
 			entry[0] += dmg
 			entry[1] = entry[1] or is_head
 			hits[target.id] = entry
 		else:
 			normals.append(r.normal)
-	bloom = minf(bloom + float(w.spread_hip) * 0.22 + 0.25, float(w.spread_hip) * 1.6)
+	bloom = minf(bloom + (float(w.spread_hip) * 0.22 + 0.25) * mod("stabilizer"), float(w.spread_hip) * 1.6)
 	world.report_shot(self, wid, ends, normals, hits)
 
 
-static func damage_at(w: Dictionary, dist: float) -> float:
-	var start := float(w.falloff_start)
-	var stop := float(w.falloff_end)
+## `range_mult` stretches the falloff distances (Long Barrel upgrade).
+static func damage_at(w: Dictionary, dist: float, range_mult := 1.0) -> float:
+	var start := float(w.falloff_start) * range_mult
+	var stop := float(w.falloff_end) * range_mult
 	var t := clampf((dist - start) / maxf(stop - start, 0.001), 0.0, 1.0)
 	return float(w.damage) * lerpf(1.0, float(w.min_mult), t)
 
 
 func _apply_kick(w: Dictionary) -> void:
-	var kick := float(w.recoil) * lerpf(1.0, 0.6, aim_blend) * (0.65 if prone else (0.8 if crouching else 1.0))
+	var kick := float(w.recoil) * mod("grip") * lerpf(1.0, 0.6, aim_blend) * (0.65 if prone else (0.8 if crouching else 1.0))
 	if mode == Mode.LOCAL:
 		pitch = clampf(pitch + deg_to_rad(kick * 0.55), -MAX_PITCH, MAX_PITCH)
 		yaw += deg_to_rad(randf_range(-0.35, 0.35) * kick * 0.4)
@@ -1264,7 +1302,7 @@ func _interpolate() -> void:
 	_reload_hold -= get_physics_process_delta_time()
 	if now_reloading and (not was_reloading or (per_shell and _reload_gap > 0.15 and _reload_hold <= 0.0)):
 		_reload_gap = 0.0
-		avatar.play_reload(float(reload_w.reload))
+		avatar.play_reload(reload_time(now_weapon))
 	elif was_reloading and not now_reloading and (prev_weapon != now_weapon or not per_shell):
 		# A finished shotgun reload lets its last shell's pose ease out instead of snapping.
 		avatar.stop_reload()
@@ -1329,6 +1367,28 @@ func _update_visuals(delta: float) -> void:
 			target_fov += 9.0
 		camera.fov = lerpf(camera.fov, target_fov, minf(1.0, delta * 12.0))
 		viewmodel.update_pose(delta, self)
+	_update_laser()
+
+
+## Laser Sight attachment: beam from the gun to where the shot would go, hidden while the gun
+## is down (switching, reloading, sprinting, knife) and the beam (not the dot) when scoped.
+func _update_laser() -> void:
+	if laser == null:
+		return
+	var down := not alive or weapon_id() == "knife" or switch_timer > 0.0 or reloading or sprinting
+	if mode == Mode.REMOTE:
+		down = not alive or weapon_id() == "knife" or (_remote_flags & (FLAG_RELOAD | FLAG_SPRINT)) != 0
+	if down or world.match_over:
+		laser.visible = false
+		return
+	var aim := aim_transform()
+	var from := aim.origin
+	if viewmodel != null:
+		from = viewmodel.muzzle_position()
+	elif _muzzle != null:
+		from = _muzzle.global_position
+	var scoped: bool = weapon_data().get("scope", false) and aim_blend > 0.85
+	laser.aim(from, aim.origin, -aim.basis.z, _exclude, not scoped)
 
 
 func _footsteps(delta: float) -> void:
@@ -1356,7 +1416,7 @@ func _refresh_weapon_visual() -> void:
 	avatar.hold_weapon(wid, str(info.skin))
 	_muzzle = avatar.find_child("Muzzle", true, false) as Node3D
 	if viewmodel != null:
-		viewmodel.set_weapon(wid)
+		viewmodel.set_weapon(wid, switch_time())
 
 
 # ---------------------------------------------------------------- server-driven events (every peer)
@@ -1446,7 +1506,7 @@ func respawn(pos: Vector3, p_yaw: float) -> void:
 	_cancel_reload()
 	_remote_flags = FLAG_FLOOR
 	fire_cooldown = 0.0
-	switch_timer = SWITCH_TIME
+	switch_timer = switch_time()
 	melee_timer = 0.0
 	grenade_cooldown = 0.0
 	knife_cooldown = 0.0
@@ -1472,7 +1532,7 @@ func respawn(pos: Vector3, p_yaw: float) -> void:
 	if mode == Mode.LOCAL:
 		avatar.set_first_person(true)
 		viewmodel.visible = true
-		viewmodel.play_draw()
+		viewmodel.play_draw(switch_time())
 		_end_death_cam()
 	if brain != null:
 		brain.on_respawn()

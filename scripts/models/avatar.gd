@@ -31,6 +31,11 @@ var outfit_id := ""
 var hat_id := ""
 var weapon_id := ""
 var skin_id := ""
+## Charm hung on held guns (Data.CHARMS id); set before hold_weapon().
+var charm_id := "none"
+## Win emote being performed (Data.EMOTES id, "" for none) and its running time.
+var emote := ""
+var _emote_t := 0.0
 
 var _visual: Node3D
 var _hips: Node3D
@@ -162,7 +167,7 @@ func set_motion(sliding: bool, lean: float, local_velocity: Vector2, grappling: 
 
 ## Advances locomotion: `speed` = horizontal speed in m/s.
 func animate(delta: float, speed: float, on_floor: bool, crouching: bool, prone: bool) -> void:
-	if _dead:
+	if _dead or not emote.is_empty():
 		return
 	var k := 1.0 - exp(-14.0 * delta)
 	_crouch = move_toward(_crouch, 1.0 if crouching else 0.0, delta * 7.0)
@@ -217,9 +222,10 @@ func hold_weapon(p_weapon_id: String, p_skin_id: String) -> void:
 		_grip = Vector3(0.1, -0.25, -0.35)
 		_twist_target = 0.0
 	else:
-		_gun = Models.build_gun(weapon_id, skin_id)
+		_gun = Models.build_gun(weapon_id, skin_id, charm_id)
 		_gun.scale = Vector3.ONE * Models.THIRD_PERSON_GUN_SCALE
 		_gun_mount.add_child(_gun)
+		_gun.visible = emote.is_empty()
 		var support := _gun.get_node_or_null(^"Support") as Node3D
 		if support:
 			_support = support.position * Models.THIRD_PERSON_GUN_SCALE
@@ -244,6 +250,7 @@ func play_death() -> void:
 	if _dead:
 		return
 	_dead = true
+	emote = ""
 	_recoil = 0.0
 	_slash_left = 0.0
 	_throw_left = 0.0
@@ -276,6 +283,9 @@ func reset_pose() -> void:
 		_death_tween.kill()
 		_death_tween = null
 	_dead = false
+	emote = ""
+	if _gun:
+		_gun.visible = true
 	_visual.transform = Transform3D.IDENTITY
 	_phase = 0.0
 	_swing = 0.0
@@ -342,7 +352,35 @@ func get_head() -> Node3D:
 	return _head
 
 
+## Plays win emote `id` (Data.EMOTES) on a loop until reset_pose() or stop_emote(). A dead
+## body gets back up first. The gun is put away while dancing.
+func play_emote(id: String) -> void:
+	if not Models.CATALOG.EMOTES.has(id):
+		id = "wave"
+	if _dead:
+		reset_pose()
+	emote = id
+	_emote_t = 0.0
+	_visual.transform = Transform3D.IDENTITY
+	if _gun:
+		_gun.visible = false
+	set_process(true)
+
+
+func stop_emote() -> void:
+	if emote.is_empty():
+		return
+	emote = ""
+	if _gun:
+		_gun.visible = true
+	_visual.transform = Transform3D.IDENTITY
+	_apply_pose()
+
+
 func _process(delta: float) -> void:
+	if not emote.is_empty():
+		_emote_t += delta
+		_apply_emote(_emote_t)
 	if _flash > 0.0:
 		_flash -= delta
 		if _flash <= 0.0:
@@ -355,10 +393,108 @@ func _process(delta: float) -> void:
 		_reload_left = maxf(0.0, _reload_left - delta)
 	elif reload_active:
 		_reload_len = 0.0
-	if (_recoil > 0.0 or reload_active) and not _dead:
+	if (_recoil > 0.0 or reload_active) and not _dead and emote.is_empty():
 		_apply_pose()
-	if _flash <= 0.0 and _recoil <= 0.0 and _reload_len <= 0.0:
+	if _flash <= 0.0 and _recoil <= 0.0 and _reload_len <= 0.0 and emote.is_empty():
 		set_process(false)
+
+
+## Full-body pose of the current emote at `t` seconds. Arm directions are in body space (x
+## right, y up, -z forward), from the shoulder to the hand.
+func _apply_emote(t: float) -> void:
+	var hips := Vector3(0, HIP_HEIGHT, 0)
+	var torso := Basis.IDENTITY
+	var head := Basis.IDENTITY
+	var arm_r := Vector3.DOWN
+	var arm_l := Vector3.DOWN
+	var leg := Vector4.ZERO # leg_r x, leg_r z, leg_l x, leg_l z
+	var knee := Vector2.ZERO
+	var visual := Transform3D.IDENTITY
+	match emote:
+		"wave":
+			arm_r = Vector3(0.45 + 0.3 * sin(t * 9.0), 0.9, -0.15)
+			head = Basis(Vector3.BACK, 0.12 * sin(t * 4.5))
+		"flex":
+			var p := 0.5 + 0.5 * sin(t * 5.0)
+			arm_r = Vector3(0.9, 0.2 + 0.5 * p, 0.0)
+			arm_l = Vector3(-0.9, 0.2 + 0.5 * p, 0.0)
+			torso = Basis(Vector3.RIGHT, 0.12 * p)
+			hips.y -= 0.03 * p
+			knee = Vector2(-0.2, -0.2) * p
+			leg = Vector4(0.1, 0.0, 0.1, 0.0) * p
+		"dance":
+			var s := sin(t * 7.0)
+			hips.x = 0.07 * s
+			hips.y -= absf(cos(t * 7.0)) * 0.04
+			torso = Basis(Vector3.BACK, -0.18 * s)
+			head = Basis(Vector3.BACK, 0.22 * s)
+			arm_r = Vector3(0.6 + 0.3 * s, 0.3, -0.5)
+			arm_l = Vector3(-0.6 + 0.3 * s, 0.3, -0.5)
+			leg = Vector4(maxf(0.0, s) * 0.7, 0.0, maxf(0.0, -s) * 0.7, 0.0)
+			knee = Vector2(-maxf(0.0, s) * 1.1, -maxf(0.0, -s) * 1.1)
+		"salute":
+			var up := smoothstep(0.0, 0.35, t)
+			arm_r = Vector3.DOWN.lerp(Vector3(-0.25, 0.55, -0.8), up)
+			head = Basis(Vector3.RIGHT, 0.08 * up)
+		"dab":
+			var cyc := fmod(t, 1.6)
+			var on := smoothstep(0.0, 0.18, cyc) * (1.0 - smoothstep(1.1, 1.35, cyc))
+			arm_r = Vector3.DOWN.lerp(Vector3(0.75, 0.62, -0.15), on)
+			arm_l = Vector3.DOWN.lerp(Vector3(0.55, 0.45, -0.7), on)
+			head = Basis(Vector3.RIGHT, -0.5 * on) * Basis(Vector3.UP, 0.4 * on)
+			torso = Basis(Vector3.BACK, -0.15 * on)
+		"spin":
+			visual = Transform3D(Basis(Vector3.UP, t * 9.0), Vector3.ZERO)
+			arm_r = Vector3(1.0, 0.1, 0.0)
+			arm_l = Vector3(-1.0, 0.1, 0.0)
+			head = Basis(Vector3.RIGHT, -0.2)
+		"jumps":
+			var s := 0.5 - 0.5 * cos(t * 8.0)
+			var a := s * 2.7
+			arm_r = Vector3(sin(a), -cos(a), 0.0)
+			arm_l = Vector3(-sin(a), -cos(a), 0.0)
+			leg = Vector4(0.0, 0.32 * s, 0.0, -0.32 * s)
+			visual = Transform3D(Basis.IDENTITY, Vector3(0, 0.12 * sin(s * PI), 0))
+		"backflip":
+			var cyc := fmod(t, 1.8)
+			var crouch := smoothstep(0.0, 0.25, cyc) * (1.0 - smoothstep(0.25, 0.35, cyc)) \
+				+ smoothstep(1.2, 1.3, cyc) * (1.0 - smoothstep(1.4, 1.7, cyc))
+			hips.y -= 0.22 * crouch
+			knee = Vector2(-1.2, -1.2) * crouch
+			leg = Vector4(0.6, 0.0, 0.6, 0.0) * crouch
+			var air := clampf((cyc - 0.35) / 0.85, 0.0, 1.0)
+			if air > 0.0 and air < 1.0:
+				var ang := -TAU * smoothstep(0.0, 1.0, air)
+				var center := Vector3(0, 1.0, 0)
+				var lift := Vector3(0, 1.1 * sin(air * PI), 0)
+				var rot := Basis(Vector3.RIGHT, -ang)
+				visual = Transform3D(rot, center + lift - rot * center)
+				knee = Vector2(-1.6, -1.6)
+				leg = Vector4(1.3, 0.0, 1.3, 0.0)
+				arm_r = Vector3(0.3, 0.2, -0.9)
+				arm_l = Vector3(-0.3, 0.2, -0.9)
+			else:
+				arm_r = Vector3(0.5, 0.85, 0.0)
+				arm_l = Vector3(-0.5, 0.85, 0.0)
+		"chicken":
+			var f := sin(t * 14.0)
+			arm_r = Vector3(0.55 + 0.35 * f, -0.55, 0.15)
+			arm_l = Vector3(-0.55 - 0.35 * f, -0.55, 0.15)
+			head = Basis(Vector3.RIGHT, 0.25 * sin(t * 7.0))
+			hips.y -= 0.12 + 0.03 * absf(f)
+			knee = Vector2(-0.7, -0.7)
+			leg = Vector4(0.35, 0.15, 0.35, -0.15)
+	_visual.transform = visual
+	_hips.position = hips
+	_torso.basis = torso
+	var inv := torso.inverse()
+	_head.basis = head
+	_arm_r.basis = inv * _point_down_to(arm_r)
+	_arm_l.basis = inv * _point_down_to(arm_l)
+	_leg_r.rotation = Vector3(leg.x, 0.0, leg.y)
+	_leg_l.rotation = Vector3(leg.z, 0.0, leg.w)
+	_knee_r.rotation.x = knee.x
+	_knee_l.rotation.x = knee.y
 
 
 func _set_flash(on: bool) -> void:
@@ -410,6 +546,9 @@ func _solve_hold(grip_y: float) -> void:
 
 
 func _apply_pose() -> void:
+	if not emote.is_empty():
+		_apply_emote(_emote_t)
+		return
 	var swing := sin(_phase) * _swing
 	var stride := swing * 0.7 * (1.0 - 0.45 * _crouch)
 	# Strafing swings the legs sideways instead of forward.

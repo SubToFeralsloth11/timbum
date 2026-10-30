@@ -1,7 +1,7 @@
 extends Node
 ## Static game catalogs: weapons, cosmetics, maps. Pure data, no state.
 
-const CATEGORIES: Array[String] = ["weapons", "skins", "hats", "outfits"]
+const CATEGORIES: Array[String] = ["weapons", "skins", "hats", "outfits", "charms", "emotes", "draws"]
 
 ## Weapon fields:
 ##   slot: "primary" | "secondary" | "melee"
@@ -248,6 +248,88 @@ const OUTFITS := {
 		"shoes": Color("9a9a9a"), "accent": Color("ff7a1a")},
 }
 
+## Weapon charms dangle from a short chain on the left of every gun (except the knife) and
+## swing with its motion. shape: cube | die | skull | star | heart | duck | coin | ghost | gem |
+## crown | creeper. a: main colour, b: detail colour.
+const CHARMS := {
+	"none": {"name": "No Charm", "price": 0, "desc": "A clean gun.", "shape": "", "a": Color.WHITE, "b": Color.WHITE},
+	"cube": {"name": "Lucky Cube", "price": 150, "desc": "A little grass block for luck.", "shape": "cube",
+		"a": Color("5aa83a"), "b": Color("7a5232")},
+	"die": {"name": "Pixel Die", "price": 200, "desc": "Roll the dice on every peek.", "shape": "die",
+		"a": Color("f2f2f2"), "b": Color("15151a")},
+	"heart": {"name": "Block Heart", "price": 250, "desc": "Wear it on your sleeve. Or your gun.", "shape": "heart",
+		"a": Color("e8304a"), "b": Color("ff8a9c")},
+	"duck": {"name": "Rubber Duck", "price": 300, "desc": "Squeak. Squeak.", "shape": "duck",
+		"a": Color("ffd23a"), "b": Color("ff8a1a")},
+	"star": {"name": "Gold Star", "price": 350, "desc": "For good behaviour.", "shape": "star",
+		"a": Color("ffcc33"), "b": Color("b8860b")},
+	"skull": {"name": "Bone Skull", "price": 450, "desc": "A tiny trophy.", "shape": "skull",
+		"a": Color("e8e2cf"), "b": Color("1a1a1a")},
+	"coin": {"name": "Big Coin", "price": 500, "desc": "Show off your savings.", "shape": "coin",
+		"a": Color("ffcc33"), "b": Color("c89212")},
+	"ghost": {"name": "Pixel Ghost", "price": 600, "desc": "Boo.", "shape": "ghost",
+		"a": Color("dfe8ff"), "b": Color("2a2a44")},
+	"creeper": {"name": "Hiss Block", "price": 700, "desc": "Keep it away from the walls.", "shape": "creeper",
+		"a": Color("4fbf3a"), "b": Color("10230c")},
+	"gem": {"name": "Diamond", "price": 900, "desc": "Shiny, glowing and completely useless.", "shape": "gem",
+		"a": Color("8ef0ff"), "b": Color("3fc6e0")},
+	"crown": {"name": "Tiny Crown", "price": 1200, "desc": "For the king of the lobby.", "shape": "crown",
+		"a": Color("ffcc33"), "b": Color("e8304a")},
+}
+
+## Win emotes: the match winner's character performs theirs at the end of the match while
+## every player's camera shows them. Bots pick one at random.
+const EMOTES := {
+	"wave": {"name": "Wave", "price": 0, "desc": "A friendly wave to the losers."},
+	"flex": {"name": "Flex", "price": 200, "desc": "Both arms up. Look at those blocks."},
+	"dance": {"name": "Block Boogie", "price": 350, "desc": "Side-to-side shuffle with swinging arms."},
+	"salute": {"name": "Salute", "price": 300, "desc": "Sharp, proper, respectful."},
+	"dab": {"name": "Dab", "price": 400, "desc": "A timeless classic."},
+	"spin": {"name": "Victory Spin", "price": 500, "desc": "Arms out, spinning on the spot."},
+	"jumps": {"name": "Jumping Jacks", "price": 600, "desc": "Get those steps in."},
+	"backflip": {"name": "Backflip", "price": 900, "desc": "Full backflip, landed every time."},
+	"chicken": {"name": "Chicken Dance", "price": 750, "desc": "Flap, flap, flap, clap."},
+}
+
+## Draw animations play when a gun is taken out. They are purely cosmetic: every one fits in
+## the same switch time (Player.switch_time()), so the gun is ready at exactly the same moment.
+const DRAWS := {
+	"standard": {"name": "Standard", "price": 0, "desc": "Swings up from below with a twist."},
+	"twirl": {"name": "Twirl", "price": 300, "desc": "Spun once around the trigger finger, cowboy style."},
+	"flip": {"name": "Barrel Roll", "price": 400, "desc": "Rolled a full turn on its way up."},
+	"slam": {"name": "Drop In", "price": 450, "desc": "Drops in from above and bounces into place."},
+	"sidewinder": {"name": "Sidewinder", "price": 500, "desc": "Sweeps in from the side."},
+	"toss": {"name": "Toss & Catch", "price": 750, "desc": "Thrown up end over end and caught."},
+}
+
+## Attachment upgrades apply to every gun and are bought one level at a time; each level costs
+## more than the last (Profile.upgrade_price). `per_level` is the fraction each level adds (or
+## takes away for reductions); `max` levels. Effects are read through Player.mod().
+const ATTACHMENTS := {
+	"laser": {"name": "Laser Sight", "desc": "Tighter hip-fire spread. Puts a visible laser on your gun.",
+		"stat": "Hip-fire spread", "per_level": -0.08, "max": 5, "base_price": 200},
+	"grip": {"name": "Recoil Grip", "desc": "Less recoil kick on every shot.",
+		"stat": "Recoil", "per_level": -0.07, "max": 5, "base_price": 220},
+	"stabilizer": {"name": "Bloom Stabilizer", "desc": "Spread grows less while you keep firing.",
+		"stat": "Spread bloom", "per_level": -0.09, "max": 5, "base_price": 200},
+	"mag": {"name": "Extended Mag", "desc": "Bigger magazines (guns holding three or more rounds).",
+		"stat": "Magazine size", "per_level": 0.07, "max": 5, "base_price": 260},
+	"speed_loader": {"name": "Speed Loader", "desc": "Faster reloads.",
+		"stat": "Reload time", "per_level": -0.06, "max": 5, "base_price": 240},
+	"optic": {"name": "Quick Optic", "desc": "Aim down sights faster.",
+		"stat": "Aim-in time", "per_level": -0.08, "max": 5, "base_price": 180},
+	"barrel": {"name": "Long Barrel", "desc": "Damage holds up over longer distances.",
+		"stat": "Damage range", "per_level": 0.08, "max": 5, "base_price": 240},
+	"stock": {"name": "Light Stock", "desc": "Move faster while aiming down sights.",
+		"stat": "Aiming move speed", "per_level": 0.05, "max": 5, "base_price": 180},
+	"holster": {"name": "Quick Holster", "desc": "Switch weapons faster.",
+		"stat": "Switch time", "per_level": -0.05, "max": 5, "base_price": 160},
+	"grapple_motor": {"name": "Grapple Motor", "desc": "Your grapple hook recharges faster.",
+		"stat": "Grapple cooldown", "per_level": -0.06, "max": 5, "base_price": 200},
+}
+## Each attachment level costs base_price * ATTACHMENT_GROWTH^level (level = levels owned).
+const ATTACHMENT_GROWTH := 1.75
+
 const MAPS := {
 	"village": {"name": "Village", "desc": "Cottages, a mill and a market square on rolling hills."},
 	"desert": {"name": "Desert Ruins", "desc": "Sun-bleached temple ruins and long sightlines."},
@@ -303,8 +385,17 @@ func catalog(category: String) -> Dictionary:
 		"hats": return HATS
 		"outfits": return OUTFITS
 		"tacticals": return TACTICALS
+		"charms": return CHARMS
+		"emotes": return EMOTES
+		"draws": return DRAWS
 	push_error("Unknown catalog category: %s" % category)
 	return {}
+
+
+## Multiplier an attachment at `level` applies to its stat (1.0 at level 0).
+func attachment_mult(id: String, level: int) -> float:
+	var a: Dictionary = ATTACHMENTS[id]
+	return 1.0 + float(a.per_level) * clampi(level, 0, int(a.max))
 
 
 func weapon_ids_for_slot(slot: String) -> Array[String]:

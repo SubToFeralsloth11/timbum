@@ -55,7 +55,12 @@ var xp := 0
 var level := 1
 var owned := {}
 var loadout := {"primary": "smg", "secondary": "pistol", "tactical": "flash"}
-var equipped := {"skin": "default", "hat": "none", "outfit": "classic"}
+const DEFAULT_EQUIPPED := {"skin": "default", "hat": "none", "outfit": "classic", "charm": "none", "emote": "wave", "draw": "standard"}
+## Equipped slot -> catalog category.
+const EQUIP_SLOTS := {"skin": "skins", "hat": "hats", "outfit": "outfits", "charm": "charms", "emote": "emotes", "draw": "draws"}
+var equipped := DEFAULT_EQUIPPED.duplicate()
+## Attachment id -> level bought (see Data.ATTACHMENTS); missing means 0.
+var upgrades := {}
 var settings := DEFAULT_SETTINGS.duplicate()
 var stats := DEFAULT_STATS.duplicate()
 var last_daily := 0
@@ -105,12 +110,9 @@ func is_equipped(category: String, id: String) -> bool:
 			return loadout.primary == id or loadout.secondary == id
 		"tacticals":
 			return loadout.tactical == id
-		"skins":
-			return equipped.skin == id
-		"hats":
-			return equipped.hat == id
-		"outfits":
-			return equipped.outfit == id
+	for slot: String in EQUIP_SLOTS:
+		if EQUIP_SLOTS[slot] == category:
+			return equipped[slot] == id
 	return false
 
 
@@ -125,14 +127,44 @@ func equip(category: String, id: String) -> bool:
 			loadout[slot] = id
 		"tacticals":
 			loadout.tactical = id
-		"skins":
-			equipped.skin = id
-		"hats":
-			equipped.hat = id
-		"outfits":
-			equipped.outfit = id
 		_:
-			return false
+			var slot := ""
+			for s: String in EQUIP_SLOTS:
+				if EQUIP_SLOTS[s] == category:
+					slot = s
+			if slot.is_empty():
+				return false
+			equipped[slot] = id
+	save()
+	changed.emit()
+	return true
+
+
+# ---------------------------------------------------------------- attachment upgrades
+
+func upgrade_level(id: String) -> int:
+	return int(upgrades.get(id, 0))
+
+
+func is_upgrade_maxed(id: String) -> bool:
+	return upgrade_level(id) >= int(Data.ATTACHMENTS[id].max)
+
+
+## Price of the next level of `id` (-1 when maxed). Each level costs ATTACHMENT_GROWTH times the
+## last, so early levels are cheap and noticeable and the top levels take a while to save for.
+func upgrade_price(id: String) -> int:
+	if not Data.ATTACHMENTS.has(id) or is_upgrade_maxed(id):
+		return -1
+	var a: Dictionary = Data.ATTACHMENTS[id]
+	return int(round(float(a.base_price) * pow(Data.ATTACHMENT_GROWTH, upgrade_level(id)) / 10.0)) * 10
+
+
+func buy_upgrade(id: String) -> bool:
+	var price := upgrade_price(id)
+	if price < 0 or coins < price:
+		return false
+	coins -= price
+	upgrades[id] = upgrade_level(id) + 1
 	save()
 	changed.emit()
 	return true
@@ -144,6 +176,10 @@ func peer_info() -> Dictionary:
 		"outfit": equipped.outfit,
 		"hat": equipped.hat,
 		"skin": equipped.skin,
+		"charm": equipped.charm,
+		"emote": equipped.emote,
+		"draw": equipped.draw,
+		"mods": upgrades.duplicate(),
 		"primary": loadout.primary,
 		"secondary": loadout.secondary,
 		"tactical": loadout.tactical,
@@ -306,20 +342,58 @@ func _set_bus_volume(bus_name: String, linear: float) -> void:
 func save() -> void:
 	if not persist:
 		return
-	var payload := {
-		"version": SAVE_VERSION,
-		"player_name": player_name, "coins": coins, "xp": xp, "level": level,
-		"owned": owned, "loadout": loadout, "equipped": equipped,
-		"settings": settings, "stats": stats, "last_daily": last_daily, "bindings": bindings,
-	}
 	var tmp := SAVE_PATH + ".tmp"
 	var f := FileAccess.open(tmp, FileAccess.WRITE)
 	if f == null:
 		push_warning("Could not save profile: %s" % error_string(FileAccess.get_open_error()))
 		return
-	f.store_string(JSON.stringify(payload, "\t"))
+	f.store_string(JSON.stringify(_payload(), "\t"))
 	f.close()
 	DirAccess.rename_absolute(ProjectSettings.globalize_path(tmp), ProjectSettings.globalize_path(SAVE_PATH))
+
+
+func _payload() -> Dictionary:
+	return {
+		"version": SAVE_VERSION,
+		"player_name": player_name, "coins": coins, "xp": xp, "level": level,
+		"owned": owned, "loadout": loadout, "equipped": equipped, "upgrades": upgrades,
+		"settings": settings, "stats": stats, "last_daily": last_daily, "bindings": bindings,
+	}
+
+
+## Writes the whole profile (progress, items, upgrades, settings, key bindings) to `path`, a
+## file the player picked, so it can be restored on another computer or after a reinstall.
+func export_to(path: String) -> Error:
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	if f == null:
+		return FileAccess.get_open_error()
+	var data := _payload()
+	data["timbum_profile"] = true
+	data["exported_at"] = Time.get_datetime_string_from_system(false, true)
+	f.store_string(JSON.stringify(data, "\t"))
+	f.close()
+	return OK
+
+
+## Replaces the current profile with one exported by export_to (or a copy of profile.json).
+## Returns "" on success or a message saying what is wrong with the file; nothing changes then.
+func import_from(path: String) -> String:
+	if not FileAccess.file_exists(path):
+		return "That file doesn't exist."
+	var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
+	if typeof(parsed) != TYPE_DICTIONARY:
+		return "That isn't a Timbum progress file."
+	var d: Dictionary = parsed
+	if not (d.has("timbum_profile") or d.has("version")) or not d.has("coins") or not d.has("owned"):
+		return "That isn't a Timbum progress file."
+	if _num(d.get("version"), SAVE_VERSION) > SAVE_VERSION:
+		return "That file is from a newer version of Timbum."
+	load_from_dict(d)
+	_apply_bindings()
+	apply_settings()
+	save()
+	changed.emit()
+	return ""
 
 
 func load_profile() -> void:
@@ -405,12 +479,19 @@ func load_from_dict(d: Dictionary) -> void:
 		if Data.TACTICALS.has(str(saved_loadout.get("tactical", ""))):
 			loadout.tactical = str(saved_loadout.tactical)
 	var saved_eq: Variant = d.get("equipped", {})
-	equipped = {"skin": "default", "hat": "none", "outfit": "classic"}
+	equipped = DEFAULT_EQUIPPED.duplicate()
 	if typeof(saved_eq) == TYPE_DICTIONARY:
-		for pair in [["skin", "skins"], ["hat", "hats"], ["outfit", "outfits"]]:
-			var id := str(saved_eq.get(pair[0], ""))
-			if is_owned(pair[1], id):
-				equipped[pair[0]] = id
+		for slot: String in EQUIP_SLOTS:
+			var id := str(saved_eq.get(slot, ""))
+			if is_owned(EQUIP_SLOTS[slot], id):
+				equipped[slot] = id
+	upgrades = {}
+	var saved_up: Variant = d.get("upgrades", {})
+	if typeof(saved_up) == TYPE_DICTIONARY:
+		for id: String in Data.ATTACHMENTS:
+			var lvl := clampi(_num(saved_up.get(id), 0), 0, int(Data.ATTACHMENTS[id].max))
+			if lvl > 0:
+				upgrades[id] = lvl
 	_load_bindings(d.get("bindings", {}))
 
 

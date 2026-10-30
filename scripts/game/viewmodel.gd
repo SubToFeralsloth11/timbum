@@ -126,6 +126,10 @@ var _kick := 0.0
 var _reload_t := 0.0
 var _reload_len := 0.0
 var _draw_t := 0.0
+## Length of the current draw (the player's switch time) and its style (Data.DRAWS id).
+var _draw_len := 0.3
+var _draw_style := "standard"
+var _charm := "none"
 var _melee_t := 0.0
 var _melee_len := SLASH_TIME
 var _melee_knife := true
@@ -156,8 +160,10 @@ var _mag_weapon := ""
 var _hand_busy := false
 
 
-func setup(outfit_id: String, skin_id: String) -> void:
+func setup(outfit_id: String, skin_id: String, charm_id := "none", draw_style := "standard") -> void:
 	_skin = skin_id
+	_charm = charm_id
+	_draw_style = draw_style if Data.DRAWS.has(draw_style) else "standard"
 	_pivot = Node3D.new()
 	_pivot.name = "Pivot"
 	add_child(_pivot)
@@ -197,17 +203,17 @@ func setup(outfit_id: String, skin_id: String) -> void:
 	add_child(_trail)
 
 
-func set_weapon(wid: String) -> void:
+func set_weapon(wid: String, draw_len := 0.3) -> void:
 	if wid == _weapon:
 		return
 	_weapon = wid
-	_gun = Models.build_gun(wid, _skin)
+	_gun = Models.build_gun(wid, _skin, _charm)
 	_arms.attach_gun(_gun)
 	_convert(_gun)
 	_muzzle = _gun.get_node_or_null(^"Muzzle") as Node3D
 	_scoped = Data.WEAPONS[wid].get("scope", false)
 	_ads_pos = _compute_ads_pos()
-	play_draw()
+	play_draw(draw_len)
 
 
 ## Places the pivot so the gun's rear sight sits just under the camera axis.
@@ -325,8 +331,11 @@ func play_throw() -> void:
 	_throw_t = THROW_TIME
 
 
-func play_draw() -> void:
-	_draw_t = 0.3
+## Takes the gun out over `length` seconds (the switch time) in the equipped draw style. Every
+## style ends exactly at `length`, so none of them delays the first shot.
+func play_draw(length := 0.3) -> void:
+	_draw_len = maxf(length, 0.05)
+	_draw_t = _draw_len
 
 
 func update_pose(delta: float, p: Player) -> void:
@@ -400,11 +409,11 @@ func update_pose(delta: float, p: Player) -> void:
 	elif _hand_busy:
 		stop_reload()
 	if _draw_t > 0.0:
-		# Weapon swings up from below with a twist.
-		var d := _draw_t / 0.3
-		pos.y -= d * d * 0.28
-		rot.x -= d * 0.6
-		rot.z += d * d * 0.5
+		var dpose := _draw_pose(_draw_t / _draw_len)
+		pos += dpose[0]
+		rot += dpose[1]
+	elif _gun != null and _gun.transform != Transform3D.IDENTITY:
+		_gun.transform = Transform3D.IDENTITY
 	if _melee_t > 0.0:
 		var u := 1.0 - _melee_t / _melee_len
 		if _melee_knife:
@@ -439,6 +448,50 @@ func update_pose(delta: float, p: Player) -> void:
 			_flash_light.light_energy = 0.0
 	if _scoped and ads > 0.85:
 		_flash.visible = false
+
+
+## Draw animation at `d` (1 = just started, 0 = done): [pivot offset, pivot rotation]. Styles
+## that spin the gun in the hand also set the gun's own transform under the mount.
+func _draw_pose(d: float) -> Array:
+	var u := 1.0 - d
+	var ease_out := 1.0 - pow(d, 3.0)
+	var pos := Vector3.ZERO
+	var rot := Vector3.ZERO
+	var gun := Transform3D.IDENTITY
+	match _draw_style:
+		"twirl":
+			# One full turn around the trigger finger while rising.
+			pos.y -= d * d * 0.16
+			rot.x -= d * 0.25
+			gun = Transform3D(Basis(Vector3.RIGHT, TAU * (1.0 - ease_out)), Vector3(0.0, -0.03, 0.0) * sin(u * PI))
+		"flip":
+			# Rolled a full turn around the barrel on the way up.
+			pos.y -= d * d * 0.24
+			rot.z += TAU * (1.0 - ease_out)
+		"slam":
+			# Falls in from above and bounces into place.
+			var drop := d * d
+			var bounce := sin(u * PI * 2.0) * 0.025 * d if u > 0.55 else 0.0
+			pos.y += drop * 0.3 - bounce
+			rot.x += drop * 0.5
+		"sidewinder":
+			pos.x += d * d * 0.38
+			pos.y -= d * 0.05
+			rot.y += d * d * 1.3
+			rot.z -= d * 0.4
+		"toss":
+			# Thrown up from the hand end over end, then caught.
+			var arc := sin(u * PI) * 0.12
+			pos.y -= d * d * 0.12
+			gun = Transform3D(Basis(Vector3.RIGHT, -TAU * (1.0 - ease_out)), Vector3(0.0, arc, 0.0))
+		_:
+			# Swings up from below with a twist.
+			pos.y -= d * d * 0.28
+			rot.x -= d * 0.6
+			rot.z += d * d * 0.5
+	if _gun != null:
+		_gun.transform = gun
+	return [pos, rot]
 
 
 ## Knife slash at progress `u` (0..1): [pivot offset, pivot rotation]. Eases up to the wind-up
@@ -484,6 +537,11 @@ func _animate_off_hand() -> void:
 	elif _grapple_blend > 0.0:
 		hand = Vector3(-0.2, -0.04, -0.38)
 		w = _grapple_blend
+	elif _draw_t > 0.0 and _draw_style in ["twirl", "toss"]:
+		# The off hand lets go while the gun spins in the right hand.
+		var u := 1.0 - _draw_t / _draw_len
+		hand = Vector3(-0.22, -0.2, -0.25)
+		w = 1.0 - smoothstep(0.65, 0.95, u)
 	if w > 0.0:
 		_arms.set_left_hand(hand, w)
 		_off_hand_used = true

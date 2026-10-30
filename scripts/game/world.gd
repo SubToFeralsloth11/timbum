@@ -10,7 +10,10 @@ extends Node3D
 const SNAPSHOT_INTERVAL := 0.05
 const CLOCK_INTERVAL := 1.0
 const REGEN_INTERVAL := 0.25
-const RESULTS_TIME := 12.0
+## Seconds every camera watches the winner perform their win emote before the results screen.
+const WIN_SHOW := 4.0
+## Results screen length, counted from the end of the match (so it includes WIN_SHOW).
+const RESULTS_TIME := 12.0 + WIN_SHOW
 const SPAWN_PROTECTION := 2.0
 const REGEN_DELAY := 5.0
 const REGEN_RATE := 12.0
@@ -46,6 +49,10 @@ var _my_last_kill := -100.0
 var _my_streak := 0
 ## Client: attacker id -> [hits, damage] dealt to the local player this life, for the death screen.
 var _my_damage_taken := {}
+## End of match: the camera circling the winner while they emote (null otherwise).
+var _win_cam: Camera3D
+var _win_target: Player
+var _win_t := 0.0
 
 # Server-only state.
 var _ready_peers := {}
@@ -176,6 +183,8 @@ func _process(delta: float) -> void:
 			if _ready_retry <= 0.0:
 				_ready_retry = 1.0
 				_c_ready.rpc_id(1)
+	if _win_cam != null:
+		_update_win_cam(delta)
 	if _shake > 0.0 and local_player != null and local_player.camera != null:
 		_shake = move_toward(_shake, 0.0, delta * 2.5)
 		local_player.camera.h_offset = randf_range(-1.0, 1.0) * _shake * 0.08
@@ -322,6 +331,10 @@ func _make_bot_info() -> Dictionary:
 		"primary": primaries.pick_random(),
 		"secondary": secondaries.pick_random(),
 		"tactical": Data.TACTICALS.keys().pick_random(),
+		"charm": Data.CHARMS.keys().pick_random(),
+		"emote": Data.EMOTES.keys().pick_random(),
+		"draw": "standard",
+		"mods": {},
 		"level": randi_range(1, 30),
 	}
 
@@ -1144,7 +1157,53 @@ func _s_match_end(rows: Array, next: Dictionary, wait: float) -> void:
 		})
 	Sfx.play(&"match_end")
 	Sfx.play_music(&"results")
-	hud.show_results(rows, placement, rewards, wait, next)
+	var winner: Player = entities.get(int(rows[0].id)) if not rows.is_empty() else null
+	var show := minf(WIN_SHOW, wait - 2.0)
+	if winner == null or show < 0.5:
+		hud.show_results(rows, placement, rewards, wait, next)
+		return
+	_start_win_cam(winner)
+	hud.show_winner(str(rows[0].name), winner == local_player)
+	get_tree().create_timer(show).timeout.connect(func() -> void:
+		if match_over:
+			hud.show_results(rows, placement, rewards, wait - show, next))
+
+
+## Every peer's view cuts to the winner, who performs their equipped win emote.
+func _start_win_cam(winner: Player) -> void:
+	_win_target = winner
+	winner.avatar.play_emote(str(winner.info.get("emote", "wave")))
+	if winner == local_player:
+		winner.avatar.set_first_person(false)
+		if winner.viewmodel != null:
+			winner.viewmodel.visible = false
+	if winner.laser != null:
+		winner.laser.visible = false
+	_win_cam = Camera3D.new()
+	_win_cam.name = "WinCam"
+	_win_cam.fov = 55.0
+	_win_cam.top_level = true
+	add_child(_win_cam)
+	_win_t = 0.0
+	_update_win_cam(0.0)
+	_win_cam.make_current()
+
+
+## Slowly swings the camera around the front of the winner, kept out of walls.
+func _update_win_cam(delta: float) -> void:
+	if not is_instance_valid(_win_target):
+		return
+	_win_t += delta
+	var center := _win_target.global_position + Vector3.UP * 1.05
+	var ang := _win_target.yaw + sin(_win_t * 0.45) * 0.55
+	var dir := Vector3(-sin(ang), 0.18, -cos(ang)).normalized()
+	var want := center + dir * 3.4
+	var q := PhysicsRayQueryParameters3D.create(center, want, 1)
+	var hit := get_world_3d().direct_space_state.intersect_ray(q)
+	var pos: Vector3 = want if hit.is_empty() else center + (hit.position - center) * 0.85
+	_win_cam.global_position = pos
+	if pos.distance_squared_to(center) > 0.01:
+		_win_cam.look_at(center, Vector3.UP)
 
 
 @rpc("authority", "call_remote", "reliable")

@@ -51,8 +51,9 @@ static var _shield_overlay: ShaderMaterial
 ## Gun for `weapon_id` in `skin_id`. Origin = grip, forward = -Z, real-world scale.
 ## Children: MeshInstance3D "Mesh", Marker3D "Muzzle" (barrel tip / knife tip),
 ## Marker3D "Sight" (rear sight line, for aiming down sights) and, for two-handed holds,
-## Marker3D "Support" (where the off hand goes; absent on the knife).
-static func build_gun(weapon_id: String, skin_id: String) -> Node3D:
+## Marker3D "Support" (where the off hand goes; absent on the knife). A `charm_id` other than
+## "none" hangs that GunCharm off the left side of the receiver (never on the knife).
+static func build_gun(weapon_id: String, skin_id: String, charm_id := "none") -> Node3D:
 	if not CATALOG.WEAPONS.has(weapon_id):
 		push_warning("Models: unknown weapon '%s'" % weapon_id)
 		weapon_id = "pistol"
@@ -70,7 +71,21 @@ static func build_gun(weapon_id: String, skin_id: String) -> Node3D:
 	_add_marker(root, "Sight", info.sight)
 	if info.support != null:
 		_add_marker(root, "Support", info.support)
+	if charm_id != "none" and CATALOG.CHARMS.has(charm_id) and CATALOG.WEAPONS[weapon_id].slot != "melee":
+		var charm := GunCharm.create(charm_id)
+		charm.position = charm_anchor(weapon_id)
+		root.add_child(charm)
 	return root
+
+
+## Where a charm hangs on `weapon_id` (gun space): the left face of the gun, a little below the
+## barrel line and just ahead of the trigger.
+static func charm_anchor(weapon_id: String) -> Vector3:
+	var info := _gun_info(weapon_id)
+	var box: AABB = (info.mesh as ArrayMesh).get_aabb()
+	var muzzle: Vector3 = info.muzzle
+	var z := clampf(-0.07, box.position.z + 0.02, box.end.z - 0.02)
+	return Vector3(box.position.x - 0.003, muzzle.y - 0.012, z)
 
 
 ## Shared weapon-skin material: a 32x32 nearest-filtered pixel pattern generated from the
