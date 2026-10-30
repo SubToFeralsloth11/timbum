@@ -1213,9 +1213,22 @@ func _input(event: InputEvent) -> void:
 	elif _pause.visible:
 		_close_pause()
 	elif not _results.visible:
-		_pause.visible = true
-		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-		world.set_frozen(true)
+		_open_pause()
+
+
+func _open_pause() -> void:
+	_pause.visible = true
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	world.set_frozen(true)
+
+
+## Clicking or alt-tabbing out of the game window opens the pause menu (and freezes an offline
+## match), so the match doesn't carry on without you.
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_APPLICATION_FOCUS_OUT and is_inside_tree() and not _pause.visible \
+			and not _results.visible and not _celebrating:
+		_close_chat()
+		_open_pause()
 
 
 func _unhandled_input(event: InputEvent) -> void:
