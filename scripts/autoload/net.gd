@@ -28,7 +28,8 @@ const GAME_ID := "timbum"
 ## 10: Gun Game and King of the Block (their controllers' RPCs, `ladder` / `no_grenades` in info).
 ## 11: killstreak rewards (config `streaks`, Streaks RPCs, the shield in World._s_damaged).
 ## 12: quick pings (Pings RPCs).
-## 13: the weapon id in World._s_hit_confirm.
+## 13: mastery camos in peer_info, the weapon id in World._s_hit_confirm, the dropper's gun skin
+##     on Tactical weapon spots.
 const PROTOCOL_VERSION := 13
 const CONNECT_TIMEOUT := 8.0
 ## A room-code join first tries a direct (NAT punch-through) link this long, then the relay.
@@ -503,6 +504,7 @@ static func sanitize_info(info: Dictionary) -> Dictionary:
 		"draw": str(info.get("draw", "standard")),
 		"mods": {},
 		"level": clampi(int(info.get("level", 1)), 1, 9999),
+		"camos": [],
 	}
 	var mods: Variant = info.get("mods", {})
 	if typeof(mods) == TYPE_DICTIONARY:
@@ -521,6 +523,12 @@ static func sanitize_info(info: Dictionary) -> Dictionary:
 	if not Data.CHARMS.has(clean.charm): clean.charm = "none"
 	if not Data.EMOTES.has(clean.emote): clean.emote = "wave"
 	if not Data.DRAWS.has(clean.draw): clean.draw = "standard"
+	# Mastery camos: known weapon ids, each once (the Gold unlock is the player's own profile's).
+	var camos: Variant = info.get("camos", [])
+	if typeof(camos) == TYPE_ARRAY:
+		for id: Variant in (camos as Array).slice(0, Data.WEAPONS.size()):
+			if typeof(id) in [TYPE_STRING, TYPE_STRING_NAME] and Data.WEAPONS.has(str(id)) and not clean.camos.has(str(id)):
+				clean.camos.append(str(id))
 	return clean
 
 

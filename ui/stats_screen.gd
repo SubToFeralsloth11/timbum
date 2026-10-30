@@ -29,7 +29,7 @@ var _import_path := ""
 var _weapon_table: GridContainer
 ## Per-weapon table columns: [header, minimum width].
 const WEAPON_COLUMNS: Array = [["WEAPON", 190], ["KILLS", 70], ["ACCURACY", 100], ["HEADSHOT %", 100],
-	["DAMAGE", 90]]
+	["DAMAGE", 90], ["MASTERY", 160]]
 
 
 func _ready() -> void:
@@ -257,7 +257,7 @@ func on_shown() -> void:
 
 
 ## One row per weapon (and grenade / Block Bomber) the player has used: kills, accuracy,
-## headshot share of kills and damage.
+## headshot share of kills, damage and mastery tier.
 func _fill_weapon_table() -> void:
 	for c in _weapon_table.get_children():
 		c.queue_free()
@@ -273,12 +273,18 @@ func _fill_weapon_table() -> void:
 		if kills == 0 and shots == 0 and damage == 0:
 			continue
 		any = true
-		var name_text: String = str(Data.WEAPONS[id].name) if Data.WEAPONS.has(id) else World.weapon_label(id)
+		var gun := Data.WEAPONS.has(id)
+		var name_text: String = str(Data.WEAPONS[id].name) if gun else World.weapon_label(id)
 		var acc := "-" if shots == 0 else "%d%%" % roundi(100.0 * Profile.weapon_stat(id, "hits") / shots)
 		var hs := "-" if kills == 0 else "%d%%" % roundi(100.0 * Profile.weapon_stat(id, "headshots") / kills)
-		for cell: String in [name_text, UIKit.format_int(kills), acc, hs, UIKit.format_int(damage)]:
-			var l := UIKit.label(cell, &"ValueLabel")
+		var tier := Profile.mastery_tier(id)
+		var mastery := "-" if not gun else ("None" if tier == 0 else str(Data.MASTERY_TIERS[tier - 1].name))
+		var cells := [name_text, UIKit.format_int(kills), acc, hs, UIKit.format_int(damage), mastery]
+		for i in cells.size():
+			var l := UIKit.label(str(cells[i]), &"ValueLabel")
 			l.add_theme_font_size_override("font_size", 16)
+			if i == 5 and tier > 0:
+				l.add_theme_color_override("font_color", Data.MASTERY_TIERS[tier - 1].color)
 			_weapon_table.add_child(l)
 	if not any:
 		var empty := UIKit.label("Play a match to fill this table.", &"DimLabel")

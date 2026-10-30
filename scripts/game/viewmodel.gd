@@ -115,6 +115,8 @@ var _muzzle: Node3D
 var _flash: MeshInstance3D
 var _flash_light: OmniLight3D
 var _skin := "default"
+## Weapon ids that wear their mastery camo instead of _skin (peer_info `camos`).
+var _camos: Array = []
 var _weapon := ""
 var _ads_pos := Vector3(0.0, -0.12, ADS_DEPTH)
 var _scoped := false
@@ -160,8 +162,9 @@ var _mag_weapon := ""
 var _hand_busy := false
 
 
-func setup(outfit_id: String, skin_id: String, charm_id := "none", draw_style := "standard") -> void:
+func setup(outfit_id: String, skin_id: String, charm_id := "none", draw_style := "standard", camos: Array = []) -> void:
 	_skin = skin_id
+	_camos = camos
 	_charm = charm_id
 	_draw_style = draw_style if Data.DRAWS.has(draw_style) else "standard"
 	_pivot = Node3D.new()
@@ -207,7 +210,7 @@ func set_weapon(wid: String, draw_len := 0.3) -> void:
 	if wid == _weapon:
 		return
 	_weapon = wid
-	_gun = Models.build_gun(wid, _skin, _charm)
+	_gun = Models.build_gun(wid, Data.mastery_skin(wid) if _camos.has(wid) else _skin, _charm)
 	_arms.attach_gun(_gun)
 	_convert(_gun)
 	_muzzle = _gun.get_node_or_null(^"Muzzle") as Node3D

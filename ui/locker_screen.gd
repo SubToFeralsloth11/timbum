@@ -24,6 +24,8 @@ var _preview: ModelPreview
 var _gun_preview: ModelPreview
 var _summary: Label
 var _name_tag: Label
+## Mastery rows (primary, secondary, knife): progress and the camo switch, refilled on show.
+var _mastery_box: VBoxContainer
 
 
 func _ready() -> void:
@@ -36,11 +38,20 @@ func _ready() -> void:
 	var left := UIKit.panel()
 	left.custom_minimum_size.x = 400
 	body.add_child(left)
+	# Scrolls on short windows (loadout, mastery and style rows plus the gun preview).
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	left.add_child(scroll)
 	var v := UIKit.vbox(10)
-	left.add_child(v)
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.add_child(v)
 	v.add_child(UIKit.label("LOADOUT", &"SubheaderLabel"))
 	for i in ROWS.size():
 		if i == STYLE_START:
+			v.add_child(UIKit.label("MASTERY", &"SubheaderLabel"))
+			_mastery_box = UIKit.vbox(4)
+			v.add_child(_mastery_box)
 			v.add_child(HSeparator.new())
 			v.add_child(UIKit.label("STYLE", &"SubheaderLabel"))
 		var row: Array = ROWS[i]
@@ -98,7 +109,38 @@ func _ready() -> void:
 
 func on_shown() -> void:
 	_fill_pickers()
+	_fill_mastery()
 	_rebuild_models()
+
+
+## Mastery progress of the equipped guns and the knife, each with a CAMO switch once it reached
+## Gold (Profile.set_camo).
+func _fill_mastery() -> void:
+	for c in _mastery_box.get_children():
+		c.queue_free()
+	for wid: String in [Profile.loadout.primary, Profile.loadout.secondary, "knife"]:
+		var h := UIKit.hbox(8)
+		_mastery_box.add_child(h)
+		var tier := Profile.mastery_tier(wid)
+		var text := UIKit.label("%s  ·  %s" % [str(Data.WEAPONS[wid].name).to_upper(), Profile.mastery_text(wid)], &"SmallLabel")
+		text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		text.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		text.clip_text = true
+		text.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		if tier > 0:
+			text.add_theme_color_override("font_color", Data.MASTERY_TIERS[tier - 1].color)
+		h.add_child(text)
+		var camo := CheckButton.new()
+		camo.text = "CAMO"
+		camo.disabled = not Profile.has_camo(wid)
+		camo.button_pressed = Profile.is_camo_on(wid)
+		camo.tooltip_text = "Wear this gun's mastery camo (everyone sees it)." if Profile.has_camo(wid) \
+			else "Reach Gold mastery (%d kills) to unlock this gun's camo." % int(Data.MASTERY_TIERS[-1].kills)
+		UIKit.wire(camo)
+		camo.toggled.connect(func(on: bool) -> void:
+			if Profile.set_camo(wid, on):
+				_rebuild_models())
+		h.add_child(camo)
 
 
 ## Owned item ids in `category`; for weapons, only those that go in loadout `slot`.
@@ -137,16 +179,18 @@ func _on_pick(key: String, idx: int) -> void:
 			category = row[0]
 	var id: String = _pickers[key].get_item_metadata(idx)
 	if Profile.equip(category, id):
+		if key in ["primary", "secondary"]:
+			_fill_mastery()
 		_rebuild_models()
 
 
 func _rebuild_models() -> void:
 	var avatar := Models.build_avatar(Profile.equipped.outfit, Profile.equipped.hat)
 	avatar.charm_id = Profile.equipped.charm
-	avatar.hold_weapon(Profile.loadout.primary, Profile.equipped.skin)
+	avatar.hold_weapon(Profile.loadout.primary, Profile.gun_skin(Profile.loadout.primary))
 	# Three-quarter side view so the held gun reads clearly.
 	_preview.show_model(avatar, true, PI - 1.1, 0.95)
-	_gun_preview.show_model(DrawPreview.create(Profile.equipped.draw, Profile.loadout.secondary, Profile.equipped.skin,
+	_gun_preview.show_model(DrawPreview.create(Profile.equipped.draw, Profile.loadout.secondary, Profile.gun_skin(Profile.loadout.secondary),
 		Profile.equipped.charm), false, ShopScreen.GUN_YAW, 1.0)
 	_name_tag.text = Profile.player_name.to_upper()
 	_summary.text = "Secondary: %s  ·  %s  ·  Knife always carried" % [Data.WEAPONS[Profile.loadout.secondary].name,

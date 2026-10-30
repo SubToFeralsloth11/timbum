@@ -317,7 +317,7 @@ func _yaw_for(cat: String) -> float:
 func _preview_model(cat: String, id: String) -> Node3D:
 	match cat:
 		"weapons":
-			return Models.build_gun(id, Profile.equipped.skin, Profile.equipped.charm)
+			return Models.build_gun(id, Profile.gun_skin(id), Profile.equipped.charm)
 		"skins":
 			return Models.build_gun(Profile.loadout.primary, id, Profile.equipped.charm)
 		"hats":
@@ -327,17 +327,17 @@ func _preview_model(cat: String, id: String) -> Node3D:
 		"outfits":
 			var avatar := Models.build_avatar(id, Profile.equipped.hat)
 			avatar.charm_id = Profile.equipped.charm
-			avatar.hold_weapon(Profile.loadout.primary, Profile.equipped.skin)
+			avatar.hold_weapon(Profile.loadout.primary, Profile.gun_skin(Profile.loadout.primary))
 			return avatar
 		"charms":
 			# On the equipped primary, so it swings as the preview turns.
-			return Models.build_gun(Profile.loadout.primary, Profile.equipped.skin, id)
+			return Models.build_gun(Profile.loadout.primary, Profile.gun_skin(Profile.loadout.primary), id)
 		"emotes":
 			var dancer := Models.build_avatar(Profile.equipped.outfit, Profile.equipped.hat)
 			dancer.play_emote(id)
 			return dancer
 		"draws":
-			return DrawPreview.create(id, Profile.loadout.secondary, Profile.equipped.skin, Profile.equipped.charm)
+			return DrawPreview.create(id, Profile.loadout.secondary, Profile.gun_skin(Profile.loadout.secondary), Profile.equipped.charm)
 		"attachments":
 			return Models.build_attachment(id)
 	return null
@@ -365,6 +365,12 @@ func _refresh_detail() -> void:
 			_kind.text = {"primary": "PRIMARY WEAPON", "secondary": "SECONDARY WEAPON", "melee": "MELEE"}[slot]
 			for s: Array in UIKit.weapon_stats(id):
 				_stats.add_child(UIKit.stat_bar(s[0], s[1], s[2]))
+			# Mastery progress towards Gold (Data.MASTERY_TIERS), with the tier reached.
+			var gold := int(Data.MASTERY_TIERS[-1].kills)
+			var kills := Profile.weapon_stat(id, "kills")
+			var tier := Profile.mastery_tier(id)
+			_stats.add_child(UIKit.stat_bar("MASTERY", minf(1.0, float(kills) / gold), "%s  %d/%d" % [
+				"NONE" if tier == 0 else str(Data.MASTERY_TIERS[tier - 1].name).to_upper(), mini(kills, gold), gold]))
 		"skins":
 			_kind.text = "WEAPON SKIN"
 		"hats":

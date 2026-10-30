@@ -347,7 +347,7 @@ func server_on_kill(victim_id: int, _killer_id: int, _wid: String) -> void:
 	if victim != null:
 		var drop := victim.slots[0] if not victim.slots[0].is_empty() else victim.slots[1]
 		if not drop.is_empty():
-			_server_new_spot(victim.global_position + Vector3.UP * 0.05, drop)
+			_server_new_spot(victim.global_position + Vector3.UP * 0.05, drop, Data.gun_skin_for(victim.info, drop))
 	_release_claims(victim_id)
 	server_check_end()
 
@@ -444,12 +444,13 @@ func _server_take(i: int, p: Player) -> void:
 	if dropped == wid:
 		return
 	_broadcast(&"_s_give", [p.id, slot, wid])
-	_broadcast(&"_s_spot", [i, spots[i].pos, dropped])
+	_broadcast(&"_s_spot", [i, spots[i].pos, dropped, Data.gun_skin_for(p.info, dropped) if not dropped.is_empty() else "default"])
 	_claims.erase(i)
 
 
-func _server_new_spot(pos: Vector3, wid: String) -> void:
-	_broadcast(&"_s_spot", [spots.size(), pos, wid])
+## A gun dropped at `pos` in the skin it had (`skin`: the dropper's mastery camo or weapon skin).
+func _server_new_spot(pos: Vector3, wid: String, skin: String) -> void:
+	_broadcast(&"_s_spot", [spots.size(), pos, wid, skin])
 
 
 func _roll_weapon() -> String:
@@ -474,7 +475,7 @@ static func _bot_rating(wid: String) -> int:
 func _spot_list() -> Array:
 	var out: Array = []
 	for s: Dictionary in spots:
-		out.append([s.pos, s.wid])
+		out.append([s.pos, s.wid, s.skin])
 	return out
 
 
@@ -847,19 +848,23 @@ func _s_phase(p: int, left: float) -> void:
 @rpc("authority", "call_remote", "reliable")
 func _s_spots(list: Array) -> void:
 	for i in list.size():
-		_s_spot(i, list[i][0], str(list[i][1]))
+		_s_spot(i, list[i][0], str(list[i][1]), str(list[i][2]))
 
 
+## `skin` is the gun's skin as its last holder had it ("default" for map spawns).
 @rpc("authority", "call_remote", "reliable")
-func _s_spot(index: int, pos: Vector3, wid: String) -> void:
+func _s_spot(index: int, pos: Vector3, wid: String, skin: String) -> void:
 	if not wid.is_empty() and not Data.WEAPONS.has(wid):
 		return
+	if not Data.is_gun_skin(skin):
+		skin = "default"
 	while spots.size() <= index:
 		_add_spot(pos, "")
 	spots[index].pos = pos
 	spots[index].wid = wid
+	spots[index].skin = skin
 	spot_nodes[index].position = pos
-	spot_nodes[index].set_weapon(wid)
+	spot_nodes[index].set_weapon(wid, skin)
 
 
 @rpc("authority", "call_remote", "reliable")
@@ -885,7 +890,7 @@ func _s_markers(list: Array) -> void:
 # ================================================================ visuals and spectating (every peer)
 
 func _add_spot(pos: Vector3, wid: String) -> void:
-	spots.append({"pos": pos, "wid": wid})
+	spots.append({"pos": pos, "wid": wid, "skin": "default"})
 	var node := WeaponPickup.new()
 	node.position = pos
 	add_child(node)

@@ -401,7 +401,9 @@ func _ready() -> void:
 		head.add_child(camera)
 		avatar.set_first_person(true)
 		viewmodel = Viewmodel.new()
-		viewmodel.setup(str(info.outfit), str(info.skin), str(info.get("charm", "none")), str(info.get("draw", "standard")))
+		var camos: Variant = info.get("camos", [])
+		viewmodel.setup(str(info.outfit), str(info.skin), str(info.get("charm", "none")), str(info.get("draw", "standard")),
+			camos if typeof(camos) == TYPE_ARRAY else [])
 		camera.add_child(viewmodel)
 	else:
 		nametag = Label3D.new()
@@ -1503,7 +1505,7 @@ func _refresh_weapon_visual() -> void:
 	if wid == _shown_weapon:
 		return
 	_shown_weapon = wid
-	avatar.hold_weapon(wid, str(info.skin))
+	avatar.hold_weapon(wid, Data.gun_skin_for(info, wid))
 	_muzzle = avatar.find_child("Muzzle", true, false) as Node3D
 	if viewmodel != null:
 		viewmodel.set_weapon(wid, switch_time())

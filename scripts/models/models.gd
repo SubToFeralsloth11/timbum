@@ -171,9 +171,12 @@ static func _attachment_mesh(attachment_id: String) -> ArrayMesh:
 
 
 ## Shared weapon-skin material: a 32x32 nearest-filtered pixel pattern generated from the
-## skin's colours. Cached per skin id.
+## skin's colours. Cached per skin id. "mastery_<weapon id>" is that gun's mastery camo.
 static func skin_material(skin_id: String) -> Material:
 	if _skin_materials.has(skin_id):
+		return _skin_materials[skin_id]
+	if skin_id.begins_with("mastery_") and CATALOG.WEAPONS.has(skin_id.trim_prefix("mastery_")):
+		_skin_materials[skin_id] = _mastery_material(skin_id.trim_prefix("mastery_"))
 		return _skin_materials[skin_id]
 	if not CATALOG.SKINS.has(skin_id):
 		push_warning("Models: unknown skin '%s'" % skin_id)
@@ -206,6 +209,46 @@ static func skin_material(skin_id: String) -> Material:
 		m.emission_texture = tex
 		m.emission_energy_multiplier = glow
 	_skin_materials[skin_id] = m
+	return m
+
+
+## Mastery camo for `wid`: black obsidian scales set in molten-gold seams, each scale with a
+## glowing core in a colour of the gun's own (hue from its id), unlike any shop skin. Emissive.
+static func _mastery_material(wid: String) -> Material:
+	const N := 32
+	var seed := wid.hash()
+	var accent := Color.from_hsv(float(absi(seed) % 360) / 360.0, 0.8, 1.0)
+	var gold := Color("ffc93a")
+	var img := Image.create(N, N, false, Image.FORMAT_RGBA8)
+	for y in N:
+		for x in N:
+			# Diamond scales: distance to the nearest cell centre of a diagonal grid.
+			var u := fposmod(x + y, 8.0) - 4.0
+			var v := fposmod(x - y, 8.0) - 4.0
+			var edge := maxf(absf(u), absf(v))
+			var h := _hash(x, y, seed)
+			var n := _value_noise(x, y, N, 4, seed)
+			var c := Color(0.06, 0.05, 0.08).lerp(Color(0.17, 0.13, 0.2), n)
+			if edge >= 3.0:
+				c = gold.darkened(0.2 * h)
+			elif edge < 1.5:
+				c = accent.darkened(0.25 * (1.0 - n))
+			elif h > 0.96:
+				c = gold.lightened(0.4)
+			img.set_pixel(x, y, c)
+	img.generate_mipmaps()
+	var tex := ImageTexture.create_from_image(img)
+	var m := StandardMaterial3D.new()
+	m.albedo_texture = tex
+	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS
+	m.metallic = 0.45
+	m.roughness = 0.3
+	m.metallic_specular = 0.8
+	m.emission_enabled = true
+	m.emission_operator = BaseMaterial3D.EMISSION_OP_MULTIPLY
+	m.emission = Color.WHITE
+	m.emission_texture = tex
+	m.emission_energy_multiplier = 0.9
 	return m
 
 

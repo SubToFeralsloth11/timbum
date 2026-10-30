@@ -73,6 +73,10 @@ var stats := DEFAULT_STATS.duplicate()
 var last_daily := 0
 ## Lifetime per-weapon stats: weapon or source id -> {kills, headshots, shots, hits, damage}.
 var weapon_stats := {}
+## Weapon id -> mastery tiers already paid for (0-3), so each tier's coins are paid once.
+var mastery_paid := {}
+## Weapon ids whose mastery camo the player switched on (only Gold guns; see set_camo).
+var camos: Array = []
 
 ## Set to false by tests so they never touch the real save file.
 var persist := true
@@ -193,6 +197,7 @@ func peer_info() -> Dictionary:
 		"secondary": loadout.secondary,
 		"tactical": loadout.tactical,
 		"level": level,
+		"camos": camos.duplicate(),
 	}
 
 
@@ -250,11 +255,11 @@ func claim_daily() -> int:
 
 ## result: {kills, deaths, headshots, placement (1-based), players, won, best_streak, weapons}
 ## `weapons` is the match's per-weapon numbers (World.my_weapon_stats: id -> {kills, headshots,
-## shots, hits, damage}); they are added to weapon_stats.
-## Returns {coins, xp, levels_gained, breakdown, accuracy, shots, hits, most_used};
+## shots, hits, damage}); they are added to weapon_stats and pay any mastery tier reached.
+## Returns {coins, xp, levels_gained, breakdown, accuracy, shots, hits, most_used, mastery};
 ## breakdown is [[label, coins, xp], ...], one row per source, in the order the results screen
 ## lists them. accuracy is hits / shots of the match (-1 without shots), most_used the weapon
-## fired most ("" if none).
+## fired most ("" if none), mastery the [weapon id, tier] pairs reached this match.
 func record_match(result: Dictionary) -> Dictionary:
 	var kills := int(result.get("kills", 0))
 	var heads := int(result.get("headshots", 0))
@@ -277,6 +282,7 @@ func record_match(result: Dictionary) -> Dictionary:
 	var match_weapons := _clean_weapon_stats(result.get("weapons", {}))
 	var summary := match_summary(match_weapons)
 	_add_weapon_stats(match_weapons)
+	var reached := _pay_mastery(match_weapons.keys(), breakdown)
 	var earned := 0
 	var gained_xp := 0
 	for row: Array in breakdown:
@@ -301,12 +307,12 @@ func record_match(result: Dictionary) -> Dictionary:
 	stats.coins_earned += earned
 	save()
 	changed.emit()
-	var out := {"coins": earned, "xp": gained_xp, "levels_gained": levels, "breakdown": breakdown}
+	var out := {"coins": earned, "xp": gained_xp, "levels_gained": levels, "breakdown": breakdown, "mastery": reached}
 	out.merge(summary)
 	return out
 
 
-# ---------------------------------------------------------------- per-weapon stats
+# ---------------------------------------------------------------- per-weapon stats and mastery
 
 ## Every id weapon_stats tracks: the weapons, then the frag grenade and the Block Bomber.
 static func stat_sources() -> Array[String]:
@@ -368,6 +374,67 @@ func _add_weapon_stats(per_weapon: Dictionary) -> void:
 		for key: String in WEAPON_STAT_KEYS:
 			total[key] = int(total.get(key, 0)) + int(per_weapon[id][key])
 		weapon_stats[id] = total
+
+
+## Mastery tier (0 none .. 3 Gold) `wid` has reached with its lifetime kills.
+func mastery_tier(wid: String) -> int:
+	return Data.mastery_tier_for(weapon_stat(wid, "kills")) if Data.WEAPONS.has(wid) else 0
+
+
+## Short mastery progress for `wid`: "GOLD · 162 KILLS", "BRONZE · 41/75 KILLS", "12/25 KILLS".
+func mastery_text(wid: String) -> String:
+	var tier := mastery_tier(wid)
+	var kills := weapon_stat(wid, "kills")
+	var reached: String = "" if tier == 0 else str(Data.MASTERY_TIERS[tier - 1].name).to_upper() + " · "
+	if tier >= Data.MASTERY_TIERS.size():
+		return "%s%d KILLS" % [reached, kills]
+	return "%s%d/%d KILLS" % [reached, kills, int(Data.MASTERY_TIERS[tier].kills)]
+
+
+## Pays each mastery tier the guns in `ids` reached and haven't been paid for yet, as rows in
+## `breakdown`. Returns the [weapon id, tier] pairs paid.
+func _pay_mastery(ids: Array, breakdown: Array) -> Array:
+	var paid: Array = []
+	for id: String in Data.WEAPONS:
+		if not ids.has(id):
+			continue
+		var tier := mastery_tier(id)
+		for t in range(int(mastery_paid.get(id, 0)), tier):
+			var info: Dictionary = Data.MASTERY_TIERS[t]
+			var label := "%s %s mastery" % [Data.WEAPONS[id].name, info.name]
+			if t == Data.MASTERY_TIERS.size() - 1:
+				label += ": camo unlocked"
+			breakdown.append([label, int(info.coins), 0])
+			paid.append([id, t + 1])
+		mastery_paid[id] = maxi(int(mastery_paid.get(id, 0)), tier)
+	return paid
+
+
+## True once `wid` reached Gold mastery.
+func has_camo(wid: String) -> bool:
+	return mastery_tier(wid) >= Data.MASTERY_TIERS.size()
+
+
+func is_camo_on(wid: String) -> bool:
+	return camos.has(wid)
+
+
+## Switches `wid`'s mastery camo on or off (only for a Gold gun). Returns false if not allowed.
+func set_camo(wid: String, on: bool) -> bool:
+	if on and not has_camo(wid):
+		return false
+	if on and not camos.has(wid):
+		camos.append(wid)
+	elif not on:
+		camos.erase(wid)
+	save()
+	changed.emit()
+	return true
+
+
+## The skin this player's `wid` wears (mastery camo when switched on, else the equipped skin).
+func gun_skin(wid: String) -> String:
+	return Data.gun_skin_for(peer_info(), wid)
 
 
 # ---------------------------------------------------------------- settings
@@ -440,7 +507,7 @@ func _payload() -> Dictionary:
 		"player_name": player_name, "coins": coins, "xp": xp, "level": level,
 		"owned": owned, "loadout": loadout, "equipped": equipped, "upgrades": upgrades,
 		"settings": settings, "stats": stats, "last_daily": last_daily, "bindings": bindings,
-		"weapon_stats": weapon_stats,
+		"weapon_stats": weapon_stats, "mastery_paid": mastery_paid, "camos": camos,
 	}
 
 
@@ -575,8 +642,21 @@ func load_from_dict(d: Dictionary) -> void:
 			var lvl := clampi(_num(saved_up.get(id), 0), 0, int(Data.ATTACHMENTS[id].max))
 			if lvl > 0:
 				upgrades[id] = lvl
-	# Per-weapon stats (saves from before them start empty).
+	# Per-weapon stats and mastery (saves from before them start empty).
 	weapon_stats = _clean_weapon_stats(d.get("weapon_stats", {}))
+	mastery_paid = {}
+	var saved_paid: Variant = d.get("mastery_paid", {})
+	if typeof(saved_paid) == TYPE_DICTIONARY:
+		for id: String in Data.WEAPONS:
+			var t := clampi(_num(saved_paid.get(id), 0), 0, Data.MASTERY_TIERS.size())
+			if t > 0:
+				mastery_paid[id] = t
+	camos = []
+	var saved_camos: Variant = d.get("camos", [])
+	if typeof(saved_camos) == TYPE_ARRAY:
+		for id: Variant in saved_camos:
+			if has_camo(str(id)) and not camos.has(str(id)):
+				camos.append(str(id))
 	_load_bindings(d.get("bindings", {}))
 
 

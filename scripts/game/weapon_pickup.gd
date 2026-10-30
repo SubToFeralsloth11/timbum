@@ -9,6 +9,8 @@ const DRAW_DISTANCE := 32.0
 const LABEL_DISTANCE := 9.0
 
 var wid := ""
+## The gun's skin as its last holder had it (a mastery camo stays on a dropped gun).
+var skin := "default"
 var _gun: Node3D
 var _label: Label3D
 var _pad: MeshInstance3D
@@ -49,10 +51,11 @@ func _ready() -> void:
 	_apply()
 
 
-func set_weapon(p_wid: String) -> void:
-	if p_wid == wid and (_gun != null or wid.is_empty()):
+func set_weapon(p_wid: String, p_skin := "default") -> void:
+	if p_wid == wid and p_skin == skin and (_gun != null or wid.is_empty()):
 		return
 	wid = p_wid
+	skin = p_skin
 	if is_node_ready():
 		_apply()
 
@@ -65,7 +68,7 @@ func _apply() -> void:
 	set_process(visible)
 	if wid.is_empty():
 		return
-	_gun = Models.build_gun(wid, "default")
+	_gun = Models.build_gun(wid, skin)
 	_gun.position.y = 0.35
 	_gun.rotation.z = deg_to_rad(8.0)
 	for g: GeometryInstance3D in _gun.find_children("*", "GeometryInstance3D", true, false):

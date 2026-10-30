@@ -397,9 +397,44 @@ const XP_PER_KILL := 100
 const XP_PER_HEADSHOT := 25
 const XP_MATCH := 150
 
+## Weapon mastery: lifetime kills with one weapon (Profile.weapon_stats) that reach each tier, and
+## the coins it pays once (Profile.mastery_paid). Gold unlocks the gun's mastery camo.
+const MASTERY_TIERS: Array[Dictionary] = [
+	{"name": "Bronze", "kills": 25, "coins": 250, "color": Color("d08a4a")},
+	{"name": "Silver", "kills": 75, "coins": 500, "color": Color("c9d2dc")},
+	{"name": "Gold", "kills": 150, "coins": 1000, "color": Color("ffcc33")},
+]
 ## Kill sources tracked in the per-weapon stats besides Data.WEAPONS: frag grenades and the Block
 ## Bomber (Streaks.WEAPON). They have kills, headshots and damage but no shots.
 const STAT_EXTRA_SOURCES: Array[String] = ["grenade", "bomber"]
+
+
+## Mastery tier reached with `kills` (0 none, 1 Bronze, 2 Silver, 3 Gold).
+static func mastery_tier_for(kills: int) -> int:
+	var tier := 0
+	for t: Dictionary in MASTERY_TIERS:
+		if kills >= int(t.kills):
+			tier += 1
+	return tier
+
+
+## Weapon-skin id of `wid`'s mastery camo (Models.skin_material builds it).
+static func mastery_skin(wid: String) -> String:
+	return "mastery_" + wid
+
+
+## True for skin ids a gun can wear: a catalog skin or a known gun's mastery camo.
+static func is_gun_skin(skin_id: String) -> bool:
+	return SKINS.has(skin_id) or (skin_id.begins_with("mastery_") and WEAPONS.has(skin_id.trim_prefix("mastery_")))
+
+
+## The skin `wid` wears for a player whose peer_info is `info`: their mastery camo when they
+## switched it on for that gun, else their equipped weapon skin.
+static func gun_skin_for(info: Dictionary, wid: String) -> String:
+	var camos: Variant = info.get("camos", [])
+	if typeof(camos) == TYPE_ARRAY and (camos as Array).has(wid):
+		return mastery_skin(wid)
+	return str(info.get("skin", "default"))
 
 
 func catalog(category: String) -> Dictionary:
