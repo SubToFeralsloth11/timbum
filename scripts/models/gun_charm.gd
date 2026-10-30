@@ -1,22 +1,35 @@
 class_name GunCharm
 extends Node3D
-## A small trinket on a chain that hangs from a gun (Data.CHARMS) and swings with the gun's
-## motion: the trinket is a point mass on a rigid rod (Verlet), pulled by world gravity, so
-## turning, firing, reloading and draw animations all set it swinging. The node sits at the
-## hanging point; its "Swing" child turns so the chain points from there to the mass.
+## A small trinket on a chain that hangs from a gun (Data.CHARMS) and sways with the gun's
+## motion. The chain direction (in the gun's own space) is a damped spring pulled toward
+## where gravity plus the gun's acceleration (capped) would hang it, and it never swings more
+## than MAX_SWING from straight down, so fast turns, recoil, grapples and spinning draw
+## animations make it sway instead of flailing. The node sits at the hanging point; its "Swing"
+## child turns so the chain points along that direction.
 
 ## Chain length (gun space, metres) from the hanging point to the trinket's centre.
 const LENGTH := 0.05
 const GRAVITY := 9.8
-## Fraction of the velocity kept per 1/60 s; lower settles faster.
-const DAMPING := 0.94
+## Spring stiffness (1/s^2) and damping (1/s) of the swing.
+const STIFFNESS := 160.0
+const DAMPING := 9.0
+## How strongly the gun's acceleration (in g) tips the target, and the cap on that acceleration.
+const INERTIA := 0.5
+const MAX_ACCEL := 25.0
+## Largest angle (radians) from hanging straight down.
+const MAX_SWING := deg_to_rad(70.0)
+## Anchor jumps longer than this in one frame (respawn, teleport) reset the swing.
+const TELEPORT := 1.5
 
 static var _meshes: Dictionary = {}
 
 var charm_id := ""
 var _swing: Node3D
-var _tip := Vector3.ZERO
-var _prev_tip := Vector3.ZERO
+## Chain direction and its rate of change, in this node's own (unscaled) space.
+var _dir := Vector3.DOWN
+var _dir_vel := Vector3.ZERO
+var _prev_anchor := Vector3.ZERO
+var _prev_vel := Vector3.ZERO
 var _started := false
 
 
@@ -124,31 +137,41 @@ static func mesh_for(id: String) -> ArrayMesh:
 	return _meshes[id]
 
 
-func _ready() -> void:
-	_started = false
-
-
 func _process(delta: float) -> void:
-	if not is_visible_in_tree():
+	if not is_visible_in_tree() or delta <= 0.0:
 		_started = false
 		return
 	var gx := global_transform
+	var inv := gx.basis.orthonormalized().inverse()
 	var anchor := gx.origin
-	var length := LENGTH * gx.basis.get_scale().y
-	if not _started or length <= 0.0:
-		_tip = anchor + Vector3.DOWN * length
-		_prev_tip = _tip
-		_started = true
+	var down := (inv * Vector3.DOWN).normalized()
 	var dt := minf(delta, 1.0 / 30.0)
-	var keep := pow(DAMPING, dt * 60.0)
-	var vel := (_tip - _prev_tip) * keep
-	_prev_tip = _tip
-	_tip += vel + Vector3.DOWN * GRAVITY * dt * dt
-	var rod := _tip - anchor
-	if rod.length_squared() < 1e-10:
-		rod = Vector3.DOWN * length
-	_tip = anchor + rod.normalized() * length
-	# Point the chain (local -Y) at the mass, in this node's own space.
-	var local_dir := (gx.basis.inverse() * (_tip - anchor)).normalized()
-	if local_dir.dot(Vector3.DOWN) > -0.999:
-		_swing.basis = Basis(Quaternion(Vector3.DOWN, local_dir))
+	if not _started or anchor.distance_to(_prev_anchor) > TELEPORT:
+		_started = true
+		_prev_anchor = anchor
+		_prev_vel = Vector3.ZERO
+		_dir = down
+		_dir_vel = Vector3.ZERO
+		_apply()
+		return
+	var vel := (anchor - _prev_anchor) / dt
+	var accel := ((vel - _prev_vel) / dt).limit_length(MAX_ACCEL)
+	_prev_anchor = anchor
+	_prev_vel = vel
+	# The mass lags behind the gun's acceleration, like a real pendant.
+	var target := (down - inv * accel * (INERTIA / GRAVITY)).normalized()
+	_dir_vel += (target - _dir) * STIFFNESS * dt
+	_dir_vel *= exp(-DAMPING * dt)
+	_dir = (_dir + _dir_vel * dt).normalized()
+	var angle := _dir.angle_to(down)
+	if angle > MAX_SWING:
+		var axis := down.cross(_dir)
+		if axis.length_squared() > 1e-8:
+			_dir = down.rotated(axis.normalized(), MAX_SWING)
+			_dir_vel *= 0.3
+	_apply()
+
+
+func _apply() -> void:
+	if _dir.dot(Vector3.DOWN) > -0.999:
+		_swing.basis = Basis(Quaternion(Vector3.DOWN, _dir))
