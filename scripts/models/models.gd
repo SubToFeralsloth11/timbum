@@ -834,12 +834,17 @@ static func _gun_rocket(k: MeshKit) -> Dictionary:
 	k.box(DARK, Vector3(0, -0.0, -0.3), Vector3(0.03, 0.08, 0.035))
 	k.box(DARK, Vector3(0, 0.035, -0.3), Vector3(0.035, 0.02, 0.05))
 	k.box(DARK, Vector3(0, 0.035, 0.15), Vector3(0.06, 0.03, 0.14))
-	k.box(METAL, Vector3(-0.07, 0.14, -0.12), Vector3(0.03, 0.012, 0.02))
-	k.box(DARK, Vector3(-0.1, 0.16, -0.12), Vector3(0.04, 0.05, 0.09))
-	k.box(LENS, Vector3(-0.1, 0.16, -0.166), Vector3(0.03, 0.03, 0.004))
-	k.box(LENS, Vector3(-0.1, 0.16, -0.074), Vector3(0.024, 0.024, 0.004))
+	k.box(METAL, Vector3(-0.1, 0.16, -0.12), Vector3(0.07, 0.012, 0.02))
+	# Open reflex sight: a thin frame with a floating red dot, raised and offset from the tube so
+	# aiming looks through it with the launcher low on the right (a solid optic box at the eye
+	# filled the whole screen when aiming).
+	k.box(DARK, Vector3(-0.13, 0.22, -0.12), Vector3(0.056, 0.006, 0.012))
+	k.box(DARK, Vector3(-0.13, 0.17, -0.12), Vector3(0.056, 0.006, 0.012))
+	k.box(DARK, Vector3(-0.155, 0.195, -0.12), Vector3(0.006, 0.044, 0.012))
+	k.box(DARK, Vector3(-0.105, 0.195, -0.12), Vector3(0.006, 0.044, 0.012))
+	k.box(RED, Vector3(-0.13, 0.195, -0.12), Vector3(0.003, 0.003, 0.002))
 	_trigger(k, -0.03, 0.04)
-	return {"muzzle": Vector3(0, 0.1, -0.76), "sight": Vector3(-0.1, 0.16, -0.07),
+	return {"muzzle": Vector3(0, 0.1, -0.76), "sight": Vector3(-0.13, 0.195, 0.0),
 		"support": Vector3(0, -0.02, -0.3)}
 
 
