@@ -221,4 +221,5 @@ func _process(_delta: float) -> void:
 	if _bomber_line.visible:
 		_bomber_line.text = "[%s] BLOCK BOMBER READY" % Profile.key_text("streak_reward") if not streaks.targeting else "BLOCK BOMBER: TARGETING"
 		_bomber_line.modulate.a = 0.7 + 0.3 * sin(World.now() * 6.0)
-	_card.visible = true
+	# Nothing to say before the first kill of a life.
+	_card.visible = streak > 0 or radar > 0.0 or _enemy_line.visible or _bomber_line.visible
