@@ -6,7 +6,7 @@ config_version=5
 
 config/name="Timbum"
 config/description="Blocky free-for-all FPS with bots and online multiplayer (Wi-Fi, room codes, Steam, IP)."
-config/version="1.0.0"
+config/version="1.1.0"
 run/main_scene="res://scenes/main_menu.tscn"
 config/features=PackedStringArray("4.7", "Forward Plus")
 config/icon="res://icon.png"
