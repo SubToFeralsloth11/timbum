@@ -122,11 +122,14 @@ func busy() -> bool:
 
 # ================================================================ locked cells
 
-## Locks what keeps the map playable: the outer EDGE columns, water, and in every column the
-## lowest block whose top is above the kill height plus everything under it (the bedrock / ground
-## layer, and the last floor over a kill plane: a hole there would drop players to their death);
-## everything above it always has that floor beneath. Also the floor around every spawn and both
-## ends of every jump pad.
+## Locks what keeps the map playable, decided once from the map as built: the outer EDGE columns,
+## water, and in every column every cell up to and including the lowest solid block whose top is
+## above the kill height (the bedrock / ground layer, or the last floor over a kill plane: a hole
+## there would drop players to their death). Cells above that block are not locked and can be
+## blown away, leaving air over air; the guarantee is only that each column keeps its lowest
+## floor, so whatever is destroyed above, a player falls onto it rather than into the kill plane
+## (a column with no such floor, an open pit, is locked whole and stays as built).
+## Also the floor around every spawn and both ends of every jump pad.
 func _lock_cells() -> void:
 	var s := _grid.size
 	_locked.resize(_grid.blocks.size())
