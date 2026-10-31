@@ -30,11 +30,15 @@ const AVATAR_PARTS := {
 
 const _HAIR := {
 	"classic": Color("4a2f1c"), "camper": Color("1e1814"), "tuxedo": Color("16120f"),
-	"zombie": Color("24301c"),
+	"zombie": Color("24301c"), "cowboy": Color("5a3a1e"), "inmate": Color("2a1e14"),
 }
 const _IRIS := {
 	"classic": Color("3554b0"), "camper": Color("4a2c14"), "tuxedo": Color("2a3a2a"),
+	"cowboy": Color("3a6a8a"),
 }
+## Rows from the top of the shin where the boot starts (4 when missing: ankle-high shoes).
+const _BOOT_TOP := {"astronaut": 3, "hazmat": 3, "armor": 3, "pirate": 2, "skier": 3, "firefighter": 3,
+	"cowboy": 3}
 
 static var _guns: Dictionary = {}
 static var _skin_materials: Dictionary = {}
@@ -399,6 +403,8 @@ static func outfit_material(outfit_id: String) -> StandardMaterial3D:
 	if style == "armor" or style == "robot":
 		m.metallic = 0.45
 		m.roughness = 0.45
+	elif style == "diver":
+		m.roughness = 0.4
 	if has_glow:
 		m.emission_enabled = true
 		m.emission_operator = BaseMaterial3D.EMISSION_OP_MULTIPLY
@@ -1255,6 +1261,40 @@ static func _glow(c: Color) -> Color:
 	return Color(c.r, c.g, c.b, 0.5)
 
 
+## Bandage wraps (the mummy): alternate light and dark rows with diagonal seams and the odd stained strip.
+static func _wrap(c: Color, x: int, y: int, n: float) -> Color:
+	if n > 0.94:
+		return c.darkened(0.35)
+	if (x + y * 2) % 7 == 0:
+		return c.darkened(0.2)
+	return c if y % 2 == 0 else c.darkened(0.14)
+
+
+## Black and white chef's check.
+static func _check(x: int, y: int) -> Color:
+	return Color(0.12, 0.12, 0.13) if (x + y) % 2 == 0 else Color(0.9, 0.9, 0.88)
+
+
+## Brows, eyes, nose and mouth on a head's front face (rows 3-6), or null for bare skin there.
+static func _face_features(skin: Color, x: int, y: int, brow: Color, iris: Color) -> Variant:
+	match y:
+		3:
+			if x in [1, 2, 5, 6]:
+				return brow.lightened(0.1)
+		4:
+			if x == 1 or x == 6:
+				return Color(0.96, 0.96, 0.96)
+			if x == 2 or x == 5:
+				return iris
+		5:
+			if x == 3 or x == 4:
+				return skin.darkened(0.12)
+		6:
+			if x == 3 or x == 4:
+				return Color(0.45, 0.2, 0.18)
+	return null
+
+
 ## True for the back half (+Z) of a side face (faces 2 and 3 run in opposite directions).
 static func _back_half(face: int, x: int, w: int) -> bool:
 	return (face == 2 and x < w / 2) or (face == 3 and x >= w / 2)
@@ -1341,7 +1381,122 @@ static func _paint_head(id: String, style: String, o: Dictionary, face: int, x: 
 			if face == 4 and (x == 0 or x == 7 or y == 0 or y == 7):
 				return skin.darkened(0.2)
 			return skin
-	# Plain faces with hair: classic, camper, tux, zombie.
+		"pirate":
+			var hair := Color("2a1a10")
+			if face == 5:
+				return skin
+			if face == 4 or y <= 1:
+				return Color(0.95, 0.9, 0.8) if (x * 3 + y * 2) % 7 == 0 else accent
+			if face == 1 and y <= 3 and (x == 3 or x == 4):
+				return accent.darkened(0.25)
+			if face == 1 or ((face == 2 or face == 3) and y <= 4 and _back_half(face, x, w)):
+				return hair
+			if face == 2 and y == 2:
+				return Color(0.05, 0.05, 0.05)
+			if front:
+				if (y == 3 or y == 4) and (x == 1 or x == 2):
+					return Color(0.05, 0.05, 0.05)
+				if y == 2 and x == 0:
+					return Color(0.05, 0.05, 0.05)
+				if y >= 6 and x >= 1 and x <= 6 and not (y == 6 and (x == 3 or x == 4)):
+					return hair
+				var f: Variant = _face_features(skin, x, y, hair, Color("4a2c14"))
+				if f != null:
+					return f
+			if (face == 2 or face == 3) and y >= 6 and not _back_half(face, x, w):
+				return hair
+			return skin
+		"skier":
+			if face == 5:
+				return skin
+			if face == 4:
+				return Color(0.97, 0.97, 0.97) if (x == 3 or x == 4) and (y == 3 or y == 4) else accent
+			if y <= 1:
+				return accent if y == 0 or x % 2 == 0 else accent.darkened(0.15)
+			if y == 2:
+				return shirt
+			if y == 3 or y == 4:
+				if front and x >= 1 and x <= 6:
+					if x == 2 and y == 3:
+						return Color(1.0, 0.95, 0.8)
+					return Color(1.0, 0.62, 0.15).lerp(Color(0.72, 0.2, 0.9), (x - 1 + (y - 3) * 3) / 8.0)
+				return Color(0.08, 0.08, 0.1)
+			if face == 1 or ((face == 2 or face == 3) and _back_half(face, x, w)):
+				return Color("6b4a2a")
+			if front:
+				if y == 5 and (x == 1 or x == 6):
+					return skin.lerp(Color(0.95, 0.45, 0.45), 0.45)
+				var f: Variant = _face_features(skin, x, y, skin, skin)
+				if f != null:
+					return f
+			return skin
+		"firefighter":
+			var helmet := Color("b3121a")
+			if face == 5:
+				return skin
+			if face == 4:
+				return helmet.lightened(0.15) if x == 3 or x == 4 else helmet
+			if y <= 1:
+				if front and (x == 3 or x == 4):
+					return Color(0.95, 0.78, 0.3)
+				return helmet
+			if y == 2:
+				return helmet.darkened(0.35)
+			if face == 1 or ((face == 2 or face == 3) and _back_half(face, x, w)):
+				return shirt.darkened(0.1) if y % 2 == 0 else shirt
+			if front:
+				var f: Variant = _face_features(skin, x, y, Color("1e1612"), Color("2a1a10"))
+				if f != null:
+					return f
+			return skin
+		"chef":
+			var hair := Color("3a2614")
+			if face == 5:
+				return skin
+			if face == 4:
+				return shirt.darkened(0.07) if (x + y) % 3 == 0 else shirt
+			if y <= 1:
+				return shirt.darkened(0.12) if x % 2 == 1 and y == 0 else shirt
+			if y == 2:
+				return shirt.darkened(0.04)
+			if (face == 1 and y <= 4) or ((face == 2 or face == 3) and y <= 3 and _back_half(face, x, w)):
+				return hair
+			if front:
+				if (y == 6 and x >= 1 and x <= 6) or (y == 5 and (x == 1 or x == 6)):
+					return hair
+				if y == 7 and (x == 3 or x == 4):
+					return Color(0.45, 0.2, 0.18)
+				var f: Variant = _face_features(skin, x, y, hair, Color("3554b0"))
+				if f != null:
+					return f
+			return skin
+		"diver":
+			var frame := Color("f0c020")
+			if front and y >= 2 and y <= 5 and x >= 1 and x <= 6:
+				if y == 2 or y == 5 or x == 1 or x == 6:
+					return frame
+				if y == 3 and x == 2:
+					return Color(0.9, 0.97, 1.0)
+				if y == 4 and (x == 2 or x == 5):
+					return Color(0.08, 0.1, 0.14)
+				return Color(0.62, 0.72, 0.74)
+			if front and y == 6 and (x == 3 or x == 4):
+				return Color("5a5f68")
+			if front and y == 7 and x >= 2 and x <= 5:
+				return Color("41454d")
+			if (face == 2 or face == 3) and y == 3:
+				return accent
+			return skin
+		"mummy":
+			if front:
+				if y == 4 and (x == 2 or x == 5):
+					return _glow(accent)
+				if y == 4 and (x == 1 or x == 6):
+					return Color(0.12, 0.1, 0.08)
+				if y == 6 and (x == 3 or x == 4):
+					return Color(0.15, 0.11, 0.08)
+			return _wrap(skin, x, y, n)
+	# Plain faces with hair: classic, camper, tux, zombie, cowboy, inmate.
 	var hair: Color = _HAIR.get(id, Color("3a2614"))
 	var zombie := style == "torn"
 	if face == 4:
@@ -1372,6 +1527,8 @@ static func _paint_head(id: String, style: String, o: Dictionary, face: int, x: 
 			if x == 3 or x == 4:
 				return Color(0.45, 0.2, 0.18) if not zombie else skin.darkened(0.4)
 		if id == "camper" and y >= 6 and not (y == 6 and (x == 3 or x == 4)):
+			return hair
+		if id == "cowboy" and (y == 6 and x >= 1 and x <= 6 or y == 7 and (x == 1 or x == 6)):
 			return hair
 	if zombie and n > 0.86:
 		return skin.darkened(0.25)
@@ -1495,6 +1652,90 @@ static func _paint_torso(style: String, o: Dictionary, face: int, x: int, y: int
 			if face >= 2 and band and (x == 0 or x == 3):
 				return shirt.darkened(0.2)
 			return shirt
+		"pirate":
+			if band and y == 10:
+				return Color(0.9, 0.75, 0.3) if front and (x == 3 or x == 4) else belt
+			if band and y == 11:
+				return o.pants
+			if band and (y == 8 or y == 9):
+				return accent if y == 8 or x % 3 != 0 else accent.darkened(0.25)
+			if front and y <= 2 and (x == 3 or x == 4):
+				return skin
+			return Color("1f2a4a") if y % 2 == 1 and face != 4 else shirt
+		"skier":
+			if front and x == 3 and y >= 1:
+				return Color(0.78, 0.78, 0.8)
+			if band and y == 0:
+				return shirt.darkened(0.3)
+			if band and y == 4:
+				return Color(0.95, 0.95, 0.97)
+			if band and y == 5:
+				return accent
+			if band and y >= 10:
+				return shirt.darkened(0.2)
+			return shirt
+		"firefighter":
+			if band and (y == 6 or y == 10):
+				return Color(0.82, 0.84, 0.86)
+			if band and (y == 5 or y == 7 or y == 9 or y == 11):
+				return accent
+			if front and (x == 3 or x == 4) and (y == 2 or y == 8):
+				return Color(0.15, 0.15, 0.15)
+			if band and y == 0:
+				return shirt.darkened(0.35)
+			return shirt
+		"chef":
+			if front and y <= 1 and x >= 2 and x <= 5:
+				return accent
+			if front and y == 2 and (x == 3 or x == 4):
+				return accent.darkened(0.15)
+			if front and (x == 2 or x == 5) and (y == 3 or y == 5 or y == 7):
+				return Color(0.18, 0.18, 0.2)
+			if front and x == 4 and y >= 3 and y <= 9:
+				return shirt.darkened(0.1)
+			if band and y == 10:
+				return shirt.darkened(0.12)
+			return shirt
+		"diver":
+			var strap := Color(0.23, 0.24, 0.27)
+			if front and y == 9 and (x == 3 or x == 4):
+				return Color(0.7, 0.72, 0.75)
+			if band and y == 9:
+				return strap
+			if front and (x == 2 or x == 5) and y <= 8:
+				return strap
+			if front and (x == 0 or x == 7 or y == 0):
+				return accent
+			if (face == 2 or face == 3) and y >= 1 and y <= 8:
+				return accent
+			return shirt
+		"cowboy":
+			var vest := Color("6b4423")
+			var gold := Color(0.92, 0.76, 0.3)
+			if band and y == 10:
+				return gold if front and (x == 3 or x == 4) else Color("3a2414")
+			if band and y == 11:
+				return gold if front and (x == 3 or x == 4) else o.pants
+			if front and y <= 1 and x >= 2 and x <= 5 and (y == 0 or x == 3 or x == 4):
+				return accent
+			if front and y == 4 and x == 1:
+				return gold
+			if (front and (x <= 1 or x >= 6)) or face == 1 or face == 2 or face == 3:
+				return vest.lightened(0.08) if face == 1 and (x == 1 or x == 6) else vest
+			return shirt
+		"inmate":
+			var white := Color(0.95, 0.95, 0.95)
+			if front and y <= 1 and (x == 3 or x == 4):
+				return white
+			if front and y >= 3 and y <= 5 and x >= 1 and x <= 6:
+				return accent if y == 4 and x >= 2 and x <= 5 and (x * 7 + y) % 3 != 0 else white
+			if face == 1 and y >= 2 and y <= 4 and x >= 1 and x <= 6:
+				return accent if x % 2 == 1 or y == 3 else shirt
+			if band and y == 10:
+				return shirt.darkened(0.15)
+			return shirt
+		"mummy":
+			return _wrap(shirt, x, y, n)
 	return shirt
 
 
@@ -1569,6 +1810,44 @@ static func _paint_arm(style: String, o: Dictionary, right: bool, face: int, x: 
 			if outer and row == 1 and (x == 1 or x == 2):
 				return _glow(accent)
 			return shirt
+		"pirate":
+			if row >= 9:
+				return skin
+			if row == 8:
+				return shirt.lightened(0.05)
+			return Color("1f2a4a") if row % 2 == 1 else shirt
+		"skier":
+			if row >= 10:
+				return Color(0.1, 0.1, 0.11)
+			if row == 9:
+				return accent
+			if row == 3:
+				return Color(0.95, 0.95, 0.97)
+			if row == 4:
+				return accent
+			return shirt
+		"firefighter":
+			if row >= 10:
+				return Color(0.13, 0.13, 0.13)
+			if row == 6:
+				return Color(0.82, 0.84, 0.86)
+			if row == 5 or row == 7:
+				return accent
+			return shirt
+		"chef", "cowboy", "inmate":
+			if row >= 9:
+				return skin
+			if row == 8:
+				return shirt.darkened(0.08 if style == "chef" else 0.18)
+			return shirt
+		"diver":
+			if row >= 10:
+				return shirt.darkened(0.35)
+			if outer and (x == 1 or x == 2) and row >= 1:
+				return accent
+			return shirt
+		"mummy":
+			return _wrap(skin, x, row, n)
 	return shirt
 
 
@@ -1596,9 +1875,21 @@ static func _paint_thigh(style: String, o: Dictionary, right: bool, face: int, x
 		"hazmat", "astronaut":
 			if face <= 3 and y == 0:
 				return pants.darkened(0.1)
-		"plain":
+		"plain", "cowboy":
 			if face == 0 and (x == 1 or x == 2) and y == 0:
 				return pants.darkened(0.2)
+		"skier", "diver":
+			if outer and x == 1:
+				return o.accent
+		"firefighter":
+			if face <= 3 and y == 4:
+				return Color(0.82, 0.84, 0.86)
+			if face <= 3 and (y == 3 or y == 5):
+				return o.accent
+		"chef":
+			return _check(x, y)
+		"mummy":
+			return _wrap(pants, x, y, n)
 	if face <= 3 and x == (3 if right else 0) and face == 0:
 		return pants.darkened(0.08)
 	return pants
@@ -1611,20 +1902,33 @@ static func _paint_shin(style: String, o: Dictionary, face: int, x: int, y: int,
 		return pants
 	if face == 5:
 		return shoes.darkened(0.2)
-	var boot_top := 4
-	if style == "astronaut" or style == "hazmat" or style == "armor":
-		boot_top = 3
+	var boot_top: int = _BOOT_TOP.get(style, 4)
 	if y >= boot_top:
+		if style == "mummy":
+			return _wrap(shoes, x, y, n)
 		if style == "astronaut" and y == boot_top:
 			return o.accent
+		if style == "pirate" and y == boot_top:
+			return shoes.lightened(0.22)
+		if style == "skier" and y == 4:
+			return Color(0.55, 0.57, 0.6) if x % 2 == 0 else shoes
 		if y == 5:
 			return shoes.darkened(0.25)
-		if face == 0 and y == boot_top and style in ["plain", "camper", "torn"] and (x == 1 or x == 2):
-			return shoes.lightened(0.35)
+		if face == 0 and y == boot_top and style in ["plain", "camper", "torn", "inmate"] and (x == 1 or x == 2):
+			return shoes.lightened(0.35) if style != "inmate" else Color(0.75, 0.75, 0.78)
 		if style == "tux" and face == 0 and y == 4:
 			return shoes.lightened(0.25)
 		return shoes
 	match style:
+		"mummy":
+			return _wrap(pants, x, y, n)
+		"firefighter":
+			if y == 1:
+				return Color(0.82, 0.84, 0.86)
+			if y == 0 or y == 2:
+				return o.accent
+		"chef":
+			return _check(x, y)
 		"torn":
 			if y >= 2 and n > 0.5:
 				return o.skin
@@ -1716,6 +2020,12 @@ static func _extra_mesh(outfit_id: String, mount: String) -> ArrayMesh:
 			k.box(1, Vector3(0, 0.56, 0.19), Vector3(0.36, 0.06, 0.15))
 			k.box(1, Vector3(0.13, 0.35, -0.0), Vector3(0.04, 0.6, 0.235))
 			k.box(1, Vector3(-0.13, 0.35, -0.0), Vector3(0.04, 0.6, 0.235))
+		["diver", "torso"]:
+			mats = [flat_material(o.shoes, 0.45, 0.2), flat_material(Color(0.55, 0.57, 0.6), 0.35, 0.7)]
+			k.box(0, Vector3(0.065, 0.36, 0.2), Vector3(0.12, 0.46, 0.13))
+			k.box(0, Vector3(-0.065, 0.36, 0.2), Vector3(0.12, 0.46, 0.13))
+			k.box(1, Vector3(0, 0.62, 0.2), Vector3(0.1, 0.06, 0.06))
+			k.box(1, Vector3(0, 0.4, 0.2), Vector3(0.26, 0.04, 0.14))
 		_:
 			return null
 	return k.build(mats)
