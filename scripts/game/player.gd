@@ -91,6 +91,13 @@ const GRAPPLE_COOLDOWN := 3.5
 const GRAPPLE_MISS_COOLDOWN := 0.4
 const GRAPPLE_RELEASE_DIST := 1.7
 
+## Server-side speed estimate of REMOTE players (`_track_motion`): accepted motion kept this many
+## seconds, metres an accepted step may exceed the speed cap by (bunched packets), and seconds
+## after a grapple lets go in which its speed still counts.
+const MOTION_KEEP := 3.0
+const MOTION_TOLERANCE := 0.3
+const GRAPPLE_SPEED_HOLD := 1.0
+
 static var _weapon_ids: Array = []
 
 var id := 0
@@ -207,6 +214,14 @@ var _muzzle: Node3D
 var _laser_ready := 1.0
 var _send_timer := 0.0
 var _snapshots: Array = []
+## REMOTE: motion accepted for `observed_speed` ([arrival time on this machine, position], newest
+## last; see `_track_motion`), the last time the grapple took hold or let go, and the open jump
+## pad allowance (until when; horizontal and vertical launch speed).
+var _motion: Array = []
+var _grapple_seen := -100.0
+var _pad_open_until := -100.0
+var _pad_speed := Vector2.ZERO
+static var _move_mult_max := 0.0
 var _remote_flags := FLAG_FLOOR
 var _last_visual_pos := Vector3.ZERO
 var _applied_crouch := -1.0
@@ -934,6 +949,7 @@ func set_remote_grapple(active: bool, point: Vector3) -> void:
 		Sfx.play(&"grapple_fire", global_position, -4.0)
 	grappling = active
 	grapple_point = point
+	_grapple_seen = Time.get_ticks_msec() * 0.001
 
 
 ## Reels toward the hook: strong pull along the rope, most sideways swing damped so the player
@@ -1560,29 +1576,109 @@ func push_snapshot(pos: Vector3, p_yaw: float, p_pitch: float, flags: int) -> vo
 	var now := Time.get_ticks_msec() * 0.001
 	if not _snapshots.is_empty() and (_snapshots[-1][1] as Vector3).distance_to(pos) > 8.0:
 		_snapshots.clear()
+		_motion.clear()
 	_snapshots.append([now, pos, p_yaw, p_pitch, flags])
 	if _snapshots.size() > 24:
 		_snapshots.pop_front()
+	_track_motion(now, pos)
+
+
+## REMOTE: adds a reported position to `_motion`, the motion the server accepts for
+## `observed_speed`. The position is client-reported (movement is the client's own), but each
+## accepted sample moves from the previous one by at most `motion_caps` times the time between
+## their arrivals on this machine's clock (plus MOTION_TOLERANCE for packets that arrive
+## bunched), so a client sending far-apart positions can't make itself look faster than the mode
+## allows. A jump pad under the reported or last accepted feet opens the pad's launch speed for
+## its flight.
+func _track_motion(now: float, pos: Vector3) -> void:
+	if world != null and world.map_info != null:
+		var pad := _pad_near(pos)
+		if pad == null and not _motion.is_empty():
+			pad = _pad_near(_motion[-1][1])
+		if pad != null:
+			var g := GRAVITY * gravity_scale
+			var v := pad.velocity_for(g)
+			_pad_open_until = now + pad.flight_time(g) + 0.5
+			_pad_speed = Vector2(Vector2(v.x, v.z).length(), absf(v.y))
+	if _motion.is_empty():
+		_motion.append([now, pos])
+		return
+	var prev: Vector3 = _motion[-1][1]
+	var dt := now - float(_motion[-1][0])
+	var caps := motion_caps(now)
+	var d := pos - prev
+	var flat := Vector2(d.x, d.z).limit_length(caps.x * dt + MOTION_TOLERANCE)
+	var dy_max := caps.y * dt + MOTION_TOLERANCE
+	_motion.append([now, prev + Vector3(flat.x, clampf(d.y, -dy_max, dy_max), flat.y)])
+	while _motion.size() > 2 and now - float(_motion[0][0]) > MOTION_KEEP:
+		_motion.pop_front()
+
+
+## A jump pad at or just above `feet` (a little wider than JumpPad.contains: the 30 Hz reports
+## can skip the frame the feet were on the disc).
+func _pad_near(feet: Vector3) -> JumpPad:
+	for pad: JumpPad in world.map_info.jump_pads:
+		var c := pad.global_position
+		var dy := feet.y - c.y
+		if dy >= -0.3 and dy <= 1.5 and Vector2(feet.x - c.x, feet.z - c.z).length() <= JumpPad.RADIUS + 0.6:
+			return pad
+	return null
+
+
+## REMOTE: the fastest a player can legitimately move right now (m/s): x = horizontal, y =
+## vertical. Horizontal: a full slide (the fastest ground or air speed; a slide-jump keeps it)
+## times `speed_scale` (Turbo, the Infected role), or a sprint with the fastest-moving weapon in
+## Tactical (no slides, no grapple). Vertical: a jump, or the fall speed from the highest
+## accepted point of the last MOTION_KEEP s. While the grapple holds and GRAPPLE_SPEED_HOLD s
+## after it lets go: GRAPPLE_MAX_SPEED both ways; during a jump pad's flight: its launch speed.
+func motion_caps(now: float) -> Vector2:
+	var h := SLIDE_MAX_SPEED * speed_scale
+	if world != null and world.tactical != null:
+		h = SPRINT_SPEED * _max_move_mult() * speed_scale
+	var v := JUMP_VELOCITY
+	if not _motion.is_empty():
+		var peak := -INF
+		for s: Array in _motion:
+			peak = maxf(peak, (s[1] as Vector3).y)
+		var drop := peak - (_motion[-1][1] as Vector3).y
+		v = maxf(v, sqrt(2.0 * GRAVITY * gravity_scale * maxf(0.0, drop)))
+	if grappling or now - _grapple_seen < GRAPPLE_SPEED_HOLD:
+		h = maxf(h, GRAPPLE_MAX_SPEED)
+		v = maxf(v, GRAPPLE_MAX_SPEED)
+	if now < _pad_open_until:
+		h = maxf(h, _pad_speed.x)
+		v = maxf(v, _pad_speed.y)
+	return Vector2(h, v)
+
+
+static func _max_move_mult() -> float:
+	if _move_mult_max <= 0.0:
+		for wid: String in Data.WEAPONS:
+			_move_mult_max = maxf(_move_mult_max, float(Data.WEAPONS[wid].move_mult))
+	return _move_mult_max
 
 
 ## Speed (m/s) the server sees this player move at, for the gun-hit slack (`World._shot_slack`):
-## a REMOTE player's from its displacement over the last ~0.3 s of snapshots, anyone else's
-## from its velocity. Capped at GRAPPLE_MAX_SPEED, so forged snapshots can't widen the slack.
+## a REMOTE player's from the server-accepted motion (`_track_motion`) over its last ~0.3 s,
+## each axis clamped to `motion_caps`, so forged snapshots can't push it past what the mode's
+## movement allows; a player this machine simulates (bots, the host) from its velocity.
 func observed_speed() -> float:
-	var v := velocity.length()
-	if mode == Mode.REMOTE:
-		v = 0.0
-		if _snapshots.size() >= 2:
-			var last: Array = _snapshots[-1]
-			var first: Array = last
-			for i in range(_snapshots.size() - 2, -1, -1):
-				first = _snapshots[i]
-				if float(last[0]) - float(first[0]) >= 0.3:
-					break
-			var span := float(last[0]) - float(first[0])
-			if span >= 0.05:
-				v = (last[1] as Vector3).distance_to(first[1]) / span
-	return minf(v, GRAPPLE_MAX_SPEED)
+	if mode != Mode.REMOTE:
+		return velocity.length()
+	if _motion.size() < 2:
+		return 0.0
+	var last: Array = _motion[-1]
+	var first: Array = last
+	for i in range(_motion.size() - 2, -1, -1):
+		first = _motion[i]
+		if float(last[0]) - float(first[0]) >= 0.3:
+			break
+	var span := float(last[0]) - float(first[0])
+	if span < 0.05:
+		return 0.0
+	var d := (last[1] as Vector3) - (first[1] as Vector3)
+	var caps := motion_caps(Time.get_ticks_msec() * 0.001)
+	return Vector2(minf(Vector2(d.x, d.z).length() / span, caps.x), minf(absf(d.y) / span, caps.y)).length()
 
 
 ## REMOTE: the player just fired or swung. Shots arrive ahead of the interpolated state, so a
@@ -1882,6 +1978,7 @@ func respawn(pos: Vector3, p_yaw: float) -> void:
 	_applied_crouch = -1.0
 	_applied_prone = -1.0
 	_snapshots.clear()
+	_motion.clear()
 	refill_ammo()
 	if current_slot != 0:
 		previous_slot = current_slot

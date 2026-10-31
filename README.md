@@ -102,6 +102,8 @@ Buttons are named the Xbox way; on a PlayStation pad A is Cross, B Circle, X Squ
 
 The host's firewall must allow Timbum. Steam and WebRTC support are native add-ons for macOS, Windows (64-bit) and Linux (x86_64); see `addons/`.
 
+Timbum is made for playing with friends: each player's game moves them and decides what their shots hit, and the host trusts it. The host checks every hit (weapon, fire rate, range, damage falloff for the distance between the two players, with room for lag up to a 650 ms ping), but a modified game that lies about its own position is not stopped.
+
 ## Running from source
 
 1. Install [Godot 4.7](https://godotengine.org/download).

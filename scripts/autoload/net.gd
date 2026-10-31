@@ -380,8 +380,8 @@ func _close_peer() -> void:
 
 
 ## Server: round-trip time to a peer in seconds. 0 for the host (peer 1) and offline play; ENet's
-## smoothed RTT for a client on an ENet link (direct or noray); Data.SHOT_LAG_MAX for a client
-## on a link that reports none (Steam, WebRTC), so lag allowances err towards the client.
+## smoothed RTT for a client on an ENet link (direct or noray); -1 for a client on a link that
+## reports none (Steam, WebRTC), so callers can fall back to a fixed allowance.
 func peer_rtt(peer_id: int) -> float:
 	if rtt_override.has(peer_id):
 		return float(rtt_override[peer_id])
@@ -391,7 +391,7 @@ func peer_rtt(peer_id: int) -> float:
 	if mp is ENetMultiplayerPeer:
 		var p := (mp as ENetMultiplayerPeer).get_peer(peer_id)
 		return 0.0 if p == null else p.get_statistic(ENetPacketPeer.PEER_ROUND_TRIP_TIME) * 0.001
-	return Data.SHOT_LAG_MAX
+	return -1.0
 
 
 func _start_server(cfg: Dictionary, with_lobby := false) -> void:

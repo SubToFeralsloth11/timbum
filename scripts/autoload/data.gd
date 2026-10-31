@@ -255,8 +255,11 @@ const MELEE_SERVER_SLACK := 2.1
 ## small position errors) plus how far shooter and target can move in the lag between the
 ## client's view and the server's positions (`World._shot_slack`).
 const SHOT_SERVER_SLACK := 3.0
-## Upper bound (s) of that lag: Player.INTERP_DELAY plus the shooter's round-trip time.
+## That lag is Player.INTERP_DELAY plus the shooter's ENet-measured round-trip time, at most
+## SHOT_LAG_MAX_RTT (an honest 650 ms ping still gets its whole lag); on a link that reports no
+## RTT it is SHOT_LAG_MAX.
 const SHOT_LAG_MAX := 0.35
+const SHOT_LAG_MAX_RTT := 0.75
 
 ## Frag grenades explode on impact (with the world or a player); `fuse` only caps a throw that
 ## never hits anything.

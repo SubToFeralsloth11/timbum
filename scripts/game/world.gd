@@ -715,10 +715,11 @@ func _server_shot(shooter_id: int, wid: String, ends: PackedVector3Array, normal
 			if dist > float(w.range) + Data.MELEE_SERVER_SLACK or not _melee_in_sight(shooter, target):
 				continue
 		else:
-			# The client's falloff damage is only trusted up to what the server's own positions
-			# allow: beyond the hitscan reach the hit is dropped, and the damage is capped at the
-			# falloff for the eye-to-body-centre distance (less the slack), every pellet a headshot
-			# if it reported one.
+			# The client's falloff damage is only trusted up to what the server's positions allow:
+			# beyond the hitscan reach the hit is dropped, and the damage is capped at the falloff
+			# for the eye-to-body-centre distance (less the slack), every pellet a headshot if it
+			# reported one. A remote shooter's position is its own report, so this bounds damage
+			# relative to the distance it reports; it does not stop a client that forges its position.
 			var eye_dist := shooter.head.global_position.distance_to(
 				(target.global_position + target.head.global_position) * 0.5)
 			var slack := _shot_slack(shooter, target)
@@ -734,11 +735,12 @@ func _server_shot(shooter_id: int, wid: String, ends: PackedVector3Array, normal
 ## Server: metres a gun hit's distance may shrink before the falloff cap. The server sees a
 ## remote target INTERP_DELAY plus the travel time of its snapshots behind, and the shooter's
 ## client saw the target (and the server sees the shooter) about as late again, so each one's
-## movement over that time is added to Data.SHOT_SERVER_SLACK: lag = INTERP_DELAY + the
-## shooter's RTT (0 for the host and bots), at most Data.SHOT_LAG_MAX.
+## movement over that time (`Player.observed_speed`, at most a legit speed for the mode) is added
+## to Data.SHOT_SERVER_SLACK: lag = INTERP_DELAY + the shooter's RTT (0 for the host and bots),
+## at most Data.SHOT_LAG_MAX_RTT, or Data.SHOT_LAG_MAX on a link that measures no RTT.
 func _shot_slack(shooter: Player, target: Player) -> float:
 	var rtt := 0.0 if shooter.is_bot else Net.peer_rtt(shooter.id)
-	var lag := minf(Data.SHOT_LAG_MAX, Player.INTERP_DELAY + rtt)
+	var lag := Data.SHOT_LAG_MAX if rtt < 0.0 else minf(Data.SHOT_LAG_MAX_RTT, Player.INTERP_DELAY + rtt)
 	return Data.SHOT_SERVER_SLACK + (target.observed_speed() + shooter.observed_speed()) * lag
 
 
