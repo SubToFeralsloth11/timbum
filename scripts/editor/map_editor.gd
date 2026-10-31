@@ -176,6 +176,7 @@ func _open(m: Dictionary) -> void:
 	_undo.clear()
 	_redo.clear()
 	pad_start = null
+	aim = {}
 	unsaved = false
 	_rebuild_markers()
 	# Above the south-west corner, looking across the map.
@@ -568,9 +569,10 @@ static func _flat_material(c: Color, alpha: float) -> StandardMaterial3D:
 
 
 ## Places the ghost: the block(s) the place press would add (in the block's colour), or the
-## marker tool's spot (red when there is no room).
+## marker tool's spot (red when there is no room). With the side panel open the aim holds still,
+## so the ghost shows where the next press lands with the block or tool just picked.
 func _update_ghost() -> void:
-	if aim.is_empty() or hud.panel_open():
+	if aim.is_empty():
 		_ghost.visible = false
 		return
 	var box := _ghost.mesh as BoxMesh
@@ -612,6 +614,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 		return
 	if hud.panel_open():
+		# B on a controller (ui_cancel) also goes back to building.
+		if event.is_action_pressed(&"ui_cancel"):
+			hud.close_panel()
+			get_viewport().set_input_as_handled()
 		return
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		cam.look_mouse((event as InputEventMouseMotion).relative)

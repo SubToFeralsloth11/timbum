@@ -3,14 +3,20 @@ extends CanvasLayer
 ## The Map Editor's screen (MapEditor.hud): the crosshair, an info card top left (map name and
 ## size, tool, block, brush, the keys), the validation card top right (what still stops the map
 ## from being played), a message line, the tool strip and the 9-slot block hotbar at the bottom.
-## The side panel (Tab / Esc / Back or Start, `toggle_panel`) frees the mouse and stops the camera:
-## NEW at a size preset, OPEN a saved map, the name and SAVE, the sky (time of day), tools, brush,
-## the whole block palette (a pick goes into the selected hotbar slot), UNDO / REDO, TEST PLAY,
-## EXIT and BACK TO BUILDING. Every control is a focusable button, so a controller can drive it.
+## The side panel (Tab / Esc / Back or Start, `toggle_panel`) frees the mouse and stops the camera
+## (the info card hides, the bottom row moves right of it): BACK TO BUILDING, tools, brush, the
+## whole block palette (a pick goes into the selected hotbar slot), the name and SAVE, NEW at a
+## size preset, OPEN a saved map, the sky (time of day), UNDO / REDO, TEST PLAY and EXIT. Every
+## control is a focusable button, so a controller can drive it.
+
+const PANEL_WIDTH := 430.0
 
 var editor: MapEditor
 
 var _root: Control
+var _info_card: PanelContainer
+## The message line, tool strip and hotbar; centred in the space right of the panel when it is open.
+var _bottom: VBoxContainer
 var _info: Label
 var _keys: Label
 var _problems: Label
@@ -56,6 +62,8 @@ func panel_open() -> bool:
 
 func open_panel() -> void:
 	_panel.visible = true
+	_info_card.visible = false
+	_bottom.offset_left = PANEL_WIDTH + 28
 	_exit_armed = false
 	_exit_button.text = "EXIT"
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -67,6 +75,8 @@ func open_panel() -> void:
 
 func close_panel() -> void:
 	_panel.visible = false
+	_info_card.visible = true
+	_bottom.offset_left = 0
 	var f := get_viewport().gui_get_focus_owner()
 	if f != null:
 		f.release_focus()
@@ -130,6 +140,7 @@ func _build_crosshair() -> void:
 func _build_info() -> void:
 	var card := _card(Color(1, 0.85, 0.35, 0.35))
 	card.position = Vector2(18, 18)
+	_info_card = card
 	_root.add_child(card)
 	var v := UIKit.vbox(3)
 	card.add_child(v)
@@ -155,7 +166,8 @@ func _build_problems() -> void:
 
 func _build_bottom() -> void:
 	var v := UIKit.vbox(8)
-	v.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+	_bottom = v
+	v.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
 	v.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	v.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	v.offset_bottom = -18
@@ -212,12 +224,12 @@ func _chip(text: String, action: Callable) -> Button:
 
 func _build_panel() -> void:
 	_panel = PanelContainer.new()
-	_panel.add_theme_stylebox_override("panel", UITheme.round_box(UITheme.PANEL, Color(UITheme.ACCENT, 0.3), 1, UITheme.PANEL_RADIUS, 14))
+	_panel.add_theme_stylebox_override("panel", UITheme.round_box(UITheme.PANEL_SOLID, Color(UITheme.ACCENT, 0.3), 1, UITheme.PANEL_RADIUS, 14))
 	_panel.set_anchors_and_offsets_preset(Control.PRESET_LEFT_WIDE)
 	_panel.offset_left = 14
 	_panel.offset_top = 14
 	_panel.offset_bottom = -14
-	_panel.custom_minimum_size.x = 430
+	_panel.custom_minimum_size.x = PANEL_WIDTH
 	_panel.visible = false
 	_root.add_child(_panel)
 	var scroll := UIKit.pad_friendly(ScrollContainer.new())
@@ -232,6 +244,47 @@ func _build_panel() -> void:
 	resume.pressed.connect(close_panel)
 	v.add_child(resume)
 	_first_focus = resume
+
+	_section(v, "TOOL  (Q / E, pad LB / RB)")
+	var tools := GridContainer.new()
+	tools.columns = 3
+	tools.add_theme_constant_override("h_separation", 4)
+	tools.add_theme_constant_override("v_separation", 4)
+	v.add_child(tools)
+	for t: String in MapEditor.TOOLS:
+		var b := _chip(MapEditor.TOOL_NAMES[t], func() -> void: editor.set_tool(t))
+		b.toggle_mode = true
+		_tool_buttons[t] = b
+		tools.add_child(b)
+
+	_section(v, "BRUSH  (R, pad X)")
+	_brush_row = UIKit.hbox(4)
+	v.add_child(_brush_row)
+	for n: int in [1, 3]:
+		var b := _chip("%d x %d" % [n, n], func() -> void: editor.set_brush(n))
+		b.toggle_mode = true
+		_brush_row.add_child(b)
+
+	_section(v, "BLOCKS  (goes into the selected hotbar slot)")
+	var pal := GridContainer.new()
+	pal.columns = 7
+	pal.add_theme_constant_override("h_separation", 4)
+	pal.add_theme_constant_override("v_separation", 4)
+	v.add_child(pal)
+	for e: Array in MapEditor.PALETTE:
+		var b := Button.new()
+		b.icon = BlockAtlas.icon(e[0], 2)
+		b.expand_icon = false
+		b.tooltip_text = e[1]
+		b.toggle_mode = true
+		b.custom_minimum_size = Vector2(52, 46)
+		b.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		b.theme_type_variation = &"ChipButton"
+		UIKit.wire(b)
+		var block: int = e[0]
+		b.pressed.connect(func() -> void: editor.pick_block(block))
+		_palette_buttons[block] = b
+		pal.add_child(b)
 
 	_section(v, "NAME")
 	var name_row := UIKit.hbox(6)
@@ -279,47 +332,6 @@ func _build_panel() -> void:
 		b.toggle_mode = true
 		b.set_meta(&"tod", tod)
 		_sky_row.add_child(b)
-
-	_section(v, "TOOL  (Q / E, pad LB / RB)")
-	var tools := GridContainer.new()
-	tools.columns = 3
-	tools.add_theme_constant_override("h_separation", 4)
-	tools.add_theme_constant_override("v_separation", 4)
-	v.add_child(tools)
-	for t: String in MapEditor.TOOLS:
-		var b := _chip(MapEditor.TOOL_NAMES[t], func() -> void: editor.set_tool(t))
-		b.toggle_mode = true
-		_tool_buttons[t] = b
-		tools.add_child(b)
-
-	_section(v, "BRUSH  (R, pad X)")
-	_brush_row = UIKit.hbox(4)
-	v.add_child(_brush_row)
-	for n: int in [1, 3]:
-		var b := _chip("%d x %d" % [n, n], func() -> void: editor.set_brush(n))
-		b.toggle_mode = true
-		_brush_row.add_child(b)
-
-	_section(v, "BLOCKS  (goes into the selected hotbar slot)")
-	var pal := GridContainer.new()
-	pal.columns = 7
-	pal.add_theme_constant_override("h_separation", 4)
-	pal.add_theme_constant_override("v_separation", 4)
-	v.add_child(pal)
-	for e: Array in MapEditor.PALETTE:
-		var b := Button.new()
-		b.icon = BlockAtlas.icon(e[0], 2)
-		b.expand_icon = false
-		b.tooltip_text = e[1]
-		b.toggle_mode = true
-		b.custom_minimum_size = Vector2(52, 46)
-		b.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		b.theme_type_variation = &"ChipButton"
-		UIKit.wire(b)
-		var block: int = e[0]
-		b.pressed.connect(func() -> void: editor.pick_block(block))
-		_palette_buttons[block] = b
-		pal.add_child(b)
 
 	var edit_row := UIKit.hbox(4)
 	v.add_child(edit_row)
