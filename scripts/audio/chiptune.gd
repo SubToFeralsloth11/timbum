@@ -1,31 +1,24 @@
 class_name Chiptune
 extends RefCounted
 ## Procedural chiptune composer and renderer: two pulse channels (lead, arpeggio), a
-## stepped triangle bass and a noise/drum channel. Each track is composed from a seeded
-## RNG (so it is identical every run) and rendered as a seamlessly looping AudioStreamWAV:
-## the loop end is exactly the bar grid length and note tails wrap around to the start.
-## Thread-safe: intended to run on WorkerThreadPool tasks.
+## stepped triangle bass and a noise/drum channel. Only the results fanfare is composed here;
+## the menu, shop and match music are the songs in `res://audio/music/` (Sfx.MUSIC_FILES).
+## Each track is composed from a seeded RNG (so it is identical every run) and rendered as a
+## seamlessly looping AudioStreamWAV: the loop end is exactly the bar grid length and note
+## tails wrap around to the start. Thread-safe: intended to run on WorkerThreadPool tasks.
 
 const RATE := Synth.RATE
 const MAJOR: Array[int] = [0, 2, 4, 5, 7, 9, 11]
-const MINOR: Array[int] = [0, 2, 3, 5, 7, 8, 10]
 
-## style: "chill" (menu), "drive" (match), "fanfare" (results).
 ## prog: chord roots as scale degrees, one per bar; a phrase is one pass of the progression.
 ## plan: phrase sequence; "A2" repeats A with a new cadence bar, "B" is a higher answer phrase.
 const TRACKS := {
-	&"menu": {"bpm": 96.0, "root": 62, "scale": MAJOR, "prog": [0, 5, 3, 4], "plan": ["A", "A2", "B"],
-		"style": "chill", "seed": 1107},
-	&"match": {"bpm": 160.0, "root": 57, "scale": MINOR, "prog": [0, 5, 2, 6], "plan": ["A", "A2", "B", "B2", "A2"],
-		"style": "drive", "seed": 4242},
 	&"results": {"bpm": 144.0, "root": 60, "scale": MAJOR, "prog": [0, 3, 4, 0, 3, 4], "plan": ["A"],
 		"style": "fanfare", "seed": 77},
 }
 
 ## Rhythm cells in 16th-note steps (each sums to 16); negative values are rests.
 const RHYTHMS := {
-	"chill": [[4, 4, 4, 4], [6, 2, 4, 4], [4, 2, 2, 8], [8, 4, 4], [2, 2, 4, -4, 4], [6, 6, 4]],
-	"drive": [[2, 2, 2, 2, 4, 4], [4, 2, 2, 4, 4], [2, 2, 4, 2, 2, 4], [3, 3, 2, 4, 4], [2, 2, 2, 2, 2, 2, 4], [4, 4, 8]],
 	"fanfare": [[4, 4, 8], [3, 1, 4, 8], [2, 2, 4, 4, 4], [4, 2, 2, 8], [12, 4]],
 }
 
@@ -40,7 +33,6 @@ static func render(track: StringName, job: AudioJob = null) -> AudioStreamWAV:
 	var spec: Dictionary = TRACKS[track]
 	var rng := RandomNumberGenerator.new()
 	rng.seed = int(spec.seed)
-	var style: String = spec.style
 	var prog: Array = spec.prog
 	var plan: Array = spec.plan
 	var bars := prog.size() * plan.size()
@@ -63,9 +55,9 @@ static func render(track: StringName, job: AudioJob = null) -> AudioStreamWAV:
 		var deg: int = prog[bar % prog.size()]
 		var chord: Array[int] = [
 			_midi(root, scale, deg), _midi(root, scale, deg + 2), _midi(root, scale, deg + 4), _midi(root, scale, deg + 7)]
-		_arp(buf, style, bar, chord, step_len)
-		_bass(buf, style, bar, chord[0] - 24, _midi(root, scale, deg + 4) - 24, step_len)
-	_drums(buf, rng, style, bars, prog.size(), step_len)
+		_arp(buf, bar, chord, step_len)
+		_bass(buf, bar, chord[0] - 24, _midi(root, scale, deg + 4) - 24, step_len)
+	_drums(buf, rng, bars, prog.size(), step_len)
 	return Synth.to_stream(buf, -3.0, true)
 
 
@@ -141,40 +133,20 @@ static func _bar(rng: RandomNumberGenerator, cells: Array, prog: Array, bar: int
 	return out
 
 
-static func _arp(buf: PackedFloat32Array, style: String, bar: int, chord: Array[int], step_len: float) -> void:
+static func _arp(buf: PackedFloat32Array, bar: int, chord: Array[int], step_len: float) -> void:
 	var base := bar * 16
-	match style:
-		"chill":
-			var order := [0, 1, 2, 3, 2, 1, 0, 1]
-			for k in 8:
-				_note(buf, Inst.ARP, base + k * 2, 2, chord[order[k]], 0.075, step_len)
-		"drive":
-			var order := [0, 2, 1, 3]
-			for k in 16:
-				_note(buf, Inst.ARP, base + k, 1, chord[order[k % 4]], 0.06 if k % 2 == 1 else 0.08, step_len)
-		_:
-			for k in 4:
-				for c in 3:
-					_note(buf, Inst.ARP, base + k * 4, 3, chord[c], 0.045, step_len)
+	for k in 4:
+		for c in 3:
+			_note(buf, Inst.ARP, base + k * 4, 3, chord[c], 0.045, step_len)
 
 
-static func _bass(buf: PackedFloat32Array, style: String, bar: int, root: int, fifth: int, step_len: float) -> void:
+static func _bass(buf: PackedFloat32Array, bar: int, root: int, fifth: int, step_len: float) -> void:
 	var base := bar * 16
-	match style:
-		"chill":
-			_note(buf, Inst.BASS, base, 6, root, 0.4, step_len)
-			_note(buf, Inst.BASS, base + 6, 2, root + 12, 0.3, step_len)
-			_note(buf, Inst.BASS, base + 8, 6, fifth, 0.4, step_len)
-			_note(buf, Inst.BASS, base + 14, 2, root, 0.3, step_len)
-		"drive":
-			for k in 8:
-				_note(buf, Inst.BASS, base + k * 2, 2, root + 12 * (k % 2), 0.4, step_len)
-		_:
-			for k in 4:
-				_note(buf, Inst.BASS, base + k * 4, 4, root if k % 2 == 0 else fifth, 0.42, step_len)
+	for k in 4:
+		_note(buf, Inst.BASS, base + k * 4, 4, root if k % 2 == 0 else fifth, 0.42, step_len)
 
 
-static func _drums(buf: PackedFloat32Array, rng: RandomNumberGenerator, style: String, bars: int,
+static func _drums(buf: PackedFloat32Array, rng: RandomNumberGenerator, bars: int,
 		phrase_bars: int, step_len: float) -> void:
 	var kick := Synth.make(0.2)
 	Synth.tone(kick, 0.0, 0.2, 150.0, 42.0, 1.0, Synth.Wave.TRIANGLE, 0.001, 0.07)
@@ -186,30 +158,13 @@ static func _drums(buf: PackedFloat32Array, rng: RandomNumberGenerator, style: S
 	Synth.noise(hat, rng, 0.0, 0.05, 0.6, 11000.0, 9000.0, 6000.0, 0.0003, 0.012)
 	for bar in bars:
 		var base := bar * 16
-		var fill := style != "chill" and bar % phrase_bars == phrase_bars - 1
-		match style:
-			"chill":
-				_hit(buf, kick, base, 0.3, step_len)
-				_hit(buf, kick, base + 10, 0.22, step_len)
-				_hit(buf, snare, base + 4, 0.12, step_len)
-				_hit(buf, snare, base + 12, 0.12, step_len)
-				for k in 8:
-					_hit(buf, hat, base + k * 2, 0.07 if k % 2 == 0 else 0.045, step_len)
-			"drive":
-				for k in 4:
-					_hit(buf, kick, base + k * 4, 0.34, step_len)
-				_hit(buf, snare, base + 4, 0.2, step_len)
-				_hit(buf, snare, base + 12, 0.2, step_len)
-				for k in 16:
-					_hit(buf, hat, base + k, 0.07 if k % 2 == 0 else 0.04, step_len)
-			_:
-				_hit(buf, kick, base, 0.32, step_len)
-				_hit(buf, kick, base + 8, 0.28, step_len)
-				_hit(buf, snare, base + 4, 0.18, step_len)
-				_hit(buf, snare, base + 12, 0.18, step_len)
-				for k in 8:
-					_hit(buf, hat, base + k * 2, 0.06, step_len)
-		if fill:
+		_hit(buf, kick, base, 0.32, step_len)
+		_hit(buf, kick, base + 8, 0.28, step_len)
+		_hit(buf, snare, base + 4, 0.18, step_len)
+		_hit(buf, snare, base + 12, 0.18, step_len)
+		for k in 8:
+			_hit(buf, hat, base + k * 2, 0.06, step_len)
+		if bar % phrase_bars == phrase_bars - 1:
 			for k in 3:
 				_hit(buf, snare, base + 13 + k, 0.1 + k * 0.04, step_len)
 

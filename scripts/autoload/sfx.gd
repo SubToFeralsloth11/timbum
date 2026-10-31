@@ -1,7 +1,8 @@
 extends Node
-## Procedural audio: synthesised sound effects (pooled flat + positional voices) and
-## chiptune music with crossfades. All synthesis runs on WorkerThreadPool tasks (AudioJob)
-## whose results are polled in _process; a sound requested before its worker result
+## Audio: synthesised sound effects (pooled flat + positional voices) and music with
+## crossfades. The menu, shop and match music are songs (`MUSIC_FILES`, MP3s that loop); the
+## short results fanfare is a procedural chiptune. All synthesis runs on WorkerThreadPool tasks
+## (AudioJob) whose results are polled in _process; a sound requested before its worker result
 ## arrives is rendered on the spot (a few ms).
 ## Headless runs (dedicated servers, tests) skip all audio work: every call is a no-op.
 
@@ -10,13 +11,23 @@ const POSITIONAL_VOICES := 32
 const CROSSFADE := 0.6
 const PITCH_JITTER := 0.04
 const MAX_DISTANCE := 90.0
-const MUSIC_TRACKS: Array[StringName] = [&"menu", &"match", &"results"]
+const MUSIC_TRACKS: Array[StringName] = [&"menu", &"shop", &"match", &"results"]
+## Song files per track. A track with several songs plays a different one each time it starts
+## (each match gets the next song of a shuffled cycle).
+const MUSIC_FILES := {
+	&"menu": ["res://audio/music/menu_blocksmith_daydream.mp3"],
+	&"shop": ["res://audio/music/shop_coin_shop_spark.mp3"],
+	&"match": ["res://audio/music/match_arena_rush.mp3", "res://audio/music/match_combat_groove.mp3",
+		"res://audio/music/match_arcade_arena.mp3"],
+}
 
 var _enabled := false
 ## name -> Array[AudioStreamWAV] (one entry per take).
 var _streams := {}
-## track -> AudioStreamWAV, filled as music workers finish.
+## track -> AudioStreamWAV for procedural tracks, filled as music workers finish.
 var _music := {}
+## Song cycle for tracks with several files: the order still to play.
+var _song_queue := {}
 var _warned := {}
 var _flat: Array[AudioStreamPlayer] = []
 var _flat_started := PackedInt64Array()
@@ -66,10 +77,9 @@ func _init() -> void:
 		p.volume_linear = 0.0
 		add_child(p)
 		_music_players.append(p)
-	# Two parallel jobs: the menu track alone (wanted first, slowest), and effects followed
-	# by the remaining tracks.
-	_start_job(AudioJob.new(false, [&"menu"]))
-	_start_job(AudioJob.new(true, [&"match", &"results"]))
+	# Two parallel jobs: the results fanfare alone, and the effects bank.
+	_start_job(AudioJob.new(false, [&"results"]))
+	_start_job(AudioJob.new(true, [] as Array[StringName]))
 
 
 func _start_job(job: AudioJob) -> void:
@@ -139,8 +149,8 @@ func play(sound: StringName, pos: Variant = null, volume_db := 0.0, pitch := 1.0
 		p.play()
 
 
-## Crossfades to `track` (&"menu", &"match", &"results"). If the track is still being
-## rendered it starts as soon as it is ready.
+## Crossfades to `track` (&"menu", &"shop", &"match", &"results"). Song tracks start at once and
+## loop; a procedural track still being rendered starts as soon as it is ready.
 func play_music(track: StringName) -> void:
 	if not _enabled:
 		return
@@ -150,8 +160,22 @@ func play_music(track: StringName) -> void:
 	if track == _music_track:
 		return
 	_music_track = track
-	if _music.has(track):
+	if MUSIC_FILES.has(track):
+		_crossfade_to(_next_song(track))
+	elif _music.has(track):
 		_crossfade_to(_music[track])
+
+
+## The next song of `track`'s shuffled cycle, loaded and set to loop.
+func _next_song(track: StringName) -> AudioStream:
+	var queue: Array = _song_queue.get(track, [])
+	if queue.is_empty():
+		queue = (MUSIC_FILES[track] as Array).duplicate()
+		queue.shuffle()
+		_song_queue[track] = queue
+	var stream := load(queue.pop_front()) as AudioStreamMP3
+	stream.loop = true
+	return stream
 
 
 func stop_music() -> void:
@@ -161,7 +185,7 @@ func stop_music() -> void:
 	_crossfade_to(null)
 
 
-func _crossfade_to(stream: AudioStreamWAV) -> void:
+func _crossfade_to(stream: AudioStream) -> void:
 	if _music_tween:
 		_music_tween.kill()
 	var old := _music_players[_music_active]

@@ -2,3 +2,5 @@
 /build/
 *.import.tmp
 .DS_Store
+
+/Music/

@@ -40,7 +40,13 @@ var _shake: Tween
 var _flash: Tween
 
 
+## Leaving the shop goes back to the menu song.
+func _exit_tree() -> void:
+	Sfx.play_music(&"menu")
+
+
 func _ready() -> void:
+	Sfx.play_music(&"shop")
 	var page := make_page()
 	page.add_child(make_header("SHOP", "Everything is earned in matches. No loot boxes, ever."))
 	_thumbs = Thumbnailer.new()
