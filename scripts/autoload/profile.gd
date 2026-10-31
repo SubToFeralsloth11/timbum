@@ -994,6 +994,14 @@ func apply_settings() -> void:
 	_apply_graphics()
 
 
+## The 3D view renders at most this many pixels at render scale 1.0 (1600 x 900). Bigger windows
+## (fullscreen on a large or HiDPI/Retina display, where the GPU cost grows with every pixel)
+## render 3D below native and upscale it with FSR 1; the HUD and menus stay at full resolution.
+## Measured FFA fullscreen 2560 x 1440 on an A18 Pro: 38 fps rendering natively, 56 with this
+## budget (a 1440 x 810 budget gained under 1 fps more, so the sharper one stays).
+const RENDER_PIXEL_BUDGET := 1600.0 * 900.0
+
+
 ## Anti-aliasing and render scale on the main viewport; shadows, AO, bloom and reflections on
 ## the current map; block shader detail on the shared block materials. All live.
 func _apply_graphics() -> void:
@@ -1002,9 +1010,23 @@ func _apply_graphics() -> void:
 	vp.msaa_3d = [Viewport.MSAA_DISABLED, Viewport.MSAA_DISABLED, Viewport.MSAA_2X, Viewport.MSAA_4X, Viewport.MSAA_DISABLED][aa]
 	vp.screen_space_aa = Viewport.SCREEN_SPACE_AA_FXAA if aa == 1 else Viewport.SCREEN_SPACE_AA_DISABLED
 	vp.use_taa = aa == 4
-	vp.scaling_3d_scale = float(get_setting("render_scale"))
+	_apply_render_scale()
+	if not vp.size_changed.is_connected(_apply_render_scale):
+		vp.size_changed.connect(_apply_render_scale)
 	BlockAtlas.set_detail(bool(get_setting("block_detail")))
 	MapBuilder.apply_graphics(get_tree())
+
+
+## The render scale setting, times the share of the window the pixel budget covers; anything
+## below native is upscaled with FSR 1 (sharper than bilinear).
+func _apply_render_scale() -> void:
+	var vp := get_viewport()
+	var win := Vector2(DisplayServer.window_get_size())
+	var budget := 1.0 if win.x * win.y <= 0.0 else minf(1.0, sqrt(RENDER_PIXEL_BUDGET / (win.x * win.y)))
+	var s := float(get_setting("render_scale")) * budget
+	vp.scaling_3d_scale = s
+	vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR if s < 0.99 else Viewport.SCALING_3D_MODE_BILINEAR
+	vp.fsr_sharpness = 0.3
 
 
 ## The game window has focus. Clicking away, alt-tabbing or minimising clears it; with the
