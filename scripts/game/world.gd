@@ -187,6 +187,7 @@ func _ready() -> void:
 	photo.world = self
 	add_child(photo)
 	time_left = float(Net.config.time_limit)
+	_warm_first_use()
 	# Today's challenges exist before the first kill (live toasts compare against them).
 	Profile.refresh_challenges()
 	Sfx.play_music(&"match")
@@ -202,6 +203,18 @@ func _ready() -> void:
 		_balance_bots()
 	else:
 		_c_ready.rpc_id(1)
+
+
+## Pays first-use costs during the load instead of on the first throw or spray mid-fight: the
+## projectile meshes (Models caches each on its first build) and the local player's spray art
+## (SprayArt caches it). The Hud warms its fonts the same way (Hud.GlyphWarmer).
+func _warm_first_use() -> void:
+	for model: Node3D in [Models.build_rocket(), Models.build_grenade(), Models.build_tactical("smoke"),
+			Models.build_tactical("flash")]:
+		model.free()
+	var spray := str(Profile.peer_info().get("spray", ""))
+	if Data.SPRAYS.has(spray):
+		SprayArt.texture(spray)
 
 
 func _exit_tree() -> void:

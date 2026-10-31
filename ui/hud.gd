@@ -15,6 +15,51 @@ const CALLOUT_MAX := 3
 const CALLOUT_LIFE := 2.6
 
 
+## Draws the glyphs of the text the HUD first shows mid-fight (kill feed, callouts, toasts,
+## damage numbers, StreakOverlay's card) once, fully transparent, while the match loads (behind
+## the intro card), then frees itself. Fonts rasterise a glyph per size, outline and subpixel
+## offset on its first draw (a first kill feed row or streak toast cost 3-8 ms that way); this
+## fills those caches up front. The caches outlive the match, so later matches redraw cached
+## glyphs only.
+class GlyphWarmer extends Control:
+	const UPPER := "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789·:+-[]().,/_"
+	const MIXED := UPPER + "abcdefghijklmnopqrstuvwxyz"
+	const DIGITS := "0123456789"
+	## [font size, heavy font, glyphs, outline sizes]: names (kill feed), weapon names and toast
+	## lines are mixed case, callouts, toast titles and the streak card upper case, damage numbers
+	## digits. Hud._label text draws a fill, a 1 px shadow outline and a 3 px outline; callouts
+	## (18 and 20 px) have no outline.
+	const STYLES: Array[Array] = [[15, true, MIXED, [1, 3]], [12, false, MIXED, [1, 3]],
+		[13, false, MIXED, [1, 3]], [12, true, UPPER, [1, 3]], [13, true, UPPER, [1, 3]],
+		[18, true, UPPER, [1]], [20, true, UPPER, [1]], [21, false, DIGITS, [1, 3]],
+		[26, false, DIGITS, [1, 3]]]
+	var _frames := 0
+
+	func _ready() -> void:
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		modulate.a = 0.0
+
+	func _draw() -> void:
+		for style: Array in STYLES:
+			var size_px: int = style[0]
+			var font: Font = UITheme.heavy_font() if style[1] else get_theme_default_font()
+			var glyphs: String = style[2]
+			# Subpixel steps the fonts cache (TextServer's automatic mode): quarter pixels up to
+			# 16 px, half pixels up to 20 px, whole pixels above.
+			var steps := 4 if size_px <= 16 else (2 if size_px <= 20 else 1)
+			for i in glyphs.length():
+				for step in steps:
+					var pos := Vector2(i * size_px + float(step) / steps, size_px)
+					draw_char(font, pos, glyphs[i], size_px)
+					for outline: int in style[3]:
+						draw_char_outline(font, pos, glyphs[i], size_px, outline)
+
+	func _process(_delta: float) -> void:
+		_frames += 1
+		if _frames >= 2:
+			queue_free()
+
+
 ## Heading strip across the top of the screen: N/E/S/W letters and ticks every 15 degrees,
 ## centred on where the player is looking. `pips` ([heading degrees, Color]) mark directions to
 ## points of interest (MatchMode.compass_pips: Tactical team markers, King of the Block's zone).
@@ -329,6 +374,7 @@ func _ready() -> void:
 	# Tactical opens on its planning banner and floor plan instead.
 	if not Tactical.is_active():
 		_show_match_intro()
+	_root.add_child(GlyphWarmer.new())
 	Profile.changed.connect(_crosshair.load_style)
 	_refresh_palette()
 	Profile.changed.connect(_refresh_palette)
