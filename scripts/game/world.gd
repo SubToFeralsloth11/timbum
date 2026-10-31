@@ -1568,9 +1568,12 @@ func _s_match_end(rows: Array, next: Dictionary, wait: float) -> void:
 	var winner: Player = entities.get(int(rows[0].id)) if not rows.is_empty() else null
 	var banner := "YOU WIN!" if winner != null and winner == local_player else ("%s WINS!" % str(rows[0].name).to_upper() if not rows.is_empty() else "")
 	if next.has("winner"):
-		# Team result: the winning side's top player performs the emote (rows put them first); a
-		# draw or a winner already gone skips straight to the results.
-		if winner != null and (int(next.winner) < 0 or not winner.alive or not bool(rows[0].get("won", false))):
+		# Team result: on the screen of a player whose side won, they perform their own emote
+		# (when alive); otherwise the winning side's top player does (rows put them first). A draw
+		# or a winner already gone skips straight to the results.
+		if won and is_instance_valid(local_player) and local_player.alive and int(next.winner) >= 0:
+			winner = local_player
+		elif winner != null and (int(next.winner) < 0 or not winner.alive or not bool(rows[0].get("won", false))):
 			winner = null
 		banner = rules.win_banner(next)
 	var show := minf(WIN_SHOW, wait - 2.0)
