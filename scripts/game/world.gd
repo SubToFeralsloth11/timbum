@@ -704,14 +704,27 @@ func _server_shot(shooter_id: int, wid: String, ends: PackedVector3Array, normal
 		var tid := int(h[0])
 		per_target[tid] = minf(float(per_target.get(tid, 0.0)) + clampf(float(h[1]), 0.0, max_dmg), max_dmg)
 		head_hit[tid] = bool(head_hit.get(tid, false)) or bool(h[2])
+	var melee := Data.is_melee(wid)
 	for tid: int in per_target:
 		var target: Player = entities.get(tid)
 		if target == null or not target.alive or tid == shooter_id:
 			continue
 		var dist := shooter.global_position.distance_to(target.global_position)
-		if Data.is_melee(wid) and (dist > float(w.range) + Data.MELEE_SERVER_SLACK or not _melee_in_sight(shooter, target)):
-			continue
-		_server_damage(target, per_target[tid], shooter_id, wid, head_hit[tid], shooter.global_position)
+		var dmg: float = per_target[tid]
+		if melee:
+			if dist > float(w.range) + Data.MELEE_SERVER_SLACK or not _melee_in_sight(shooter, target):
+				continue
+		else:
+			# The client's falloff damage is only trusted up to what the server's own positions
+			# allow: beyond the hitscan reach the hit is dropped, and the damage is capped at the
+			# falloff for the distance (less the slack), every pellet a headshot if it reported one.
+			if dist > Player.HITSCAN_RANGE + Data.SHOT_SERVER_SLACK:
+				continue
+			var near := maxf(0.0, dist - Data.SHOT_SERVER_SLACK)
+			var cap := Player.damage_at(w, near, shooter.mod("barrel")) * float(w.pellets) \
+				* (float(w.head_mult) if head_hit[tid] else 1.0) + 0.01
+			dmg = minf(dmg, cap)
+		_server_damage(target, dmg, shooter_id, wid, head_hit[tid], shooter.global_position)
 
 
 ## Server: a melee hit lands only if the world (MASK_WORLD) leaves a clear line from the

@@ -36,6 +36,10 @@ func refresh() -> void:
 		row.add_child(copy)
 		add_child(row)
 		_line("Friends paste this under Join > Room code.")
+	elif not Net.room_code_error.is_empty() and Net.link == Net.Link.DIRECT:
+		# The reason (e.g. the room code server is unreachable) goes to the log from Net; the
+		# player needs to know what still works.
+		_line("No room code (no internet). Friends on your network can join with the address below.")
 	elif not Net.room_code_error.is_empty():
 		_line(Net.room_code_error)
 	elif Net.link == Net.Link.DIRECT:

@@ -63,6 +63,7 @@ func _ready() -> void:
 	_current = home
 
 	Profile.changed.connect(_refresh_profile)
+	Profile.save_failed.connect(func(message: String) -> void: toast(message, UITheme.BAD))
 	Net.status.connect(_on_net_status)
 	_backdrop.built.connect(func() -> void:
 		create_tween().tween_property(_curtain, "color:a", 0.0, 1.2))
@@ -91,27 +92,35 @@ func _ready() -> void:
 
 ## A focused text field (Join's room code and address, match setup's preset name and port, the
 ## locker's preset name, the home name box) eats the Esc key before _unhandled_input sees it, so
-## Esc there is read here: the field lets go of focus and Esc does what it does anywhere else.
+## Esc there is read here: the field lets go of focus and `_cancel()`, the one place Esc is
+## handled, does what Esc does anywhere else.
 func _input(event: InputEvent) -> void:
 	if not event.is_action_pressed(&"ui_cancel"):
 		return
 	var focus := get_viewport().gui_get_focus_owner()
 	if focus is LineEdit and is_ancestor_of(focus):
-		focus.release_focus()
 		get_viewport().set_input_as_handled()
-		_unhandled_input(event)
+		focus.release_focus()
+		_cancel()
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed(&"ui_cancel") and tutorial_offer != null:
+	if event.is_action_pressed(&"ui_cancel") and _cancel():
 		get_viewport().set_input_as_handled()
+
+
+## Esc / B: closes the tutorial offer, leaves the current screen or closes the PLAY flyout.
+## Returns false when there was nothing to close.
+func _cancel() -> bool:
+	if tutorial_offer != null:
 		decline_tutorial()
-	elif event.is_action_pressed(&"ui_cancel") and _current != _screens["home"]:
-		get_viewport().set_input_as_handled()
+	elif _current != _screens["home"]:
 		(_current as MenuScreen).back_requested.emit()
-	elif event.is_action_pressed(&"ui_cancel") and _flyout.visible:
-		get_viewport().set_input_as_handled()
+	elif _flyout.visible:
 		_close_flyout(true)
+	else:
+		return false
+	return true
 
 
 ## The PLAY panel's TUTORIAL tile and the first-launch offer: the tutorial in the Firing Range.
@@ -126,6 +135,7 @@ func decline_tutorial() -> void:
 	if tutorial_offer != null:
 		tutorial_offer.queue_free()
 		tutorial_offer = null
+	_refresh_daily()
 	_play_button.grab_focus.call_deferred()
 
 
@@ -134,6 +144,7 @@ func _add_tutorial_offer() -> void:
 	tutorial_offer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	tutorial_offer.mouse_filter = Control.MOUSE_FILTER_STOP
 	add_child(tutorial_offer)
+	_refresh_daily()
 	var dim := ColorRect.new()
 	dim.color = Color(0.01, 0.015, 0.03, 0.6)
 	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -171,6 +182,10 @@ func go(screen_name: String) -> void:
 	var next := _get_screen(screen_name)
 	if next == _current:
 		return
+	# Going anywhere from under the first-launch offer (keyboard/controller focus can reach the home
+	# buttons behind it) answers it with NOT NOW, so the offer can't swallow that screen's Esc.
+	if tutorial_offer != null:
+		decline_tutorial()
 	# Toasts belong to the screen that raised them; don't let one cover the next page.
 	if _toast_tween != null:
 		_toast_tween.kill()
@@ -661,7 +676,10 @@ func _refresh_profile() -> void:
 	_refresh_daily()
 
 
+## The daily reward button; hidden while the first-launch tutorial offer is open, so a new player's
+## first screen offers the tutorial, not a coin claim (it shows once the offer is answered).
 func _refresh_daily() -> void:
+	_daily_button.visible = tutorial_offer == null
 	if Profile.can_claim_daily():
 		_daily_button.disabled = false
 		_daily_button.text = "CLAIM DAILY REWARD  +%d" % Data.DAILY_REWARD

@@ -3,6 +3,8 @@ extends Node
 ## Also owns the input map so key bindings exist before any scene loads.
 
 signal changed
+## A save didn't reach profile.json (the menu and the HUD show `message` as a warning).
+signal save_failed(message: String)
 
 const SAVE_PATH := "user://profile.json"
 const SAVE_VERSION := 1
@@ -1092,17 +1094,27 @@ func _set_bus_volume(bus_name: String, linear: float) -> void:
 
 # ---------------------------------------------------------------- persistence
 
+## Writes profile.json.tmp, then renames it over profile.json, so a crash mid-write can't corrupt
+## the save. A failed write or rename is logged and reported through `save_failed`; after a failed
+## rename the new data stays in profile.json.tmp.
 func save() -> void:
 	if not persist:
 		return
 	var tmp := SAVE_PATH + ".tmp"
 	var f := FileAccess.open(tmp, FileAccess.WRITE)
 	if f == null:
-		push_warning("Could not save profile: %s" % error_string(FileAccess.get_open_error()))
+		_save_failed("could not write %s" % tmp, FileAccess.get_open_error())
 		return
 	f.store_string(JSON.stringify(_payload(), "\t"))
 	f.close()
-	DirAccess.rename_absolute(ProjectSettings.globalize_path(tmp), ProjectSettings.globalize_path(SAVE_PATH))
+	var err := DirAccess.rename_absolute(ProjectSettings.globalize_path(tmp), ProjectSettings.globalize_path(SAVE_PATH))
+	if err != OK:
+		_save_failed("could not rename %s over %s" % [tmp, SAVE_PATH], err)
+
+
+func _save_failed(what: String, err: Error) -> void:
+	push_warning("Profile save failed: %s: %s" % [what, error_string(err)])
+	save_failed.emit("COULDN'T SAVE YOUR PROGRESS (%s)" % error_string(err))
 
 
 func _payload() -> Dictionary:

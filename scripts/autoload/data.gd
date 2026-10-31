@@ -138,7 +138,7 @@ const WEAPONS := {
 	},
 	"dmr": {
 		"name": "Block Marksman", "slot": "primary", "price": 850,
-		"desc": "Semi-auto marksman rifle. Three to the chest, or one to the head within 50 m.",
+		"desc": "Semi-auto marksman rifle. Against a plain 100 HP player: three to the chest, or one to the head within 50 m.",
 		"damage": 48.0, "head_mult": 2.1, "rpm": 280.0, "auto": false,
 		"mag": 12, "reserve": 60, "reload": 2.3, "pellets": 1,
 		"spread_hip": 3.5, "spread_ads": 0.1, "recoil": 2.6,
@@ -249,6 +249,11 @@ const WEAPONS := {
 ## Extra reach (m) the server allows a melee hit beyond the weapon's `range`, measured between
 ## the two players' feet (lag, the sweep's radius and the target's body). The knife: 2.4 + 2.1.
 const MELEE_SERVER_SLACK := 2.1
+## Gun hits: the server caps a reported hit at the falloff damage for the feet-to-feet distance
+## between shooter and target minus this many metres (movement and lag between the client's shot
+## and the server's positions, eye height), and drops a target farther than Player.HITSCAN_RANGE
+## plus this from the shooter.
+const SHOT_SERVER_SLACK := 3.0
 
 ## Frag grenades explode on impact (with the world or a player); `fuse` only caps a throw that
 ## never hits anything.

@@ -335,6 +335,7 @@ func _lan_info() -> Dictionary:
 func _on_link_failed(reason: String) -> void:
 	room_code = ""
 	room_code_error = reason
+	print("Net: no room code: ", reason)
 	invite_changed.emit()
 	status.emit(reason)
 

@@ -382,6 +382,8 @@ func _ready() -> void:
 	Profile.changed.connect(_crosshair.load_style)
 	_refresh_palette()
 	Profile.changed.connect(_refresh_palette)
+	Profile.save_failed.connect(func(message: String) -> void:
+		toast("SAVE FAILED", message, UITheme.BAD, 6.0))
 
 	_pause = PauseMenu.new()
 	_pause.set_anchors_preset(Control.PRESET_FULL_RECT)

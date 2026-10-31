@@ -25,6 +25,8 @@ var _status: Label
 var _spinner: Label
 var _connecting := false
 var _dots := 0.0
+## Set when the page is left (Esc / BACK), cleared by on_shown: the deferred room-code focus checks it.
+var _left := true
 
 
 func _ready() -> void:
@@ -135,6 +137,7 @@ func _ready() -> void:
 	visibility_changed.connect(_on_visibility_changed)
 	# Leaving the page abandons a pending attempt, so it can't pull the player into a match later.
 	back_requested.connect(func() -> void:
+		_left = true
 		if _connecting:
 			_on_cancel())
 	_set_connecting(false)
@@ -142,6 +145,7 @@ func _ready() -> void:
 
 
 func on_shown() -> void:
+	_left = false
 	_code.text = str(Profile.get_setting("last_code"))
 	_ip.text = str(Profile.get_setting("last_ip"))
 	_port.text = str(Profile.get_setting("last_port"))
@@ -151,7 +155,15 @@ func on_shown() -> void:
 	_steam_lobbies.clear()
 	_rebuild_nearby()
 	_on_visibility_changed()
-	_code.grab_focus.call_deferred()
+	_focus_code.call_deferred()
+
+
+## on_shown's focus on the room code, a frame later; skipped when the page was left in between, so
+## it can't pull focus back onto a page that is going away.
+func _focus_code() -> void:
+	if _left or not is_visible_in_tree():
+		return
+	_code.grab_focus()
 
 
 func _on_visibility_changed() -> void:
