@@ -8,6 +8,7 @@ signal shop_requested
 const ROWS: Array = [
 	["weapons", "PRIMARY", "primary"],
 	["weapons", "SECONDARY", "secondary"],
+	["weapons", "MELEE", "melee"],
 	["tacticals", "TACTICAL", "tactical"],
 	["skins", "WEAPON SKIN", "skin"],
 	["hats", "HAT", "hat"],
@@ -18,14 +19,14 @@ const ROWS: Array = [
 	["sprays", "SPRAY", "spray"],
 ]
 ## ROWS before this index are loadout, the rest style.
-const STYLE_START := 3
+const STYLE_START := 4
 
 var _pickers := {}
 var _preview: ModelPreview
 var _gun_preview: ModelPreview
 var _summary: Label
 var _name_tag: Label
-## Mastery rows (primary, secondary, knife): progress and the camo switch, refilled on show.
+## Mastery rows (primary, secondary, melee weapon): progress and the camo switch, refilled on show.
 var _mastery_box: VBoxContainer
 ## Loadout presets: one tab per preset (the pressed one is active, and the pickers below edit it)
 ## and a name field with RENAME.
@@ -176,12 +177,12 @@ func _on_preset_rename() -> void:
 	_fill_presets()
 
 
-## Mastery progress of the equipped guns and the knife, each with a CAMO switch once it reached
+## Mastery progress of the equipped guns and melee weapon, each with a CAMO switch once it reached
 ## Gold (Profile.set_camo).
 func _fill_mastery() -> void:
 	for c in _mastery_box.get_children():
 		c.queue_free()
-	for wid: String in [Profile.loadout.primary, Profile.loadout.secondary, "knife"]:
+	for wid: String in [Profile.loadout.primary, Profile.loadout.secondary, Profile.loadout.melee]:
 		var h := UIKit.hbox(8)
 		_mastery_box.add_child(h)
 		var tier := Profile.mastery_tier(wid)
@@ -218,7 +219,7 @@ static func owned_ids(category: String, slot: String) -> Array[String]:
 
 
 func _current(key: String) -> String:
-	if key in ["primary", "secondary", "tactical"]:
+	if key in Profile.LOADOUT_KEYS:
 		return Profile.loadout[key]
 	return Profile.equipped[key]
 
@@ -245,9 +246,9 @@ func _on_pick(key: String, idx: int) -> void:
 			category = row[0]
 	var id: String = _pickers[key].get_item_metadata(idx)
 	if Profile.equip(category, id):
-		if key in ["primary", "secondary"]:
+		if key in ["primary", "secondary", "melee"]:
 			_fill_mastery()
-		if key in ["primary", "secondary", "tactical"]:
+		if key in Profile.LOADOUT_KEYS:
 			_fill_presets()
 		_rebuild_models()
 
@@ -261,5 +262,5 @@ func _rebuild_models() -> void:
 	_gun_preview.show_model(DrawPreview.create(Profile.equipped.draw, Profile.loadout.secondary, Profile.gun_skin(Profile.loadout.secondary),
 		Profile.equipped.charm), false, ShopScreen.GUN_YAW, 1.0)
 	_name_tag.text = Data.badged_name(Profile.player_name.to_upper(), Profile.prestige)
-	_summary.text = "Secondary: %s  ·  %s  ·  Knife always carried" % [Data.WEAPONS[Profile.loadout.secondary].name,
-		Data.TACTICALS[Profile.loadout.tactical].name]
+	_summary.text = "Melee: %s  ·  Secondary: %s  ·  %s" % [Data.WEAPONS[Profile.loadout.melee].name,
+		Data.WEAPONS[Profile.loadout.secondary].name, Data.TACTICALS[Profile.loadout.tactical].name]

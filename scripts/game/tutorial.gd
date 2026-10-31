@@ -203,7 +203,7 @@ func _check(p: Player, delta: float) -> bool:
 		"switch":
 			done = p.current_slot != _start_slot
 		"melee":
-			done = _shot_kinds.has("knife")
+			done = _shot_kinds.has(p.melee_id())
 		"frag":
 			done = _shot_kinds.has("grenade")
 		"tactical":
@@ -232,7 +232,7 @@ func _begin_step(p: Player) -> void:
 	_last_pitch = p.pitch
 	match step_id():
 		"aim", "shoot", "reload":
-			if p.weapon_id() == "knife":
+			if p.current_slot == 2:
 				p.switch_to(0 if not p.slots[0].is_empty() else 1)
 			if step_id() == "reload":
 				var wid := p.slots[0] if not p.slots[0].is_empty() else p.slots[1]

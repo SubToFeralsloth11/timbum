@@ -845,7 +845,7 @@ func _build_results() -> void:
 		pick_preset(idx)
 		_fill_results_loadout())
 	loadout.add_child(_results_preset)
-	for slot: String in ["primary", "secondary"]:
+	for slot: String in ["primary", "secondary", "melee"]:
 		loadout.add_child(_label(slot.to_upper(), 16, Color(0.7, 0.75, 0.85)))
 		var o := OptionButton.new()
 		o.custom_minimum_size.x = 200
@@ -1048,7 +1048,7 @@ func _process(delta: float) -> void:
 	if scoped:
 		_scope.style = w.get("scope_style", "sniper")
 	_crosshair.visible = p.alive and not _results.visible
-	_crosshair.show_lines = (not scoped and p.aim_blend < 0.6) or wid == "knife"
+	_crosshair.show_lines = (not scoped and p.aim_blend < 0.6) or Data.is_melee(wid)
 	_crosshair.spread = p.current_spread()
 	_crosshair.fov = p.camera.fov if p.camera != null else 85.0
 	_crosshair.queue_redraw()
@@ -1586,7 +1586,7 @@ func _fill_results_loadout() -> void:
 	for slot: String in _results_pickers:
 		var o: OptionButton = _results_pickers[slot]
 		o.clear()
-		var ids := LockerScreen.owned_ids("weapons", slot)
+		var ids: Array[String] = Profile.owned_weapons_for_slot(slot)
 		for id in ids:
 			o.add_item(str(Data.WEAPONS[id].name))
 			o.set_item_metadata(o.item_count - 1, id)

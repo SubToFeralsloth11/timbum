@@ -86,13 +86,14 @@ var coins := 500
 var xp := 0
 var level := 1
 var owned := {}
-const DEFAULT_LOADOUT := {"primary": "smg", "secondary": "pistol", "tactical": "flash"}
-## Loadout slot keys a preset holds (besides its name).
-const LOADOUT_KEYS: Array[String] = ["primary", "secondary", "tactical"]
+const DEFAULT_LOADOUT := {"primary": "smg", "secondary": "pistol", "tactical": "flash", "melee": "knife"}
+## Loadout slot keys a preset holds (besides its name). A save from before melee weapons has no
+## "melee" and loads with the knife (_clean_loadout keeps the base's).
+const LOADOUT_KEYS: Array[String] = ["primary", "secondary", "tactical", "melee"]
 ## The loadout the player spawns with: always a copy of the active preset's guns
 ## (`loadout_presets[active_preset]`); equip() edits both, select_preset() copies a preset here.
 var loadout := DEFAULT_LOADOUT.duplicate()
-## Loadout presets: LOADOUT_PRESET_COUNT of {name, primary, secondary, tactical}, picked in the
+## Loadout presets: LOADOUT_PRESET_COUNT of {name, primary, secondary, tactical, melee}, picked in the
 ## locker, on the death screen and on the results screen (see select_preset).
 const LOADOUT_PRESET_COUNT := 3
 var loadout_presets: Array = fresh_presets(DEFAULT_LOADOUT)
@@ -177,7 +178,7 @@ func buy(category: String, id: String) -> bool:
 func is_equipped(category: String, id: String) -> bool:
 	match category:
 		"weapons":
-			return loadout.primary == id or loadout.secondary == id
+			return loadout.primary == id or loadout.secondary == id or loadout.melee == id
 		"tacticals":
 			return loadout.tactical == id
 	for slot: String in EQUIP_SLOTS:
@@ -192,8 +193,6 @@ func equip(category: String, id: String) -> bool:
 	match category:
 		"weapons":
 			var slot: String = Data.WEAPONS[id].slot
-			if slot == "melee":
-				return false
 			loadout[slot] = id
 			loadout_presets[active_preset][slot] = id
 		"tacticals":
@@ -256,6 +255,7 @@ func peer_info() -> Dictionary:
 		"primary": loadout.primary,
 		"secondary": loadout.secondary,
 		"tactical": loadout.tactical,
+		"melee": loadout.melee,
 		"level": level,
 		"prestige": prestige,
 		"camos": camos.duplicate(),
@@ -406,10 +406,18 @@ func _add_xp(amount: int) -> int:
 # ---------------------------------------------------------------- challenges
 
 ## Gun ids the player owns (challenge params).
-func owned_guns() -> Array:
-	var out: Array = []
+func owned_guns() -> Array[String]:
+	var out: Array[String] = []
 	for id: String in Data.WEAPONS:
 		if is_owned("weapons", id):
+			out.append(id)
+	return out
+
+## Weapon ids the player owns that fit `slot` ("primary", "secondary", "melee").
+func owned_weapons_for_slot(slot: String) -> Array[String]:
+	var out: Array[String] = []
+	for id: String in Data.WEAPONS:
+		if Data.WEAPONS[id].slot == slot and is_owned("weapons", id):
 			out.append(id)
 	return out
 
@@ -906,10 +914,11 @@ func rename_preset(index: int, new_name: String) -> bool:
 	return true
 
 
-## "Bit-SMG · Block 9 · Flash Cube" for preset `index`.
+## "Bit-SMG · Block 9 · Flash Cube · Pixel Blade" for preset `index`.
 func preset_summary(index: int) -> String:
 	var p: Dictionary = loadout_presets[index]
-	return "%s  ·  %s  ·  %s" % [Data.WEAPONS[p.primary].name, Data.WEAPONS[p.secondary].name, Data.TACTICALS[p.tactical].name]
+	return "%s  ·  %s  ·  %s  ·  %s" % [Data.WEAPONS[p.primary].name, Data.WEAPONS[p.secondary].name, Data.TACTICALS[p.tactical].name,
+		Data.WEAPONS[p.melee].name]
 
 
 ## Repairs saved loadout slots over `base`: a gun the player doesn't own or that doesn't fit the
@@ -918,7 +927,7 @@ func _clean_loadout(saved: Variant, base: Dictionary) -> Dictionary:
 	var out := base.duplicate()
 	if typeof(saved) != TYPE_DICTIONARY:
 		return out
-	for slot: String in ["primary", "secondary"]:
+	for slot: String in ["primary", "secondary", "melee"]:
 		var id := str(saved.get(slot, ""))
 		if is_owned("weapons", id) and Data.WEAPONS[id].slot == slot:
 			out[slot] = id

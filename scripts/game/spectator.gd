@@ -327,11 +327,11 @@ func _update_follow(delta: float) -> void:
 		(fl & Player.FLAG_FLOOR) != 0, Vector2(_vel.x, _vel.z).length(), (fl & Player.FLAG_CROUCH) != 0)
 
 
-## World._play_shot_fx: the followed player's gun kicks or their knife swings in the viewmodel.
+## World._play_shot_fx: the followed player's gun kicks or their melee weapon swings in the viewmodel.
 func on_shot(p: Player, wid: String) -> void:
 	if view != View.FOLLOW or p != target or _viewmodel == null:
 		return
-	if wid == "knife":
+	if Data.is_melee(wid):
 		_viewmodel.play_melee(false)
 	else:
 		_viewmodel.play_fire(float(Data.WEAPONS[wid].recoil))

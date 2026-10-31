@@ -495,6 +495,7 @@ func _make_bot_info() -> Dictionary:
 		"primary": primaries.pick_random(),
 		"secondary": secondaries.pick_random(),
 		"tactical": Data.TACTICALS.keys().pick_random(),
+		"melee": Data.weapon_ids_for_slot("melee").pick_random(),
 		"charm": Data.CHARMS.keys().pick_random(),
 		"emote": Data.EMOTES.keys().pick_random(),
 		"draw": "standard",
@@ -553,11 +554,11 @@ func _server_next_loadout(p: Player) -> void:
 	var want: Dictionary = Net.players[p.id]
 	var next := p.info.duplicate()
 	for k: String in Profile.LOADOUT_KEYS:
-		next[k] = str(want.get(k, next[k]))
+		next[k] = str(want.get(k, next.get(k, "")))
 	next = _apply_loadout_mutator(next)
 	if Profile.LOADOUT_KEYS.all(func(k: String) -> bool: return str(next[k]) == str(p.info.get(k, ""))):
 		return
-	_broadcast(&"_s_loadout", [p.id, str(next.primary), str(next.secondary), str(next.tactical)])
+	_broadcast(&"_s_loadout", [p.id, str(next.primary), str(next.secondary), str(next.tactical), str(next.melee)])
 
 
 ## Starts `eid`'s SPAWN_PROTECTION window and shows it on every peer.
@@ -657,24 +658,25 @@ func _server_shot(shooter_id: int, wid: String, ends: PackedVector3Array, normal
 		if target == null or not target.alive or tid == shooter_id:
 			continue
 		var dist := shooter.global_position.distance_to(target.global_position)
-		if wid == "knife" and dist > 4.5:
+		if Data.is_melee(wid) and dist > float(w.range) + Data.MELEE_SERVER_SLACK:
 			continue
 		_server_damage(target, per_target[tid], shooter_id, wid, head_hit[tid], shooter.global_position)
 
 
 ## Fire-rate check, mirroring the client's single `fire_cooldown`: every shot puts its weapon's
 ## refire interval (60 / rpm) on a per-shooter debt that drains in real time, and a shot is
-## accepted while the debt is at most two of its own intervals. That allows a burst of 3 bunched
-## shots after lag, but alternating weapons can't add their rates together. All guns share one
-## budget; the knife has its own, like the client's quick melee.
+## accepted while the debt is at most two of its own intervals (a burst weapon: its burst size
+## minus one). That allows a burst of 3 bunched shots after lag (the Quad-Bit's whole 4-round
+## burst), but alternating weapons can't add their rates together. All guns share one budget;
+## melee weapons have their own, like the client's quick melee.
 func _take_fire_token(shooter_id: int, wid: String) -> bool:
-	const BURST := 3.0
-	var key := "%d:knife" % shooter_id if wid == "knife" else str(shooter_id)
+	var burst := maxf(3.0, float(Data.WEAPONS[wid].get("burst", 1)))
+	var key := "%d:melee" % shooter_id if Data.is_melee(wid) else str(shooter_id)
 	var interval := 60.0 / float(Data.WEAPONS[wid].rpm)
 	var t := now()
 	var bucket: Array = _fire_tokens.get(key, [0.0, t])
 	var debt := maxf(0.0, float(bucket[0]) - (t - float(bucket[1])))
-	if debt > (BURST - 1.0) * interval + 0.0001:
+	if debt > (burst - 1.0) * interval + 0.0001:
 		_fire_tokens[key] = [debt, t]
 		return false
 	_fire_tokens[key] = [debt + interval, t]
@@ -1021,12 +1023,12 @@ func _play_shot_fx(p: Player, wid: String, ends: PackedVector3Array, normals: Pa
 	var is_local := p == local_player
 	if p.mode == Player.Mode.REMOTE:
 		p.remote_fired()
-		if wid == "knife":
+		if Data.is_melee(wid):
 			p.avatar.play_slash()
 		else:
 			p.avatar.play_shoot()
-	if wid == "knife":
-		Sfx.play(&"knife_swing", null if is_local else p.global_position, -4.0)
+	if Data.is_melee(wid):
+		Sfx.play(StringName(w.sound), null if is_local else p.global_position, -4.0, float(w.get("pitch", 1.0)))
 		if normals.size() > 0 and normals[0] != Vector3.ZERO:
 			Sfx.play(&"bullet_impact", ends[0], -6.0)
 			fx.impact(ends[0], normals[0])
@@ -1330,7 +1332,7 @@ func _death_detail(killer_id: int, killer_hp: float, killer_dist: float) -> Stri
 
 ## `eid` respawns (the `_s_respawn` that follows) with this loadout (World._server_next_loadout).
 @rpc("authority", "call_remote", "reliable")
-func _s_loadout(eid: int, primary: String, secondary: String, tactical: String) -> void:
+func _s_loadout(eid: int, primary: String, secondary: String, tactical: String, melee: String) -> void:
 	var p: Player = entities.get(eid)
 	if p == null:
 		return
@@ -1338,6 +1340,7 @@ func _s_loadout(eid: int, primary: String, secondary: String, tactical: String) 
 	next.primary = primary
 	next.secondary = secondary
 	next.tactical = tactical
+	next.melee = melee
 	p.apply_info(next)
 
 

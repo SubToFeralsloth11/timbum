@@ -214,15 +214,16 @@ func has_next_match() -> bool:
 	return true
 
 
-## Whether the server accepts a hit or rocket from `shooter` with `wid`: the knife, or a gun in
-## the shooter's current slots (Gun Game also takes the gun just replaced, for shots in flight).
+## Whether the server accepts a hit or rocket from `shooter` with `wid`: a weapon in the
+## shooter's current slots, its melee weapon included (Gun Game also takes the gun just replaced,
+## for shots in flight).
 func weapon_allowed(shooter: Player, wid: String) -> bool:
-	return wid == "knife" or shooter.slots.has(wid)
+	return shooter.slots.has(wid)
 
 
 ## Whether `p` respawns with its own loadout, so a preset picked while dead (Profile.select_preset,
 ## the results screen) applies at its next spawn. Gun Game hands out the ladder's gun, Tactical has
-## found weapons and no respawns, an Infected has the knife only.
+## found weapons and no respawns, an Infected keeps only their melee weapon.
 func uses_loadout(_p: Player) -> bool:
 	return true
 

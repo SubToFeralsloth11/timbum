@@ -16,6 +16,8 @@ const NAMES: Array[StringName] = [
 	&"shot_suppressed", &"shot_dmr", &"slide", &"grapple_fire", &"smoke_pop", &"flashbang",
 	&"streak_reward", &"radar_sweep", &"shield_hit", &"shield_break", &"bomber_warning",
 	&"ping", &"ping_enemy", &"spray", &"jump_pad",
+	&"shot_crossbow", &"shot_drum_shotgun", &"shot_carbine", &"shot_burst_smg", &"shot_minigun",
+	&"swing_blunt", &"swing_heavy", &"swing_blade",
 ]
 
 ## Sounds rendered in several takes; one is picked at random per play.
@@ -36,6 +38,8 @@ const GAIN_DB := {
 	&"smoke_pop": -5.0, &"flashbang": 0.0,
 	&"streak_reward": -4.0, &"radar_sweep": -6.0, &"shield_hit": -7.0, &"shield_break": -4.0,
 	&"bomber_warning": -3.0, &"ping": -8.0, &"ping_enemy": -6.0, &"spray": -8.0, &"jump_pad": -5.0,
+	&"shot_crossbow": -1.0, &"shot_drum_shotgun": -0.5, &"shot_carbine": -2.5, &"shot_burst_smg": -3.5, &"shot_minigun": -1.5,
+	&"swing_blunt": -6.0, &"swing_heavy": -4.0, &"swing_blade": -7.0,
 }
 
 ## Reference distance (m) for positional playback: loud sounds carry across a ~60 m map,
@@ -48,6 +52,8 @@ const UNIT_SIZE := {
 	&"shot_suppressed": 5.0, &"shot_dmr": 20.0, &"slide": 5.0, &"grapple_fire": 6.0,
 	&"smoke_pop": 10.0, &"flashbang": 24.0, &"shield_hit": 6.0, &"shield_break": 8.0,
 	&"bomber_warning": 30.0, &"spray": 4.0, &"jump_pad": 12.0,
+	&"shot_crossbow": 20.0, &"shot_drum_shotgun": 18.0, &"shot_carbine": 16.0, &"shot_burst_smg": 14.0, &"shot_minigun": 22.0,
+	&"swing_blunt": 4.0, &"swing_heavy": 5.0, &"swing_blade": 4.0,
 }
 const DEFAULT_UNIT_SIZE := 7.0
 
@@ -60,7 +66,8 @@ const JITTER := {
 	&"whizz": true, &"shot_pistol": true, &"shot_revolver": true, &"shot_smg": true, &"shot_rifle": true,
 	&"shot_shotgun": true, &"shot_sniper": true, &"shot_lmg": true, &"shot_rocket": true, &"explosion": true,
 	&"shot_suppressed": true, &"shot_dmr": true, &"slide": true, &"grapple_fire": true,
-	&"shield_hit": true,
+	&"shield_hit": true, &"shot_crossbow": true, &"shot_drum_shotgun": true, &"shot_carbine": true, &"shot_burst_smg": true, &"shot_minigun": true,
+	&"swing_blunt": true, &"swing_heavy": true, &"swing_blade": true,
 }
 
 
@@ -145,6 +152,47 @@ static func _render_one(sound: StringName, v: int, rng: RandomNumberGenerator) -
 			return b
 		&"shot_lmg":
 			return _gun(rng, 0.6, 1.0, 0.01, 2600.0, 0.06, 130.0, 1.2, 0.085, 0.1, 0.3, 2.4)
+		&"shot_crossbow":
+			var b := Synth.make(1.5)
+			# Heavy thwump of a high-tension crossbow release.
+			Synth.tone(b, 0.0, 0.15, 70.0, 30.0, 1.2, W.SINE, 0.001, 0.06)
+			Synth.noise(b, rng, 0.0, 0.04, 1.2, 10000.0, 5000.0, 2000.0, 0.0002, 0.008)
+			_gun_layers(b, rng, 0.8, 0.015, 2800.0, 0.05, 100.0, 1.0, 0.1)
+			Synth.echo(b, 0.18, 0.45, 0.3, 1200.0)
+			Synth.drive(b, 2.2)
+			return b
+		&"shot_drum_shotgun":
+			var b := _gun(rng, 1.0, 0.85, 0.018, 2100.0, 0.11, 95.0, 1.25, 0.14, 0.13, 0.38, 2.5)
+			# Drum-fed semi-auto: slightly tighter transients than pump.
+			for k in 2:
+				Synth.noise(b, rng, 0.002 + k * 0.003, 0.025, 0.3, 7500.0, 2800.0, 1400.0, 0.0005, 0.006)
+			return b
+		&"shot_carbine":
+			return _gun(rng, 0.65, 1.0, 0.01, 2800.0, 0.04, 160.0, 0.95, 0.065, 0.1, 0.3, 2.1)
+		&"shot_burst_smg":
+			return _gun(rng, 0.35, 0.9, 0.008, 3800.0, 0.025, 250.0, 0.5, 0.03, 0.05, 0.18, 1.7)
+		&"shot_minigun":
+			var b := _gun(rng, 0.5, 1.0, 0.006, 3200.0, 0.03, 140.0, 1.15, 0.07, 0.08, 0.28, 2.3)
+			# Rotary whir layered under the shots.
+			Synth.tone(b, 0.0, 0.6, 200.0, 80.0, 0.15, W.SINE, 0.002, 0.05)
+			Synth.drive(b, 1.8)
+			return b
+		&"swing_blunt":
+			var b := Synth.make(0.35)
+			Synth.noise(b, rng, 0.0, 0.3, 0.8, 600.0, 2500.0, 300.0, 0.08, 0.06)
+			Synth.noise(b, rng, 0.05, 0.2, 0.25, 4000.0, 6000.0, 2000.0, 0.04, 0.03)
+			return b
+		&"swing_heavy":
+			var b := Synth.make(0.45)
+			Synth.noise(b, rng, 0.0, 0.4, 1.0, 350.0, 1500.0, 200.0, 0.1, 0.08)
+			Synth.tone(b, 0.0, 0.25, 80.0, 30.0, 0.6, W.SINE, 0.001, 0.05)
+			Synth.noise(b, rng, 0.1, 0.25, 0.3, 5000.0, 7000.0, 2500.0, 0.05, 0.04)
+			return b
+		&"swing_blade":
+			var b := Synth.make(0.3)
+			Synth.noise(b, rng, 0.0, 0.25, 1.1, 1200.0, 4500.0, 500.0, 0.1, 0.05)
+			Synth.noise(b, rng, 0.03, 0.15, 0.35, 6000.0, 8000.0, 3000.0, 0.06, 0.04)
+			return b
 		&"shot_rocket":
 			var b := Synth.make(1.3)
 			Synth.tone(b, 0.0, 0.3, 85.0, 40.0, 1.0, W.SINE, 0.002, 0.09)

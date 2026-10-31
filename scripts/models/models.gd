@@ -14,7 +14,7 @@ const PX := 1.8 / 32.0
 const ATLAS_SIZE := 64
 
 ## Gun material slots. BODY takes the weapon skin; the rest are shared accents.
-enum { BODY, DARK, METAL, LENS, RED, BRASS }
+enum { BODY, DARK, METAL, LENS, RED, BRASS, STONE, WOOD }
 
 ## Avatar texture atlas layout: part -> [atlas origin (px), box size (w, h, d) in px].
 const AVATAR_PARTS := {
@@ -628,6 +628,15 @@ static func _gun_info(weapon_id: String) -> Dictionary:
 		"suppressed": info = _gun_suppressed(k)
 		"dmr": info = _gun_dmr(k)
 		"burst_rifle": info = _gun_burst_rifle(k)
+		"crossbow": info = _gun_crossbow(k)
+		"drum_shotgun": info = _gun_drum_shotgun(k)
+		"carbine": info = _gun_carbine(k)
+		"burst_smg": info = _gun_burst_smg(k)
+		"minigun": info = _gun_minigun(k)
+		"brick_bat": info = _melee_brick_bat(k)
+		"block_axe": info = _melee_block_axe(k)
+		"cube_hammer": info = _melee_cube_hammer(k)
+		"pixel_katana": info = _melee_pixel_katana(k)
 		_: info = _gun_knife(k)
 	info.mesh = k.build(_gun_accent_materials())
 	_guns[weapon_id] = info
@@ -642,6 +651,8 @@ static func _gun_accent_materials() -> Array:
 		flat_material(Color(0.3, 0.75, 1.0), 0.1, 0.3, 0.8),
 		flat_material(Color(0.82, 0.16, 0.1), 0.6),
 		flat_material(Color(0.86, 0.66, 0.26), 0.35, 0.8),
+		flat_material(Color(0.55, 0.55, 0.58), 0.95),
+		flat_material(Color(0.52, 0.34, 0.19), 0.85),
 	]
 
 
@@ -975,6 +986,223 @@ static func _gun_burst_rifle(k: MeshKit) -> Dictionary:
 	_trigger(k, -0.085)
 	return {"muzzle": Vector3(0, 0.05, -0.492), "sight": Vector3(0, 0.15, -0.02),
 		"support": Vector3(0, 0.0, -0.26)}
+
+
+## Crossbow: stock and bolt track, a wide bow of stepped limbs with a taut string drawn back to
+## the latch, a loaded bolt with red fletching, and a short scope (aiming uses the scope overlay).
+static func _gun_crossbow(k: MeshKit) -> Dictionary:
+	k.box(DARK, Vector3(0, -0.045, 0.03), Vector3(0.032, 0.09, 0.04), Vector3(-0.3, 0, 0))
+	k.box(BODY, Vector3(0, 0.0, 0.2), Vector3(0.044, 0.09, 0.28))
+	k.box(DARK, Vector3(0, -0.005, 0.345), Vector3(0.048, 0.1, 0.02))
+	k.box(BODY, Vector3(0, 0.03, -0.15), Vector3(0.05, 0.05, 0.42))
+	k.box(DARK, Vector3(0, 0.058, -0.17), Vector3(0.014, 0.006, 0.4))
+	k.box(DARK, Vector3(0, -0.01, -0.16), Vector3(0.036, 0.04, 0.12))
+	# Bow: riser, then limbs stepping back towards the tips.
+	k.box(METAL, Vector3(0, 0.03, -0.37), Vector3(0.08, 0.05, 0.04))
+	for i in 4:
+		var x := 0.06 + i * 0.045
+		k.box(BODY, Vector3(x, 0.03, -0.37 + i * i * 0.006), Vector3(0.05, 0.022, 0.026))
+		k.box(BODY, Vector3(-x, 0.03, -0.37 + i * i * 0.006), Vector3(0.05, 0.022, 0.026))
+	k.box(DARK, Vector3(0.2, 0.03, -0.31), Vector3(0.016, 0.03, 0.02))
+	k.box(DARK, Vector3(-0.2, 0.03, -0.31), Vector3(0.016, 0.03, 0.02))
+	# String from the limb tips back to the latch.
+	for side: float in [-1.0, 1.0]:
+		var a := Vector3(0.2 * side, 0.05, -0.31)
+		var b := Vector3(0.012 * side, 0.05, -0.06)
+		var d := b - a
+		k.box(METAL, (a + b) * 0.5, Vector3(0.004, 0.004, d.length()), Vector3(0, atan2(-d.x, -d.z), 0))
+	k.box(METAL, Vector3(0, 0.05, -0.055), Vector3(0.03, 0.02, 0.02))
+	# Loaded bolt: shaft, steel tip, red fletching.
+	k.box(METAL, Vector3(0, 0.066, -0.27), Vector3(0.008, 0.008, 0.42))
+	k.box(METAL, Vector3(0, 0.066, -0.49), Vector3(0.014, 0.014, 0.03))
+	k.box(RED, Vector3(0, 0.074, -0.1), Vector3(0.002, 0.014, 0.06))
+	k.box(RED, Vector3(0.008, 0.066, -0.1), Vector3(0.014, 0.002, 0.06))
+	k.box(RED, Vector3(-0.008, 0.066, -0.1), Vector3(0.014, 0.002, 0.06))
+	# Scope on two rings; the rear lens is the sight.
+	k.box(METAL, Vector3(0, 0.09, -0.16), Vector3(0.036, 0.03, 0.014))
+	k.box(METAL, Vector3(0, 0.09, 0.0), Vector3(0.036, 0.03, 0.014))
+	k.box(DARK, Vector3(0, 0.12, -0.08), Vector3(0.036, 0.036, 0.24))
+	k.box(DARK, Vector3(0, 0.12, -0.21), Vector3(0.05, 0.05, 0.06))
+	k.box(DARK, Vector3(0, 0.12, 0.06), Vector3(0.044, 0.044, 0.04))
+	k.box(LENS, Vector3(0, 0.12, -0.2415), Vector3(0.04, 0.04, 0.004))
+	k.box(LENS, Vector3(0, 0.12, 0.0815), Vector3(0.032, 0.032, 0.004))
+	k.box(METAL, Vector3(0, -0.005, -0.4), Vector3(0.05, 0.012, 0.06))
+	_trigger(k, -0.01)
+	return {"muzzle": Vector3(0, 0.066, -0.51), "sight": Vector3(0, 0.12, 0.085),
+		"support": Vector3(0, -0.01, -0.2)}
+
+
+## Drum-fed semi-auto shotgun: fat drum under the receiver, ribbed foregrip, bead front sight.
+static func _gun_drum_shotgun(k: MeshKit) -> Dictionary:
+	k.box(DARK, Vector3(0, -0.035, 0.06), Vector3(0.032, 0.08, 0.05), Vector3(-0.3, 0, 0))
+	k.box(BODY, Vector3(0, 0.04, -0.05), Vector3(0.05, 0.07, 0.22))
+	k.box(BODY, Vector3(0, 0.01, 0.22), Vector3(0.045, 0.1, 0.28), Vector3(0.06, 0, 0))
+	k.box(DARK, Vector3(0, 0.0, 0.37), Vector3(0.05, 0.12, 0.02), Vector3(0.06, 0, 0))
+	k.box(METAL, Vector3(0, 0.065, -0.3), Vector3(0.026, 0.026, 0.38))
+	k.box(DARK, Vector3(0, 0.065, -0.49), Vector3(0.014, 0.014, 0.002))
+	k.box(METAL, Vector3(0, 0.032, -0.28), Vector3(0.024, 0.024, 0.3))
+	k.box(METAL, Vector3(0, 0.032, -0.45), Vector3(0.028, 0.028, 0.012))
+	k.box(METAL, Vector3(0, 0.048, -0.43), Vector3(0.02, 0.04, 0.012))
+	k.box(DARK, Vector3(0, 0.03, -0.24), Vector3(0.046, 0.042, 0.16))
+	for i in 4:
+		k.box(DARK, Vector3(0, 0.03, -0.2 - i * 0.03), Vector3(0.05, 0.046, 0.01))
+	k.box(METAL, Vector3(0, 0.083, -0.48), Vector3(0.008, 0.01, 0.008))
+	k.box(DARK, Vector3(0.026, 0.05, -0.09), Vector3(0.003, 0.025, 0.06))
+	k.box(METAL, Vector3(0, 0.077, -0.08), Vector3(0.012, 0.004, 0.2))
+	k.box(DARK, Vector3(0, -0.07, -0.1), Vector3(0.07, 0.09, 0.09))
+	k.box(METAL, Vector3(0, -0.07, -0.1), Vector3(0.074, 0.03, 0.03))
+	k.box(METAL, Vector3(0, -0.022, -0.1), Vector3(0.03, 0.012, 0.04))
+	_trigger(k, 0.005)
+	return {"muzzle": Vector3(0, 0.065, -0.492), "sight": Vector3(0, 0.085, 0.0),
+		"support": Vector3(0, 0.0, -0.28)}
+
+
+## Compact carbine: short barrel, collapsible stock, minimal handguard, fast handling.
+static func _gun_carbine(k: MeshKit) -> Dictionary:
+	k.box(DARK, Vector3(0, -0.045, 0.018), Vector3(0.03, 0.095, 0.04), Vector3(-0.18, 0, 0))
+	k.box(BODY, Vector3(0, 0.05, -0.04), Vector3(0.05, 0.055, 0.18))
+	k.box(BODY, Vector3(0, 0.012, -0.05), Vector3(0.045, 0.03, 0.12))
+	k.box(DARK, Vector3(0, -0.04, -0.08), Vector3(0.032, 0.08, 0.055), Vector3(0.12, 0, 0))
+	k.box(DARK, Vector3(0, -0.1, -0.1), Vector3(0.032, 0.075, 0.055), Vector3(0.2, 0, 0))
+	k.box(BODY, Vector3(0, 0.045, -0.18), Vector3(0.056, 0.058, 0.18))
+	for i in 3:
+		k.box(DARK, Vector3(0, 0.035, -0.13 - i * 0.04), Vector3(0.058, 0.014, 0.025))
+	k.box(METAL, Vector3(0, 0.06, -0.28), Vector3(0.03, 0.03, 0.03))
+	k.box(METAL, Vector3(0, 0.095, -0.28), Vector3(0.008, 0.04, 0.012))
+	k.box(METAL, Vector3(0, 0.05, -0.33), Vector3(0.02, 0.02, 0.08))
+	k.box(DARK, Vector3(0, 0.05, -0.3505), Vector3(0.012, 0.012, 0.002))
+	k.box(METAL, Vector3(0, 0.081, -0.04), Vector3(0.03, 0.012, 0.14))
+	for i in 4:
+		k.box(DARK, Vector3(0, 0.0875, 0.04 - i * 0.03), Vector3(0.031, 0.002, 0.012))
+	k.box(METAL, Vector3(0, 0.1, 0.04), Vector3(0.032, 0.028, 0.024))
+	k.box(METAL, Vector3(0, 0.06, 0.07), Vector3(0.03, 0.015, 0.012))
+	k.box(DARK, Vector3(0.026, 0.055, -0.03), Vector3(0.003, 0.02, 0.05))
+	k.box(DARK, Vector3(0, 0.05, 0.11), Vector3(0.026, 0.026, 0.08))
+	k.box(BODY, Vector3(0, 0.035, 0.16), Vector3(0.042, 0.075, 0.1))
+	k.box(DARK, Vector3(0, 0.03, 0.22), Vector3(0.046, 0.1, 0.02))
+	_trigger(k, -0.022)
+	return {"muzzle": Vector3(0, 0.05, -0.352), "sight": Vector3(0, 0.11, 0.06),
+		"support": Vector3(0, 0.005, -0.18)}
+
+
+## Burst SMG: compact receiver, four-round burst selector, short suppressor, angled foregrip.
+static func _gun_burst_smg(k: MeshKit) -> Dictionary:
+	k.box(DARK, Vector3(0, -0.05, 0.02), Vector3(0.032, 0.1, 0.04), Vector3(-0.15, 0, 0))
+	k.box(BODY, Vector3(0, 0.04, -0.05), Vector3(0.046, 0.07, 0.22))
+	k.box(DARK, Vector3(0, -0.065, -0.08), Vector3(0.03, 0.15, 0.036))
+	k.box(METAL, Vector3(0, -0.142, -0.08), Vector3(0.034, 0.01, 0.04))
+	for i in 2:
+		k.box(DARK, Vector3(0, 0.045, -0.13 - i * 0.02), Vector3(0.048, 0.012, 0.01))
+	k.box(METAL, Vector3(0, 0.045, -0.2), Vector3(0.03, 0.03, 0.05))
+	k.box(METAL, Vector3(0, 0.045, -0.23), Vector3(0.022, 0.022, 0.02))
+	k.box(DARK, Vector3(0, 0.045, -0.2405), Vector3(0.01, 0.01, 0.002))
+	k.box(METAL, Vector3(-0.027, 0.055, -0.02), Vector3(0.008, 0.01, 0.03))
+	k.box(DARK, Vector3(0.0235, 0.05, -0.04), Vector3(0.002, 0.02, 0.05))
+	k.box(METAL, Vector3(0, 0.079, -0.05), Vector3(0.022, 0.008, 0.14))
+	k.box(METAL, Vector3(0, 0.091, 0.03), Vector3(0.024, 0.016, 0.012))
+	k.box(METAL, Vector3(0, 0.091, -0.16), Vector3(0.006, 0.018, 0.01))
+	k.box(METAL, Vector3(0, 0.06, 0.12), Vector3(0.01, 0.012, 0.12))
+	k.box(METAL, Vector3(0, 0.005, 0.12), Vector3(0.01, 0.012, 0.12))
+	k.box(DARK, Vector3(0, 0.032, 0.185), Vector3(0.03, 0.085, 0.016))
+	_trigger(k, -0.025)
+	return {"muzzle": Vector3(0, 0.045, -0.242), "sight": Vector3(0, 0.1, 0.04),
+		"support": Vector3(0, -0.01, -0.12)}
+
+
+## Minigun: six barrels in a ring around one axis held by two clamps, a motor housing, a belt
+## running from the ammo box on the left, a spade grip at the back and an open notch sight on
+## the top rail (two posts with a gap, and a front post at eye level).
+static func _gun_minigun(k: MeshKit) -> Dictionary:
+	k.box(DARK, Vector3(0, -0.045, 0.02), Vector3(0.034, 0.095, 0.042), Vector3(-0.15, 0, 0))
+	k.box(BODY, Vector3(0, 0.04, -0.05), Vector3(0.09, 0.1, 0.3))
+	k.box(DARK, Vector3(0, 0.04, -0.21), Vector3(0.1, 0.1, 0.05))
+	for i in 6:
+		var a := i * TAU / 6.0
+		k.box(METAL, Vector3(sin(a) * 0.03, 0.04 + cos(a) * 0.03, -0.42), Vector3(0.016, 0.016, 0.44))
+	k.box(DARK, Vector3(0, 0.04, -0.42), Vector3(0.02, 0.02, 0.44))
+	k.box(METAL, Vector3(0, 0.04, -0.33), Vector3(0.088, 0.088, 0.02))
+	k.box(METAL, Vector3(0, 0.04, -0.6), Vector3(0.084, 0.084, 0.02))
+	# Ammo box on the left and the belt feeding the receiver.
+	k.box(DARK, Vector3(-0.085, -0.04, -0.05), Vector3(0.07, 0.11, 0.14))
+	k.box(METAL, Vector3(-0.085, 0.0175, -0.05), Vector3(0.072, 0.006, 0.142))
+	for i in 4:
+		k.box(BRASS, Vector3(-0.055 + i * 0.002, 0.03 - i * 0.006, -0.02 - i * 0.02), Vector3(0.03, 0.01, 0.012))
+	# Spade grip at the back.
+	k.box(DARK, Vector3(0, 0.04, 0.13), Vector3(0.05, 0.08, 0.06))
+	k.box(DARK, Vector3(0, 0.035, 0.19), Vector3(0.12, 0.02, 0.02))
+	# Top rail with an open notch sight (gap between two posts) and a front post.
+	k.box(METAL, Vector3(0, 0.096, -0.05), Vector3(0.03, 0.012, 0.26))
+	k.box(METAL, Vector3(0.014, 0.114, 0.065), Vector3(0.006, 0.024, 0.01))
+	k.box(METAL, Vector3(-0.014, 0.114, 0.065), Vector3(0.006, 0.024, 0.01))
+	k.box(METAL, Vector3(0, 0.108, -0.17), Vector3(0.005, 0.02, 0.008))
+	_trigger(k, -0.022)
+	return {"muzzle": Vector3(0, 0.04, -0.645), "sight": Vector3(0, 0.112, 0.07),
+		"support": Vector3(0, -0.015, -0.21)}
+
+
+# --- Melee weapons (origin = grip, the head or blade towards -Z; "muzzle" marks the tip) ---------
+
+## Brick Bat: a taped grip, a plank and a brick strapped to its end.
+static func _melee_brick_bat(k: MeshKit) -> Dictionary:
+	k.box(DARK, Vector3(0, 0, 0.04), Vector3(0.034, 0.034, 0.13))
+	k.box(DARK, Vector3(0, 0, 0.11), Vector3(0.044, 0.044, 0.014))
+	k.box(BODY, Vector3(0, 0, -0.2), Vector3(0.04, 0.056, 0.36))
+	for i in 3:
+		k.box(METAL, Vector3(0.0205, 0.012 - i * 0.012, -0.12 - i * 0.07), Vector3(0.002, 0.006, 0.006))
+	k.box(RED, Vector3(0, 0.0, -0.46), Vector3(0.075, 0.068, 0.15))
+	k.box(METAL, Vector3(0, 0.0, -0.46), Vector3(0.077, 0.004, 0.152))
+	for z: float in [-0.425, -0.495]:
+		k.box(DARK, Vector3(0.038, 0.016, z), Vector3(0.002, 0.018, 0.022))
+		k.box(DARK, Vector3(-0.038, 0.016, z), Vector3(0.002, 0.018, 0.022))
+	k.box(DARK, Vector3(0, 0.0, -0.395), Vector3(0.08, 0.072, 0.014))
+	return {"muzzle": Vector3(0, 0.0, -0.535), "sight": Vector3(0, 0.04, 0.0), "support": null}
+
+
+## Block Axe: a wooden haft with a wrapped grip, a steel head and a blade stepping wider
+## towards its edge (on the -Y side, the side that leads an overhead chop).
+static func _melee_block_axe(k: MeshKit) -> Dictionary:
+	k.box(WOOD, Vector3(0, 0, -0.13), Vector3(0.03, 0.034, 0.46))
+	k.box(DARK, Vector3(0, 0, 0.04), Vector3(0.034, 0.038, 0.11))
+	k.box(BODY, Vector3(0, 0.005, -0.32), Vector3(0.038, 0.05, 0.08))
+	k.box(DARK, Vector3(0, 0.04, -0.32), Vector3(0.03, 0.03, 0.05))
+	k.box(BODY, Vector3(0, -0.04, -0.32), Vector3(0.016, 0.04, 0.08))
+	k.box(METAL, Vector3(0, -0.075, -0.32), Vector3(0.014, 0.034, 0.11))
+	k.box(METAL, Vector3(0, -0.105, -0.32), Vector3(0.012, 0.03, 0.14))
+	k.box(LENS, Vector3(0, -0.123, -0.32), Vector3(0.013, 0.006, 0.142))
+	return {"muzzle": Vector3(0, -0.125, -0.32), "sight": Vector3(0, 0.04, 0.0), "support": null}
+
+
+## Cube Hammer: a long haft with a stone cube for a head, its striking faces plated in steel.
+static func _melee_cube_hammer(k: MeshKit) -> Dictionary:
+	k.box(WOOD, Vector3(0, 0, -0.17), Vector3(0.03, 0.03, 0.5))
+	k.box(DARK, Vector3(0, 0, 0.04), Vector3(0.036, 0.036, 0.12))
+	k.box(DARK, Vector3(0, 0, 0.105), Vector3(0.044, 0.044, 0.014))
+	k.box(STONE, Vector3(0, 0, -0.46), Vector3(0.13, 0.13, 0.13))
+	k.box(BODY, Vector3(0, 0.068, -0.46), Vector3(0.136, 0.01, 0.136))
+	k.box(BODY, Vector3(0, -0.068, -0.46), Vector3(0.136, 0.01, 0.136))
+	k.box(DARK, Vector3(0.0655, 0.02, -0.44), Vector3(0.002, 0.04, 0.008))
+	k.box(DARK, Vector3(0.0655, -0.01, -0.48), Vector3(0.002, 0.008, 0.04))
+	k.box(DARK, Vector3(-0.0655, -0.02, -0.47), Vector3(0.002, 0.03, 0.008))
+	return {"muzzle": Vector3(0, -0.073, -0.46), "sight": Vector3(0, 0.04, 0.0), "support": null}
+
+
+## Pixel Katana: a wrapped handle with red diamonds, a brass guard and a long blade with a
+## glowing edge and a stepped tip.
+static func _melee_pixel_katana(k: MeshKit) -> Dictionary:
+	k.box(DARK, Vector3(0, 0, 0.05), Vector3(0.026, 0.032, 0.2))
+	for i in 4:
+		k.box(RED, Vector3(0, 0, 0.12 - i * 0.045), Vector3(0.028, 0.012, 0.012))
+	k.box(METAL, Vector3(0, 0, 0.155), Vector3(0.03, 0.036, 0.012))
+	k.box(BRASS, Vector3(0, 0, -0.055), Vector3(0.06, 0.064, 0.012))
+	k.box(METAL, Vector3(0, 0, -0.072), Vector3(0.014, 0.034, 0.024))
+	k.box(BODY, Vector3(0, 0.004, -0.4), Vector3(0.008, 0.03, 0.64))
+	k.box(METAL, Vector3(0, 0.0195, -0.4), Vector3(0.0085, 0.004, 0.64))
+	k.box(LENS, Vector3(0, -0.0125, -0.4), Vector3(0.0085, 0.004, 0.64))
+	k.box(BODY, Vector3(0, 0.0, -0.735), Vector3(0.008, 0.022, 0.03))
+	k.box(LENS, Vector3(0, -0.009, -0.735), Vector3(0.0085, 0.004, 0.03))
+	k.box(BODY, Vector3(0, -0.004, -0.76), Vector3(0.008, 0.012, 0.02))
+	return {"muzzle": Vector3(0, -0.004, -0.77), "sight": Vector3(0, 0.04, 0.0), "support": null}
+
 
 static func _gun_knife(k: MeshKit) -> Dictionary:
 	k.box(DARK, Vector3(0, 0, 0.02), Vector3(0.025, 0.035, 0.11))
@@ -1574,6 +1802,47 @@ static func _hat_mesh(hat_id: String) -> ArrayMesh:
 			k.box(2, Vector3(-0.14, 0.03, -0.252), Vector3(0.05, 0.05, 0.01))
 			k.box(1, Vector3(0.252, 0.03, 0), Vector3(0.01, 0.06, 0.07))
 			k.box(1, Vector3(-0.252, 0.03, 0), Vector3(0.01, 0.06, 0.07))
+		"bandana":
+			mats = [flat_material(Color("c8242c")), flat_material(Color("f4f4f4")), flat_material(Color("8e161c"))]
+			k.box(0, Vector3(0, -0.01, 0), Vector3(0.49, 0.07, 0.49))
+			k.box(0, Vector3(0, -0.075, 0), Vector3(0.5, 0.07, 0.5))
+			for d: Vector3 in [Vector3(-0.15, -0.06, -0.252), Vector3(0.0, -0.09, -0.252), Vector3(0.15, -0.06, -0.252),
+					Vector3(-0.08, 0.0, -0.246), Vector3(0.08, 0.0, -0.246)]:
+				k.box(1, d, Vector3(0.035, 0.025, 0.01))
+			for sx: float in [1.0, -1.0]:
+				k.box(1, Vector3(0.252 * sx, -0.07, 0.08), Vector3(0.01, 0.025, 0.035))
+				k.box(1, Vector3(0.252 * sx, -0.07, -0.1), Vector3(0.01, 0.025, 0.035))
+			k.box(2, Vector3(0, -0.07, 0.27), Vector3(0.09, 0.08, 0.05))
+			k.box(0, Vector3(0.04, -0.15, 0.285), Vector3(0.06, 0.13, 0.02), Vector3(0, 0, 0.3))
+			k.box(0, Vector3(-0.04, -0.14, 0.285), Vector3(0.05, 0.11, 0.02), Vector3(0, 0, -0.35))
+		"beret":
+			mats = [flat_material(Color("1f2a5a")), flat_material(Color("121a3a")), flat_material(Color("d8b04a"), 0.35, 0.8)]
+			k.box(1, Vector3(0, -0.035, 0), Vector3(0.49, 0.05, 0.49))
+			k.box(0, Vector3(0.05, 0.02, 0.0), Vector3(0.56, 0.07, 0.54), Vector3(0, 0, -0.14))
+			k.box(0, Vector3(0.03, 0.065, 0.0), Vector3(0.42, 0.04, 0.42), Vector3(0, 0, -0.14))
+			k.box(1, Vector3(0.0, 0.1, 0.0), Vector3(0.03, 0.04, 0.03))
+			k.box(2, Vector3(-0.13, -0.03, -0.248), Vector3(0.07, 0.07, 0.01))
+		"hard_hat":
+			mats = [flat_material(Color("ffc21a"), 0.45), flat_material(Color("2a2a2a")), flat_material(Color("fff6c8"), 0.3, 0.0, 2.0)]
+			k.box(0, Vector3(0, 0.05, 0), Vector3(0.5, 0.16, 0.5))
+			k.box(0, Vector3(0, 0.14, 0), Vector3(0.38, 0.05, 0.38))
+			k.box(0, Vector3(0, 0.18, 0), Vector3(0.08, 0.04, 0.46))
+			k.box(0, Vector3(0, -0.035, 0), Vector3(0.58, 0.03, 0.56))
+			k.box(0, Vector3(0, -0.035, -0.3), Vector3(0.46, 0.03, 0.1))
+			k.box(1, Vector3(0, 0.03, -0.253), Vector3(0.14, 0.07, 0.01))
+			k.box(2, Vector3(0, 0.035, -0.26), Vector3(0.08, 0.04, 0.012))
+		"wizard":
+			mats = [flat_material(Color("4b2a8c")), flat_material(Color("ffd84a"), 0.3, 0.3, 1.6), flat_material(Color("2a1650"))]
+			k.box(0, Vector3(0, -0.01, 0), Vector3(0.7, 0.03, 0.7))
+			k.box(2, Vector3(0, 0.035, 0), Vector3(0.46, 0.05, 0.46))
+			var layers := [0.44, 0.37, 0.3, 0.24, 0.18, 0.13, 0.09, 0.06]
+			for i in layers.size():
+				var s: float = layers[i]
+				k.box(0, Vector3(0, 0.09 + i * 0.075, i * i * 0.004), Vector3(s, 0.075, s))
+			for st: Vector3 in [Vector3(-0.1, 0.13, -0.19), Vector3(0.09, 0.26, -0.15), Vector3(-0.04, 0.38, -0.035),
+					Vector3(0.18, 0.12, 0.05), Vector3(-0.16, 0.22, 0.06)]:
+				k.box(1, st, Vector3(0.04, 0.04, 0.04))
+			k.box(1, Vector3(0, 0.66, 0.2), Vector3(0.06, 0.06, 0.06))
 	return k.build(mats)
 
 

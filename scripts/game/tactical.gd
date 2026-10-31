@@ -19,11 +19,13 @@ const PLAYERS := 50
 const TEAM_SIZE := 25
 const PLANNING_TIME := 30.0
 ## Relative chance of each gun on a weapon spot (default 1): launchers and snipers are rare.
-const WEAPON_WEIGHTS := {"rocket": 0.15, "sniper": 0.45, "lmg": 0.7, "dmr": 0.8}
+const WEAPON_WEIGHTS := {"rocket": 0.15, "sniper": 0.45, "crossbow": 0.4, "minigun": 0.3, "lmg": 0.7, "dmr": 0.8}
 ## How much bots want each gun when deciding whether to swap what they carry for it.
 const BOT_RATING := {
-	"rifle": 6, "burst_rifle": 6, "lmg": 5, "smg": 5, "dmr": 4, "shotgun": 4, "sniper": 2, "rocket": 1,
+	"rifle": 6, "burst_rifle": 6, "lmg": 5, "minigun": 4, "smg": 5, "dmr": 4, "shotgun": 4, "drum_shotgun": 3,
+	"sniper": 2, "crossbow": 2, "rocket": 1,
 	"machine_pistol": 4, "revolver": 3, "burst_pistol": 3, "sawed_off": 3, "suppressed": 2, "pistol": 2,
+	"carbine": 5, "burst_smg": 4,
 }
 ## Walking onto a spot takes its weapon into an empty slot; INTERACT_RADIUS is the reach of the
 ## "interact" key, which swaps it for the weapon already in that slot.
@@ -461,7 +463,7 @@ func _roll_weapon() -> String:
 	var total := 0.0
 	var ids: Array[String] = []
 	for id: String in Data.WEAPONS:
-		if id != "knife":
+		if not Data.is_melee(id):
 			ids.append(id)
 			total += float(WEAPON_WEIGHTS.get(id, 1.0))
 	var r := _rng.randf() * total

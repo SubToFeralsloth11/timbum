@@ -188,8 +188,8 @@ var _exclude: Array[RID] = []
 var _trigger_down := false
 var _fire_gated := false
 var _aim_gated := false
-## LOCAL: cooldown between knife swings so the server budget isn't silently exceeded.
-var knife_cooldown := 0.0
+## LOCAL: cooldown between melee swings so the server budget isn't silently exceeded.
+var melee_cooldown := 0.0
 var _step_timer := 0.0
 var _was_on_floor := true
 var _shown_weapon := ""
@@ -253,7 +253,7 @@ func setup(p_world: World, p_id: int, p_info: Dictionary, p_mode: Mode, p_is_bot
 	mode = p_mode
 	is_bot = p_is_bot
 	name = "P%d" % p_id
-	slots = [str(info.primary), str(info.secondary), "knife"]
+	slots = slots_from(info)
 	# Tactical: slots start empty ("") until a weapon is picked up; hold the first one there is.
 	current_slot = _first_armed_slot()
 	_mods.clear()
@@ -287,7 +287,7 @@ func _refill_equipment() -> void:
 ## stays the server's to set. A reload or burst of the old gun ends.
 func apply_info(p_info: Dictionary) -> void:
 	info = p_info
-	slots = [str(info.primary), str(info.secondary), "knife"]
+	slots = slots_from(info)
 	_cancel_reload()
 	_burst_left = 0
 	refill_ammo()
@@ -299,6 +299,18 @@ func apply_info(p_info: Dictionary) -> void:
 	speed_scale = _mutator_speed * float(info.get("speed", 1.0))
 	stop_inspect()
 	_refresh_weapon_visual()
+
+
+## Weapon slots for `p_info`: [primary, secondary, melee] (the melee always holds a weapon: the
+## info's melee if it is one, else the knife; Gun Game's ladder sets it to the knife).
+static func slots_from(p_info: Dictionary) -> Array[String]:
+	var melee := str(p_info.get("melee", "knife"))
+	return [str(p_info.primary), str(p_info.secondary), melee if Data.is_melee(melee) else "knife"]
+
+
+## The melee weapon this player carries (slot 2; also the quick melee).
+func melee_id() -> String:
+	return slots[2]
 
 
 ## Multiplier this player's attachment upgrade `mid` applies to its stat (1.0 without it).
@@ -643,7 +655,7 @@ func _simulate(delta: float) -> void:
 	prone_blend = move_toward(prone_blend, 1.0 if prone else 0.0, delta * 4.0)
 	_apply_crouch_shape()
 
-	var can_aim := in_aim and switch_timer <= 0.0 and not reloading and weapon_id() != "knife" and melee_timer <= 0.0
+	var can_aim := in_aim and switch_timer <= 0.0 and not reloading and current_slot != 2 and melee_timer <= 0.0
 	aim_blend = move_toward(aim_blend, 1.0 if can_aim else 0.0, delta / (0.16 * mod("optic")))
 
 	sprinting = in_sprint and in_move.y > 0.3 and not crouching and not prone and aim_blend < 0.2 and not in_fire \
@@ -955,13 +967,14 @@ func needs_ammo() -> bool:
 	return false
 
 
-## Tactical weapon pickups (every peer, from the server's event): puts `wid` in `slot` with a
-## full magazine and the standard reserve, replacing whatever was there ("" empties the slot).
-## A player holding the knife (or the replaced gun) draws the new weapon.
+## Tactical weapon pickups and the Firing Range console (every peer for pickups, from the
+## server's event): puts `wid` in `slot` (2: a melee weapon) with a full magazine and the standard
+## reserve, replacing whatever was there ("" empties a gun slot). A player holding their melee
+## weapon (or the replaced one) draws the new weapon.
 func give_weapon(slot: int, wid: String) -> void:
 	var old := slots[slot]
 	slots[slot] = wid
-	info[["primary", "secondary"][slot]] = wid
+	info[["primary", "secondary", "melee"][slot]] = wid
 	if not old.is_empty() and not slots.has(old):
 		ammo.erase(old)
 	if not wid.is_empty():
@@ -970,14 +983,18 @@ func give_weapon(slot: int, wid: String) -> void:
 		current_slot = _first_armed_slot()
 		_cancel_reload()
 		_refresh_weapon_visual()
-	elif mode != Mode.REMOTE and not wid.is_empty() and (current_slot == slot or weapon_id() == "knife"):
+	elif mode != Mode.REMOTE and not wid.is_empty() and (current_slot == slot or current_slot == 2):
+		var prev := previous_slot
 		switch_to(slot)
-		# switch_to set the replaced gun as the "last weapon"; X should go back to the knife.
-		if previous_slot == slot:
+		# switch_to set the replaced weapon as the "last weapon"; X should go back to the melee
+		# weapon (or, after a melee swap, to the gun it went back to before).
+		if slot == 2:
+			previous_slot = prev
+		elif previous_slot == slot:
 			previous_slot = 2
 
 
-## Lowest slot holding a weapon (the knife slot always does).
+## Lowest slot holding a weapon (the melee slot always does).
 func _first_armed_slot() -> int:
 	for i in slots.size():
 		if not slots[i].is_empty():
@@ -1011,7 +1028,7 @@ func _tick_weapon(delta: float) -> void:
 	switch_timer -= delta
 	grenade_cooldown -= delta
 	melee_timer = maxf(0.0, melee_timer - delta)
-	knife_cooldown = maxf(0.0, knife_cooldown - delta)
+	melee_cooldown = maxf(0.0, melee_cooldown - delta)
 	bloom = move_toward(bloom, 0.0, delta * 7.0)
 	recoil = move_toward(recoil, 0.0, delta * (6.0 + recoil * 5.0))
 	if not in_fire:
@@ -1200,7 +1217,7 @@ func _try_fire(wid: String, w: Dictionary) -> void:
 			return
 	if fire_cooldown > 0.0 or (_trigger_down and not w.auto):
 		return
-	if wid == "knife":
+	if current_slot == 2:
 		_trigger_down = true
 		_melee_attack(false)
 		return
@@ -1341,12 +1358,13 @@ func _apply_kick(w: Dictionary) -> void:
 
 
 func _melee_attack(quick: bool) -> void:
-	var w: Dictionary = Data.WEAPONS.knife
+	var wid := melee_id()
+	var w: Dictionary = Data.WEAPONS[wid]
 	var interval := 60.0 / float(w.rpm)
-	if knife_cooldown > 0.0:
+	if melee_cooldown > 0.0:
 		return
-	melee_timer = MELEE_TIME if quick else 0.0
-	knife_cooldown = interval
+	melee_timer = maxf(MELEE_TIME, minf(interval, MELEE_TIME * 1.6)) if quick else 0.0
+	melee_cooldown = interval
 	# Never shortens a gun's refire time: the server keeps one fire-rate budget per shooter.
 	fire_cooldown = maxf(fire_cooldown, interval)
 	_cancel_reload()
@@ -1388,7 +1406,7 @@ func _melee_attack(quick: bool) -> void:
 	if mode == Mode.LOCAL:
 		viewmodel.play_melee(quick)
 	avatar.play_slash()
-	world.report_shot(self, "knife", PackedVector3Array([end]), PackedVector3Array([normal]), hits)
+	world.report_shot(self, wid, PackedVector3Array([end]), PackedVector3Array([normal]), hits)
 
 
 ## The loadout's tactical grenade ("smoke" or "flash").
@@ -1607,9 +1625,9 @@ func _update_visuals(delta: float) -> void:
 func _update_laser() -> void:
 	if laser == null:
 		return
-	var down := not alive or weapon_id() == "knife" or switch_timer > 0.0 or reloading or sprinting
+	var down := not alive or current_slot == 2 or switch_timer > 0.0 or reloading or sprinting
 	if mode == Mode.REMOTE:
-		down = not alive or weapon_id() == "knife" or (_remote_flags & (FLAG_RELOAD | FLAG_SPRINT)) != 0
+		down = not alive or Data.is_melee(weapon_id()) or (_remote_flags & (FLAG_RELOAD | FLAG_SPRINT)) != 0
 	if down or world.match_over:
 		laser.visible = false
 		return
@@ -1692,7 +1710,7 @@ func die(killer: Player = null) -> void:
 	crouch_blend = 0.0
 	melee_timer = 0.0
 	grenade_cooldown = 0.0
-	knife_cooldown = 0.0
+	melee_cooldown = 0.0
 	_applied_crouch = -1.0
 	_applied_prone = -1.0
 	_reset_movement_state()
@@ -1753,7 +1771,7 @@ func respawn(pos: Vector3, p_yaw: float) -> void:
 	switch_timer = switch_time()
 	melee_timer = 0.0
 	grenade_cooldown = 0.0
-	knife_cooldown = 0.0
+	melee_cooldown = 0.0
 	crouching = false
 	crouch_blend = 0.0
 	sprinting = false

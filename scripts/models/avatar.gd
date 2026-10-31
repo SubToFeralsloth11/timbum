@@ -660,14 +660,23 @@ func _apply_pose() -> void:
 		_arm_l.basis = inv * Basis(Vector3.RIGHT, -swing * 0.8 - 0.4 * _air) * Basis(Vector3.BACK, -0.08)
 
 
-## Slash swing as (yaw, pitch) offsets around the shoulder: wind up out to the side, cut
-## fast across the body, recover.
+## Slash swing as (yaw, pitch) offsets around the shoulder: wind up, cut fast, recover. The held
+## melee weapon's `swing` shapes it: a slash cuts across the body (alternating sides), a chop
+## comes down from overhead, a sweep goes wide and flat. A quick melee with a gun slashes.
 func _slash_amount() -> Vector2:
 	if _slash_left <= 0.0:
 		return Vector2.ZERO
 	var u := 1.0 - _slash_left / SLASH_TIME
+	var w: Dictionary = Models.CATALOG.WEAPONS.get(weapon_id, {})
 	var start := Vector2(-0.9 * _slash_side, 0.35)
 	var finish := Vector2(0.8 * _slash_side, -0.45)
+	match str(w.get("swing", "slash")):
+		"chop":
+			start = Vector2(0.15 * _slash_side, 1.15)
+			finish = Vector2(-0.05 * _slash_side, -0.6)
+		"sweep":
+			start = Vector2(-1.25 * _slash_side, 0.05)
+			finish = Vector2(1.15 * _slash_side, -0.1)
 	if u < 0.25:
 		return start * smoothstep(0.0, 0.25, u)
 	if u < 0.5:

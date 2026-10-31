@@ -188,7 +188,7 @@ func _process(delta: float) -> void:
 
 
 ## "Swap" prompt when standing at a weapon your slot already holds something for; a reminder
-## to find a gun while carrying only the knife.
+## to find a gun while carrying only a melee weapon.
 func _prompt_text() -> String:
 	var p := tactical.world.local_player
 	if p == null or not p.alive or tactical.world.match_over or map.visible:
@@ -204,7 +204,7 @@ func _prompt_text() -> String:
 				str(Data.WEAPONS[wid].name).to_upper()]
 		return ""
 	if p.slots[0].is_empty() and p.slots[1].is_empty() and tactical.fighting():
-		return "KNIFE ONLY  ·  FIND A WEAPON IN THE ROOMS"
+		return "MELEE ONLY  ·  FIND A WEAPON IN THE ROOMS"
 	return ""
 
 

@@ -1,8 +1,9 @@
 class_name Infected
 extends MatchMode
 ## Infected (`Net.config.mode == "infected"`): everyone starts a Survivor (team 0) with their own
-## loadout. START_DELAY seconds in, one random living player turns Infected (team 1): knife
-## only, no grenades, MAX_HP health, SPEED times faster and tinted green. A Survivor who dies
+## loadout. START_DELAY seconds in, one random living player turns Infected (team 1): their own
+## melee weapon only (the loadout's melee, the knife by default; a melee weapon's speed comes on
+## top of SPEED), no grenades, MAX_HP health, SPEED times faster and tinted green. A Survivor who dies
 ## for any reason turns Infected on the spot and respawns as one; the Infected respawn as usual.
 ## The Infected win as soon as nobody survives; the Survivors win if any survive the clock.
 ## Humans (and bots) joining once the infection has started join the Infected. Loadout mutators
@@ -29,7 +30,8 @@ func _init() -> void:
 	name = "Infected"
 
 
-## The Infected version of a player's info: on team 1, knife only, more health, faster.
+## The Infected version of a player's info: on team 1, melee only (their own melee weapon, which
+## stays in `info.melee`), more health, faster.
 static func infect_info(info: Dictionary) -> Dictionary:
 	var out := info.duplicate()
 	out.team = INFECTED
@@ -194,7 +196,7 @@ func hud_goal() -> String:
 	if not started:
 		return "Infection in %d  ·  get away from everyone" % ceili(start_left())
 	if is_infected(world.local_player):
-		return "You are INFECTED  ·  knife every survivor"
+		return "You are INFECTED  ·  melee every survivor"
 	return "You are a SURVIVOR  ·  stay alive until the clock runs out"
 
 

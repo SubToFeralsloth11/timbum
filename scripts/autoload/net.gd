@@ -42,7 +42,9 @@ const GAME_ID := "timbum"
 ## 17: weapon inspect (Player.FLAG_INSPECT, bit 20 of the state flags).
 ## 18: sprays (`spray` in peer_info, Sprays RPCs).
 ## 19: jump pads on the deathmatch maps (map geometry and navigation links).
-const PROTOCOL_VERSION := 19
+## 20: melee weapons and five new guns (`melee` in peer_info, a melee argument on
+##     World._s_loadout, new weapon ids in shots and weapon indices).
+const PROTOCOL_VERSION := 20
 const CONNECT_TIMEOUT := 8.0
 ## A room-code join first tries a direct (NAT punch-through) link this long, then the relay.
 const NAT_CONNECT_TIMEOUT := 6.0
@@ -897,6 +899,7 @@ static func sanitize_info(info: Dictionary) -> Dictionary:
 		"primary": str(info.get("primary", "smg")),
 		"secondary": str(info.get("secondary", "pistol")),
 		"tactical": str(info.get("tactical", "flash")),
+		"melee": str(info.get("melee", "knife")),
 		"charm": str(info.get("charm", "none")),
 		"emote": str(info.get("emote", "wave")),
 		"draw": str(info.get("draw", "standard")),
@@ -922,6 +925,7 @@ static func sanitize_info(info: Dictionary) -> Dictionary:
 	if not Data.WEAPONS.has(clean.primary) or Data.WEAPONS[clean.primary].slot != "primary": clean.primary = "smg"
 	if not Data.WEAPONS.has(clean.secondary) or Data.WEAPONS[clean.secondary].slot != "secondary": clean.secondary = "pistol"
 	if not Data.TACTICALS.has(clean.tactical): clean.tactical = "flash"
+	if not Data.is_melee(clean.melee): clean.melee = "knife"
 	if not Data.CHARMS.has(clean.charm): clean.charm = "none"
 	if not Data.EMOTES.has(clean.emote): clean.emote = "wave"
 	if not Data.DRAWS.has(clean.draw): clean.draw = "standard"

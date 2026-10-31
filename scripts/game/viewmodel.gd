@@ -81,19 +81,33 @@ const MAGS := {
 	"sawed_off": [Vector3(0, 0.05, -0.02), Vector3(0.045, 0.022, 0.05), 0.0, Color(0.75, 0.12, 0.1), Vector3.BACK],
 	"dmr": [Vector3(0, -0.04, -0.11), Vector3(0.03, 0.08, 0.06), 0.0, Color(0.36, 0.38, 0.42), Vector3.DOWN],
 	"burst_rifle": [Vector3(0, -0.035, 0.09), Vector3(0.03, 0.09, 0.05), 0.15, Color(0.36, 0.38, 0.42), Vector3.DOWN],
+	"crossbow": [Vector3(0, 0.066, -0.27), Vector3(0.008, 0.008, 0.42), 0.0, Color(0.3, 0.31, 0.34), Vector3.BACK],
+	"drum_shotgun": [Vector3(0, -0.07, -0.1), Vector3(0.07, 0.09, 0.09), 0.0, Color(0.1, 0.1, 0.11), Vector3.DOWN],
+	"carbine": [Vector3(0, -0.07, -0.09), Vector3(0.03, 0.14, 0.05), 0.2, Color(0.36, 0.38, 0.42), Vector3.DOWN],
+	"burst_smg": [Vector3(0, -0.065, -0.08), Vector3(0.028, 0.15, 0.034), 0.0, Color(0.36, 0.38, 0.42), Vector3.DOWN],
+	"minigun": [Vector3(-0.085, -0.04, -0.05), Vector3(0.07, 0.11, 0.14), 0.0, Color(0.1, 0.1, 0.11), Vector3.DOWN],
 }
 ## Where the left hand goes to fetch a new magazine (arms space; below the screen edge).
 const HAND_OFFSCREEN := Vector3(-0.08, -0.4, 0.05)
-## Knife slash timing (s): wind-up, then the fast strike, then recovery.
+## Melee swing timing (fraction of the swing): wind-up, then the fast strike, then recovery. A
+## swing lasts SWING_SHARE of the weapon's refire time, between SWING_MIN and SWING_MAX seconds
+## (the knife: 0.42 s; the hammer's slow chop: the maximum).
 const SLASH_TIME := 0.42
+const SWING_SHARE := 0.77
+const SWING_MIN := 0.32
+const SWING_MAX := 0.75
 const SLASH_WINDUP := 0.22
 const SLASH_STRIKE := 0.5
 const BASH_TIME := 0.4
 const THROW_TIME := 0.5
-## Knife slash keyframes (pivot offset, pivot rotation) for a forehand from the upper right to
-## the lower left; backhands mirror them.
-const SLASH_START := [Vector3(0.07, 0.07, 0.05), Vector3(0.35, -0.55, -0.55)]
-const SLASH_END := [Vector3(-0.2, -0.1, -0.1), Vector3(-0.5, 0.8, 0.75)]
+## Swing keyframes per Data `swing` style: [start pivot offset, start rotation, end offset, end
+## rotation]. "slash" is a forehand from the upper right to the lower left (backhands mirror it),
+## "chop" comes down from overhead, "sweep" goes wide and flat across the view.
+const SWINGS := {
+	"slash": [Vector3(0.07, 0.07, 0.05), Vector3(0.35, -0.55, -0.55), Vector3(-0.2, -0.1, -0.1), Vector3(-0.5, 0.8, 0.75)],
+	"chop": [Vector3(0.02, 0.16, 0.08), Vector3(1.0, -0.1, -0.15), Vector3(-0.04, -0.2, -0.16), Vector3(-1.05, 0.15, 0.1)],
+	"sweep": [Vector3(0.16, 0.0, 0.04), Vector3(0.1, -1.0, -0.25), Vector3(-0.28, -0.04, -0.12), Vector3(-0.05, 1.15, 0.2)],
+}
 const TRAIL_POINTS := 7
 ## Weapon inspect (Player.inspect_left): INSPECT_TIME seconds. A gun is raised and turned to show
 ## its left side (skin, charm), rolled over to show the top and the other side, then brought back
@@ -156,7 +170,9 @@ var _draw_style := "standard"
 var _charm := "none"
 var _melee_t := 0.0
 var _melee_len := SLASH_TIME
-var _melee_knife := true
+## Holding a melee weapon when the swing started (a gun bashes instead), and its SWINGS style.
+var _melee_blade := true
+var _swing := "slash"
 ## +1 forehand, -1 backhand; knife slashes alternate.
 var _slash_side := 1.0
 var _throw_t := 0.0
@@ -347,11 +363,13 @@ func _animate_magazine(u: float) -> void:
 	_hand_busy = true
 
 
-## Knife: an alternating fore/backhand slash with a blade trail. Anything else: a short
-## stock bash with the gun.
+## Melee weapon: its swing (slash alternating fore/backhand, overhead chop or wide sweep) with a
+## trail behind the head or edge, timed from its swing rate. Anything else: a short stock bash.
 func play_melee(_quick: bool) -> void:
-	_melee_knife = _weapon == "knife"
-	_melee_len = SLASH_TIME if _melee_knife else BASH_TIME
+	_melee_blade = Data.is_melee(_weapon)
+	var w: Dictionary = Data.WEAPONS.get(_weapon, {})
+	_swing = str(w.get("swing", "slash")) if SWINGS.has(str(w.get("swing", ""))) else "slash"
+	_melee_len = clampf(60.0 / float(w.rpm) * SWING_SHARE, SWING_MIN, SWING_MAX) if _melee_blade else BASH_TIME
 	_melee_t = _melee_len
 	_slash_side = -_slash_side
 	_trail_tips.clear()
@@ -467,6 +485,7 @@ func pose(delta: float, ads: float, sprinting: bool, sliding: bool, grappling: b
 		if _gun != null:
 			_gun.transform = dpose[2]
 	elif _inspect_t > 0.0:
+		# Only the knife is light enough to flip end over end; longer melee weapons turn like guns.
 		var ipose := inspect_pose(_weapon == "knife", 1.0 - _inspect_t / INSPECT_TIME)
 		pos += ipose[0]
 		rot += ipose[1]
@@ -476,7 +495,7 @@ func pose(delta: float, ads: float, sprinting: bool, sliding: bool, grappling: b
 		_gun.transform = Transform3D.IDENTITY
 	if _melee_t > 0.0:
 		var u := 1.0 - _melee_t / _melee_len
-		if _melee_knife:
+		if _melee_blade:
 			var pose := _slash_pose(u)
 			pos += pose[0]
 			rot += pose[1]
@@ -581,10 +600,11 @@ static func inspect_pose(knife: bool, u: float) -> Array:
 func _slash_pose(u: float) -> Array:
 	var mirror := Vector3(_slash_side, 1.0, 1.0)
 	var rot_mirror := Vector3(1.0, _slash_side, _slash_side)
-	var start_pos: Vector3 = SLASH_START[0] * mirror
-	var start_rot: Vector3 = SLASH_START[1] * rot_mirror
-	var end_pos: Vector3 = SLASH_END[0] * mirror
-	var end_rot: Vector3 = SLASH_END[1] * rot_mirror
+	var keys: Array = SWINGS[_swing]
+	var start_pos: Vector3 = keys[0] * mirror
+	var start_rot: Vector3 = keys[1] * rot_mirror
+	var end_pos: Vector3 = keys[2] * mirror
+	var end_rot: Vector3 = keys[3] * rot_mirror
 	if u < SLASH_WINDUP:
 		var t := smoothstep(0.0, SLASH_WINDUP, u)
 		return [start_pos * t, start_rot * t]
@@ -635,14 +655,15 @@ func _animate_off_hand() -> void:
 ## Draws a fading ribbon behind the knife's edge while a slash is cutting.
 func _update_trail() -> void:
 	_trail_mesh.clear_surfaces()
-	var cutting := _melee_t > 0.0 and _melee_knife and _muzzle != null
+	var cutting := _melee_t > 0.0 and _melee_blade and _muzzle != null
 	if cutting:
 		var u := 1.0 - _melee_t / _melee_len
 		cutting = u > SLASH_WINDUP - 0.02 and u < SLASH_STRIKE + 0.12
 	if cutting:
 		var inv := global_transform.affine_inverse()
 		var tip := inv * _muzzle.global_position
-		var base := inv * _gun.global_transform * Vector3(0, 0.008, -0.17)
+		# The ribbon spans the outer 40 % of the weapon (blade edge, bat or hammer head).
+		var base := inv * _gun.global_transform * (_muzzle.position * 0.6)
 		_trail_tips.append(tip)
 		_trail_bases.append(base)
 		if _trail_tips.size() > TRAIL_POINTS:

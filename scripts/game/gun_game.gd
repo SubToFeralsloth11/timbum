@@ -16,10 +16,11 @@ extends MatchMode
 
 ## The guns in ladder order: automatics first, then the long guns and the rocket, then the
 ## sidearms; the knife always follows as the last step.
-const FULL_LADDER: Array[String] = ["smg", "rifle", "burst_rifle", "lmg", "shotgun", "dmr", "sniper", "rocket",
+const FULL_LADDER: Array[String] = ["smg", "burst_smg", "rifle", "carbine", "burst_rifle", "lmg", "minigun", "shotgun",
+	"drum_shotgun", "dmr", "crossbow", "sniper", "rocket",
 	"machine_pistol", "sawed_off", "burst_pistol", "revolver", "suppressed", "pistol"]
 ## Ladder lengths offered in match setup (the last is the full ladder).
-const LENGTHS: Array[int] = [6, 10, 15]
+const LENGTHS: Array[int] = [6, 10, 15, 20]
 const SWAP_GRACE := 0.6
 
 ## Weapon id per step; the last is "knife" (every peer, from Net.config).
@@ -72,13 +73,15 @@ func last_step() -> int:
 
 
 ## `info` on `step`: the step's gun in its own slot (the other slot empty; neither on the knife
-## step) and no grenades.
+## step), the knife as the melee weapon whatever the loadout holds (the ladder ends on it, and a
+## knife kill is what sets a victim back), and no grenades.
 func step_info(info: Dictionary, step: int) -> Dictionary:
 	var out := info.duplicate()
 	step = clampi(step, 0, last_step())
 	out.ladder = step
 	out.primary = ""
 	out.secondary = ""
+	out.melee = "knife"
 	out.no_grenades = true
 	var wid := steps[step]
 	if wid != "knife":

@@ -383,13 +383,13 @@ func _slot(eid: int, t: float) -> int:
 	return -1
 
 
-## World._play_shot_fx: a hitscan shot or knife swing of `p` (every peer plays these).
+## World._play_shot_fx: a hitscan shot or melee swing of `p` (every peer plays these).
 func record_shot(p: Player, wid: String, ends: PackedVector3Array, normals: PackedVector3Array) -> void:
 	if not _recording:
 		return
 	var t := World.now()
 	var wi := Player.weapon_index(wid)
-	if wid == "knife":
+	if Data.is_melee(wid):
 		var hit := ends.size() > 0 and normals[0] != Vector3.ZERO
 		_tape.add_event(t, Ev.SLASH, p.id, wi, ends[0] if hit else Vector3.ZERO, normals[0] if hit else Vector3.ZERO)
 		return
@@ -880,12 +880,14 @@ func _fire_event(e: int) -> void:
 			if b != Vector3.ZERO:
 				fx.impact(a, b)
 		Ev.SLASH:
+			var mw: Dictionary = Data.WEAPONS[Player.weapon_from_index(_play.ev_arg[e])]
+			var swing := StringName(mw.sound)
 			if mine:
 				_viewmodel.play_melee(false)
-				Sfx.play(&"knife_swing", null, -4.0)
+				Sfx.play(swing, null, -4.0, float(mw.get("pitch", 1.0)))
 			elif g != null:
 				g.play_slash()
-				Sfx.play(&"knife_swing", g.global_position, -4.0)
+				Sfx.play(swing, g.global_position, -4.0, float(mw.get("pitch", 1.0)))
 			if b != Vector3.ZERO:
 				fx.impact(a, b)
 		Ev.THROW, Ev.ROCKET:

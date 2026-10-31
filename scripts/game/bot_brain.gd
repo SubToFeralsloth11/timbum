@@ -41,7 +41,7 @@ const DRIFT_ERROR_SCALE := 1.12
 ## Long guns (the Snipers Only / Rocket Party primaries) are for range: inside this distance (m)
 ## a bot switches to its secondary, the backup gun, and back once the target is this far plus
 ## LONG_GUN_SLACK away (so it doesn't flip-flop at the edge).
-const LONG_GUN_CLOSE := {"sniper": 12.0, "rocket": 9.0}
+const LONG_GUN_CLOSE := {"sniper": 12.0, "crossbow": 12.0, "rocket": 9.0}
 const LONG_GUN_SLACK := 3.0
 ## Flinch on taking damage: aim error jumps by FLINCH_PEAK (x2.1) and settles linearly over
 ## FLINCH_TIME, so the bot recovers its aim instead of snapping back.
@@ -434,13 +434,20 @@ func _choose_weapon() -> void:
 
 
 func _preferred_range() -> Vector2:
-	match p.weapon_id():
-		"knife": return Vector2(0.0, 1.6)
+	var wid := p.weapon_id()
+	if Data.is_melee(wid):
+		return Vector2(0.0, float(Data.WEAPONS[wid].range) * 0.65)
+	match wid:
 		"shotgun", "sawed_off": return Vector2(2.0, 7.0)
+		"drum_shotgun": return Vector2(3.0, 9.0)
 		"smg", "machine_pistol": return Vector2(4.0, 14.0)
+		"burst_smg": return Vector2(5.0, 16.0)
 		"pistol", "revolver", "burst_pistol", "suppressed": return Vector2(6.0, 20.0)
-		"sniper": return Vector2(18.0, 60.0)
+		"carbine": return Vector2(8.0, 25.0)
+		"rifle", "burst_rifle", "minigun": return Vector2(8.0, 30.0)
 		"dmr": return Vector2(14.0, 45.0)
+		"sniper": return Vector2(18.0, 60.0)
+		"crossbow": return Vector2(16.0, 55.0)
 		"rocket": return Vector2(9.0, 30.0)
 	return Vector2(8.0, 30.0)
 
@@ -532,21 +539,22 @@ func _fight(delta: float) -> void:
 		_crouch_timer = randf_range(1.0, 2.5)
 
 	# Fire control.
-	var want_aim := wid != "knife" and wid != "shotgun" and (dist > 14.0 or wid == "sniper")
+	var want_aim := not Data.is_melee(wid) and wid not in ["shotgun", "sawed_off", "drum_shotgun"] \
+		and (dist > 14.0 or wid in ["sniper", "crossbow", "minigun"])
 	p.in_aim = want_aim and (difficulty > 0 or wid == "sniper")
 	# The server ignores damage to a spawn-protected player, and firing would end the bot's own
 	# protection, so hold fire (keep tracking) until the shimmer is gone.
 	if _reaction_left > 0.0 or thrown or target.protection_left() > 0.0:
 		return
-	if wid == "sniper" and (p.aim_blend < 0.95 or _tracking_time < SNIPER_SETTLE[difficulty]):
+	if wid in ["sniper", "crossbow", "minigun"] and (p.aim_blend < 0.95 or _tracking_time < SNIPER_SETTLE[difficulty]):
 		return
 	var aim_dir := -Basis.from_euler(Vector3(p.pitch, p.yaw, 0.0)).z
 	var needed := (aim_point - p.head.global_position).normalized()
 	var tolerance := rad_to_deg(atan2(0.55, maxf(dist, 0.5))) + 1.0
 	if rad_to_deg(aim_dir.angle_to(needed)) > tolerance:
 		return
-	if wid == "knife":
-		p.in_fire = dist < 2.6
+	if Data.is_melee(wid):
+		p.in_fire = dist < float(w.range) + 0.2
 		return
 	if w.auto:
 		_burst_timer -= delta
@@ -924,7 +932,7 @@ func _decide_prone(delta: float, dist: float, wid: String) -> void:
 	if _prone_timer > 0.0:
 		return
 	_prone_timer = randf_range(1.5, 3.0)
-	var long_gun := wid not in ["knife", "shotgun", "sawed_off", "rocket"]
+	var long_gun := not Data.is_melee(wid) and wid not in ["shotgun", "sawed_off", "drum_shotgun", "rocket"]
 	if long_gun and dist > PRONE_MIN_DIST and not hurt and p.is_on_floor() and not p.grappling \
 			and randf() < PRONE_CHANCE[difficulty]:
 		_press_prone()

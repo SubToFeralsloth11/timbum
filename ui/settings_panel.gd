@@ -14,7 +14,7 @@ const CONTROLS: Array = [
 	["crouch", "Crouch / slide (while sprinting)"], ["prone", "Go prone / get up"],
 	["lean_left", "Peek left"], ["lean_right", "Peek right"],
 	["fire", "Fire"], ["aim", "Aim down sights"], ["reload", "Reload"], ["weapon_1", "Primary"],
-	["weapon_2", "Secondary"], ["weapon_3", "Knife"], ["quick_swap", "Last weapon"],
+	["weapon_2", "Secondary"], ["weapon_3", "Melee weapon"], ["quick_swap", "Last weapon"],
 	["next_weapon", "Next weapon"], ["prev_weapon", "Previous weapon"], ["grenade", "Frag grenade"],
 	["tactical", "Tactical grenade"], ["melee", "Quick melee"], ["grapple", "Grapple hook"],
 	["streak_reward", "Call in Block Bomber (killstreak)"], ["ping", "Ping (team modes)"],

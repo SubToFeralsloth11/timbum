@@ -16,8 +16,8 @@ extends MatchMode
 ## the last hit's damage and distance, DPS over the last burst, shots-to-kill and TTK for the held
 ## gun at that distance (Player.damage_at with falloff and the player's Long Barrel), and the
 ## session's hit % and headshots. The weapon console (interact key, near the counter behind the
-## line) equips any gun, owned or not, with the player's own attachment levels, plus the knife,
-## frags, either tactical and a ready grapple. Reserves and grenades refill on their own.
+## line) equips any gun or melee weapon, owned or not, with the player's own attachment levels,
+## plus frags, either tactical and a ready grapple. Reserves and grenades refill on their own.
 
 const RESPAWN := 1.0
 ## A strafing dummy walks this far either side of its post, at this fraction of walking speed.
@@ -213,16 +213,13 @@ func near_console() -> bool:
 
 # ================================================================ weapon console
 
-## Puts `wid` in its slot (any gun, owned or not; the knife just draws the knife) and draws it.
+## Puts `wid` in its slot (any gun or melee weapon, owned or not) and draws it.
 ## Offline the local Player is also the server's entity, so hit validation sees the new slots.
 func equip(wid: String) -> void:
 	var p := world.local_player
 	if p == null or not Data.WEAPONS.has(wid):
 		return
-	if wid == "knife":
-		p.switch_to(2)
-		return
-	var slot := 0 if str(Data.WEAPONS[wid].slot) == "primary" else 1
+	var slot := {"primary": 0, "secondary": 1, "melee": 2}[str(Data.WEAPONS[wid].slot)] as int
 	if p.slots[slot] != wid:
 		p.give_weapon(slot, wid)
 	if p.current_slot != slot:

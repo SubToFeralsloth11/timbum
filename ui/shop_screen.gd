@@ -1,11 +1,12 @@
 class_name ShopScreen
 extends MenuScreen
-## Shop: tabs per catalog category, a grid of item cards with rendered icons, and a
-## detail panel with a live 3D preview, stats (guns), price and Buy/Equip actions.
+## Shop: tabs per catalog category (the weapons catalog split into GUNS and MELEE), a grid of item
+## cards with rendered icons, and a detail panel with a live 3D preview, stats (weapons), price and
+## Buy/Equip actions.
 ## The ATTACHMENTS tab sells upgrade levels instead of items (Data.ATTACHMENTS): one level at a
 ## time, each dearer than the last, applying to every gun.
 
-const TABS: Array = [["weapons", "GUNS"], ["skins", "SKINS"], ["hats", "HATS"], ["outfits", "OUTFITS"],
+const TABS: Array = [["weapons", "GUNS"], ["melee", "MELEE"], ["skins", "SKINS"], ["hats", "HATS"], ["outfits", "OUTFITS"],
 	["charms", "CHARMS"], ["emotes", "WIN EMOTES"], ["draws", "DRAWS"], ["sprays", "SPRAYS"], ["attachments", "ATTACHMENTS"]]
 const CARD_WIDTH := 200.0
 ## Gun pointing right, angled a little towards the camera.
@@ -18,6 +19,7 @@ const SPRAY_YAW := PI
 const EMOTE_ICON_TIME := {"wave": 0.15, "flex": 0.3, "dance": 0.2, "salute": 1.0, "dab": 0.5,
 	"spin": 0.0, "jumps": 0.39, "backflip": 0.75, "chicken": 0.1}
 
+## The Data catalog of the open tab ("weapons" for both GUNS and MELEE).
 var _category := "weapons"
 var _selected := ""
 var _grid: GridContainer
@@ -146,18 +148,25 @@ static func _items(cat: String) -> Dictionary:
 	return Data.ATTACHMENTS if cat == "attachments" else Data.catalog(cat)
 
 
+## Item ids on `tab`: its catalog, with the weapons split into guns ("weapons") and "melee".
+static func _tab_ids(tab: String) -> Array:
+	if tab == "weapons" or tab == "melee":
+		return Data.WEAPONS.keys().filter(func(id: String) -> bool: return Data.is_melee(id) == (tab == "melee"))
+	return _items(tab).keys()
+
+
 # ------------------------------------------------------------------ list
 
-func _show_category(cat: String) -> void:
-	_category = cat
-	_tab_buttons[cat].button_pressed = true
+func _show_category(tab: String) -> void:
+	_category = "weapons" if tab == "melee" else tab
+	_tab_buttons[tab].button_pressed = true
 	for c in _grid.get_children():
 		c.queue_free()
 	_cards.clear()
 	var group := ButtonGroup.new()
 	var first := ""
-	for id: String in _items(cat):
-		_grid.add_child(_make_card(cat, id, group))
+	for id: String in _tab_ids(tab):
+		_grid.add_child(_make_card(_category, id, group))
 		if first.is_empty():
 			first = id
 	_scroll.scroll_vertical = 0
@@ -296,8 +305,6 @@ func _level_pips(id: String, block: int) -> HBoxContainer:
 
 
 func _is_equipped(id: String) -> bool:
-	if _category == "weapons" and Data.WEAPONS[id].slot == "melee":
-		return true
 	return Profile.is_equipped(_category, id)
 
 
@@ -399,10 +406,7 @@ func _refresh_detail() -> void:
 	_buy.visible = not owned
 	_equip.visible = owned and not equipped
 	_state.visible = equipped
-	if cat == "weapons" and item.slot == "melee":
-		_state.text = "ALWAYS CARRIED"
-	else:
-		_state.text = "EQUIPPED"
+	_state.text = "EQUIPPED"
 	_state.add_theme_color_override("font_color", UITheme.GOOD)
 	if not owned:
 		_price_row.add_child(UIKit.coin_amount(price, 26))

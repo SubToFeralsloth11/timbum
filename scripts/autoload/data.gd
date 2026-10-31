@@ -22,6 +22,10 @@ const CATEGORIES: Array[String] = ["weapons", "skins", "hats", "outfits", "charm
 ##     average rate, which the server's fire-rate check enforces)
 ##   suppressed: no tracer or muzzle flash for other players, and a quiet report
 ##   sound: Sfx name; pitch: optional playback pitch for it
+##   Melee (slot "melee", carried in the third slot and used for the quick melee): range (m of
+##     reach), rpm (swing rate), damage per hit, move_mult; swing: "slash" (alternating fore- and
+##     backhand), "chop" (overhead) or "sweep" (wide flat swing) picks the first- and third-person
+##     animation. The knife is the default; Gun Game always ends on it.
 const WEAPONS := {
 	"pistol": {
 		"name": "Block 9", "slot": "secondary", "price": 0,
@@ -150,16 +154,101 @@ const WEAPONS := {
 		"falloff_start": 35.0, "falloff_end": 70.0, "min_mult": 0.7,
 		"ads_fov": 48.0, "move_mult": 0.97, "sound": "shot_rifle", "pitch": 1.08,
 	},
+	"crossbow": {
+		"name": "Bolt Driver", "slot": "primary", "price": 900,
+		"desc": "Single-shot bolt rifle. One headshot kills at any range; body shots need two.",
+		"damage": 65.0, "head_mult": 2.2, "rpm": 55.0, "auto": false,
+		"mag": 1, "reserve": 10, "reload": 1.6, "pellets": 1,
+		"spread_hip": 0.8, "spread_ads": 0.0, "recoil": 3.5,
+		"falloff_start": 999.0, "falloff_end": 999.0, "min_mult": 1.0,
+		"ads_fov": 28.0, "scope": true, "scope_style": "marksman", "move_mult": 0.92, "sound": "shot_crossbow",
+	},
+	"drum_shotgun": {
+		"name": "Drum Buster", "slot": "primary", "price": 850,
+		"desc": "Semi-auto drum-fed shotgun. Fast follow-ups, but the wide spread wants close range.",
+		"damage": 11.0, "head_mult": 1.2, "rpm": 150.0, "auto": false,
+		"mag": 12, "reserve": 48, "reload": 2.8, "pellets": 8,
+		"spread_hip": 6.0, "spread_ads": 4.5, "recoil": 4.0,
+		"falloff_start": 6.0, "falloff_end": 15.0, "min_mult": 0.2,
+		"ads_fov": 60.0, "move_mult": 0.95, "sound": "shot_drum_shotgun",
+	},
+	"carbine": {
+		"name": "Compact Carbine", "slot": "primary", "price": 650,
+		"desc": "Light, snappy semi-auto. Three body shots up close, low recoil and quick to aim.",
+		"damage": 34.0, "head_mult": 1.7, "rpm": 300.0, "auto": false,
+		"mag": 20, "reserve": 100, "reload": 1.7, "pellets": 1,
+		"spread_hip": 2.2, "spread_ads": 0.35, "recoil": 1.1,
+		"falloff_start": 30.0, "falloff_end": 60.0, "min_mult": 0.7,
+		"ads_fov": 52.0, "move_mult": 1.0, "sound": "shot_carbine",
+	},
+	"burst_smg": {
+		"name": "Quad-Bit SMG", "slot": "primary", "price": 750,
+		"desc": "Four-round burst SMG. Two bursts kill up close; keep the rhythm.",
+		"damage": 21.0, "head_mult": 1.5, "rpm": 560.0, "auto": false, "burst": 4, "burst_rpm": 1400.0,
+		"mag": 24, "reserve": 144, "reload": 2.0, "pellets": 1,
+		"spread_hip": 2.5, "spread_ads": 0.6, "recoil": 0.7,
+		"falloff_start": 14.0, "falloff_end": 32.0, "min_mult": 0.55,
+		"ads_fov": 56.0, "move_mult": 1.03, "sound": "shot_burst_smg",
+	},
+	"minigun": {
+		"name": "Stacker Minigun", "slot": "primary", "price": 1600,
+		"desc": "Rotary gun with a 150-round box. A wall of lead, but heavy: you move slowly and reload for an age.",
+		"damage": 15.0, "head_mult": 1.4, "rpm": 1000.0, "auto": true,
+		"mag": 150, "reserve": 300, "reload": 5.5, "pellets": 1,
+		"spread_hip": 4.5, "spread_ads": 1.5, "recoil": 0.4,
+		"falloff_start": 25.0, "falloff_end": 55.0, "min_mult": 0.6,
+		"ads_fov": 45.0, "move_mult": 0.75, "sound": "shot_minigun",
+	},
 	"knife": {
 		"name": "Pixel Blade", "slot": "melee", "price": 0,
-		"desc": "Always with you. Two slashes to finish the job.",
+		"desc": "Always with you. Quick slashes, and the fastest feet. Two slashes to finish the job.",
 		"damage": 55.0, "head_mult": 1.0, "rpm": 110.0, "auto": true,
 		"mag": 0, "reserve": 0, "reload": 0.0, "pellets": 1,
 		"spread_hip": 0.0, "spread_ads": 0.0, "recoil": 0.0,
 		"falloff_start": 999.0, "falloff_end": 999.0, "min_mult": 1.0,
-		"ads_fov": 75.0, "move_mult": 1.1, "sound": "knife_swing", "range": 2.4,
+		"ads_fov": 75.0, "move_mult": 1.1, "sound": "knife_swing", "range": 2.4, "swing": "slash",
+	},
+	"brick_bat": {
+		"name": "Brick Bat", "slot": "melee", "price": 450,
+		"desc": "A plank with a brick on the end. Wide swings with a little more reach than the knife.",
+		"damage": 60.0, "head_mult": 1.0, "rpm": 95.0, "auto": true,
+		"mag": 0, "reserve": 0, "reload": 0.0, "pellets": 1,
+		"spread_hip": 0.0, "spread_ads": 0.0, "recoil": 0.0,
+		"falloff_start": 999.0, "falloff_end": 999.0, "min_mult": 1.0,
+		"ads_fov": 75.0, "move_mult": 1.05, "sound": "swing_blunt", "pitch": 1.1, "range": 2.8, "swing": "sweep",
+	},
+	"block_axe": {
+		"name": "Block Axe", "slot": "melee", "price": 600,
+		"desc": "Overhead chops that hit hard. Two to finish anyone, but each one takes a moment.",
+		"damage": 70.0, "head_mult": 1.0, "rpm": 75.0, "auto": true,
+		"mag": 0, "reserve": 0, "reload": 0.0, "pellets": 1,
+		"spread_hip": 0.0, "spread_ads": 0.0, "recoil": 0.0,
+		"falloff_start": 999.0, "falloff_end": 999.0, "min_mult": 1.0,
+		"ads_fov": 75.0, "move_mult": 1.02, "sound": "swing_heavy", "pitch": 1.08, "range": 2.6, "swing": "chop",
+	},
+	"cube_hammer": {
+		"name": "Cube Hammer", "slot": "melee", "price": 900,
+		"desc": "A sledge with a stone block for a head. One hit flattens anyone at full health, if it lands: slow swings, heavy steps.",
+		"damage": 100.0, "head_mult": 1.0, "rpm": 45.0, "auto": true,
+		"mag": 0, "reserve": 0, "reload": 0.0, "pellets": 1,
+		"spread_hip": 0.0, "spread_ads": 0.0, "recoil": 0.0,
+		"falloff_start": 999.0, "falloff_end": 999.0, "min_mult": 1.0,
+		"ads_fov": 75.0, "move_mult": 0.94, "sound": "swing_heavy", "pitch": 0.85, "range": 2.5, "swing": "chop",
+	},
+	"pixel_katana": {
+		"name": "Pixel Katana", "slot": "melee", "price": 1200,
+		"desc": "The longest reach of any melee weapon. Lighter hits: two clean slashes, a beat slower than the knife.",
+		"damage": 50.0, "head_mult": 1.0, "rpm": 100.0, "auto": true,
+		"mag": 0, "reserve": 0, "reload": 0.0, "pellets": 1,
+		"spread_hip": 0.0, "spread_ads": 0.0, "recoil": 0.0,
+		"falloff_start": 999.0, "falloff_end": 999.0, "min_mult": 1.0,
+		"ads_fov": 75.0, "move_mult": 1.08, "sound": "swing_blade", "range": 3.1, "swing": "slash",
 	},
 }
+
+## Extra reach (m) the server allows a melee hit beyond the weapon's `range`, measured between
+## the two players' feet (lag, the sweep's radius and the target's body). The knife: 2.4 + 2.1.
+const MELEE_SERVER_SLACK := 2.1
 
 ## Frag grenades explode on impact (with the world or a player); `fuse` only caps a throw that
 ## never hits anything.
@@ -202,6 +291,14 @@ const SKINS := {
 		"a": Color("8ef0ff"), "b": Color("3fc6e0"), "glow": 0.3},
 	"galaxy": {"name": "Galaxy", "price": 2000, "pattern": "sparkle",
 		"a": Color("7a3cff"), "b": Color("0b0626"), "glow": 0.6},
+	"carbon": {"name": "Carbon Camo", "price": 500, "pattern": "camo",
+		"a": Color("1e1e22"), "b": Color("0f0f12"), "glow": 0.0},
+	"candy": {"name": "Candy Stripes", "price": 550, "pattern": "stripes",
+		"a": Color("ff6fa3"), "b": Color("1a0a12"), "glow": 0.0},
+	"pearl": {"name": "Pearl Fade", "price": 650, "pattern": "gradient",
+		"a": Color("f0f0f5"), "b": Color("3a3a4a"), "glow": 0.0},
+	"sunset": {"name": "Sunset Fade", "price": 800, "pattern": "gradient",
+		"a": Color("ff8a3a"), "b": Color("4a1a0a"), "glow": 0.2},
 }
 
 const HATS := {
@@ -209,9 +306,13 @@ const HATS := {
 	"cap": {"name": "Baseball Cap", "price": 100},
 	"beanie": {"name": "Beanie", "price": 150},
 	"headphones": {"name": "Headphones", "price": 200},
+	"bandana": {"name": "Bandana", "price": 200},
 	"party": {"name": "Party Hat", "price": 250},
+	"beret": {"name": "Beret", "price": 250},
 	"cone": {"name": "Traffic Cone", "price": 300},
+	"hard_hat": {"name": "Hard Hat", "price": 300},
 	"tophat": {"name": "Top Hat", "price": 400},
+	"wizard": {"name": "Wizard Hat", "price": 500},
 	"viking": {"name": "Viking Helmet", "price": 600},
 	"halo": {"name": "Halo", "price": 800},
 	"crown": {"name": "Crown", "price": 1200},
@@ -546,6 +647,11 @@ const ACHIEVEMENTS := {
 	"gold_standard": {"name": "Gold Standard", "desc": "Reach Gold mastery with a gun.", "key": "gold_guns", "target": 1},
 	"grinder": {"name": "Daily Grinder", "desc": "Complete 10 challenges.", "key": "challenges_done", "target": 10},
 }
+
+
+## True for melee weapon ids (the knife and the other melee weapons).
+static func is_melee(wid: String) -> bool:
+	return WEAPONS.has(wid) and WEAPONS[wid].slot == "melee"
 
 
 ## Badge shown before a prestiged player's name (scoreboard, kill feed, nametags); "" at rank 0.

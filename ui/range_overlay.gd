@@ -3,7 +3,7 @@ extends CanvasLayer
 ## The Firing Range's screen (canvas layer 11, above the Hud): the readout card at the right
 ## (last hit, burst DPS, shots-to-kill and TTK for the held gun at the hit distance, session hit %
 ## and headshots), the console prompt when the player stands at the counter, and the weapon
-## console itself: every gun (owned or not, marked TRY), the knife, frags, both tacticals, the
+## console itself: every gun and melee weapon (owned or not, marked TRY), frags, both tacticals, the
 ## grapple and RESET READOUT. The console takes the input while open (FiringRange.ui_blocking);
 ## Esc / B closes it. The tutorial hides the readout (`show_readout`).
 
@@ -125,31 +125,30 @@ func _build_console() -> void:
 	var v := UIKit.vbox(10)
 	panel.add_child(v)
 	v.add_child(UIKit.label("WEAPON CONSOLE", &"HeaderLabel", HORIZONTAL_ALIGNMENT_CENTER))
-	v.add_child(UIKit.label("Try any gun, owned or not, with your own attachment upgrades. TRY marks a gun you don't own yet.",
+	v.add_child(UIKit.label("Try any gun or melee weapon, owned or not, with your own attachment upgrades. TRY marks one you don't own yet.",
 		&"DimLabel", HORIZONTAL_ALIGNMENT_CENTER))
-	for slot: String in ["primary", "secondary"]:
-		v.add_child(UIKit.label("PRIMARIES" if slot == "primary" else "SECONDARIES", &"SubheaderLabel"))
+	for slot: String in ["primary", "secondary", "melee"]:
+		v.add_child(UIKit.label({"primary": "PRIMARIES", "secondary": "SECONDARIES", "melee": "MELEE"}[slot], &"SubheaderLabel"))
 		var grid := GridContainer.new()
-		grid.columns = 4
+		grid.columns = 5 if slot == "melee" else 4
 		grid.add_theme_constant_override("h_separation", 8)
 		grid.add_theme_constant_override("v_separation", 8)
 		v.add_child(grid)
 		for wid: String in Data.weapon_ids_for_slot(slot):
 			var b := UIKit.button("")
-			b.custom_minimum_size = Vector2(178, 40)
+			b.custom_minimum_size = Vector2(141 if slot == "melee" else 178, 40)
 			b.pressed.connect(_pick.bind(wid))
 			grid.add_child(b)
 			_gun_buttons[wid] = b
 			if _first_button == null:
 				_first_button = b
-	v.add_child(UIKit.label("KNIFE, GRENADES AND HOOK", &"SubheaderLabel"))
+	v.add_child(UIKit.label("GRENADES AND HOOK", &"SubheaderLabel"))
 	var row := GridContainer.new()
 	row.columns = 4
 	row.add_theme_constant_override("h_separation", 8)
 	row.add_theme_constant_override("v_separation", 8)
 	v.add_child(row)
 	var extras: Array = [
-		[str(Data.WEAPONS.knife.name).to_upper(), func() -> void: firing.equip("knife")],
 		["FRAGS (REFILL)", firing.refill_grenades],
 		[str(Data.TACTICALS.smoke.name).to_upper(), func() -> void: firing.equip_tactical("smoke")],
 		[str(Data.TACTICALS.flash.name).to_upper(), func() -> void: firing.equip_tactical("flash")],
@@ -234,11 +233,11 @@ func _refresh_card(p: Player) -> void:
 	var r := firing.readout
 	var wid := p.weapon_id()
 	var w: Dictionary = Data.WEAPONS[wid]
-	var owned := Profile.is_owned("weapons", wid) or wid == "knife"
+	var owned := Profile.is_owned("weapons", wid)
 	_gun.text = "%s%s" % [str(w.name).to_upper(), "" if owned else "  ·  TRY"]
 	var barrel := p.mod("barrel")
-	if wid == "knife":
-		_falloff.text = "%d damage per slash  ·  %.1f m reach" % [roundi(float(w.damage)), float(w.range)]
+	if Data.is_melee(wid):
+		_falloff.text = "%d damage per hit  ·  %.1f m reach  ·  %d swings/min" % [roundi(float(w.damage)), float(w.range), roundi(float(w.rpm))]
 	elif w.get("projectile", false):
 		_falloff.text = "%d direct  ·  %.1f m splash" % [roundi(float(w.damage)), float(w.splash_radius)]
 	else:
