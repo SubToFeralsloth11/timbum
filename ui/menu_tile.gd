@@ -48,6 +48,9 @@ const BASES := {&"PrimaryButton": UITheme.BUTTON_GREEN, &"GoldButton": UITheme.B
 ## Lit while the sub-panel this tile opens is showing.
 ## Cards, chips and icon buttons: no accent pill or chevron, and they grow from the centre.
 var compact := false
+## Draw the accent pill left of the tile on hover/focus (off where it would sit between two
+## tiles in a row, like the dock's PLAY).
+var show_pill := true
 
 var selected := false:
 	set(value):
@@ -186,8 +189,9 @@ func _draw() -> void:
 	draw_style_box(_glow, Rect2(Vector2.ZERO, size).grow(3.0))
 	if compact:
 		return
-	_pill.bg_color = Color(_accent, _hot)
-	draw_style_box(_pill, Rect2(Vector2(-NUDGE * _hot - 2.0, size.y * 0.2), Vector2(6.0 * _hot, size.y * 0.6)))
+	if show_pill:
+		_pill.bg_color = Color(_accent, _hot)
+		draw_style_box(_pill, Rect2(Vector2(-NUDGE * _hot - 2.0, size.y * 0.2), Vector2(6.0 * _hot, size.y * 0.6)))
 	# Chevron on the right, unless a badge sits there.
 	if not _badge.visible:
 		var x := size.x - 24.0 + 6.0 * (1.0 - _hot)

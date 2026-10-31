@@ -123,40 +123,54 @@ func _build() -> void:
 	built.emit()
 
 
-## The avatar's spot: a spawn with open air between it and the camera (wherever the sway takes
-## it, h_offset included), nothing right in front of the lens, and an open view past it into the
-## map; higher spots score better.
+## The avatar's spot and camera direction: a spawn and one of 8 directions with open air between
+## it and the camera (wherever the sway takes it, h_offset included), nothing right in front of
+## the lens, clear left and right thirds of the view (no trunks or foliage filling the sides) and
+## an open view past it into the map; higher spots score better.
 func _pick_spot(grid: VoxelGrid, info: MapInfo) -> void:
 	var center := info.bounds.get_center()
 	var best := -INF
+	# Half the horizontal view, as a slope (FOV 48 vertical at 16:9 is about 80 degrees across).
+	var half_w := tan(deg_to_rad(40.0))
 	for s: Vector3 in info.spawns:
-		var out := Vector3(s.x - center.x, 0.0, s.z - center.z)
-		if out.length() < 4.0:
+		var inward := Vector3(s.x - center.x, 0.0, s.z - center.z)
+		if inward.length() < 4.0:
 			continue
-		out = out.normalized()
-		var score := s.y * 0.4
-		for a: float in [-SWAY, 0.0, SWAY]:
-			var dir := out.rotated(Vector3.UP, a)
-			var fwd := -dir
-			var right := fwd.cross(Vector3.UP)
-			var cam := s + dir * CAM_DISTANCE + Vector3.UP * CAM_HEIGHT + right * FRAME_SHIFT
-			var chest := s + Vector3.UP * 1.2
-			for i in range(1, 11):
-				for h: float in [-0.6, 0.0, 0.6]:
-					if _solid(grid, info, chest.lerp(cam, i / 10.0) + Vector3.UP * h):
-						score -= 10.0
-			for k: float in [0.5, 1.5, 2.5, 3.5]:
-				for side: float in [-2.5, -1.2, 0.0, 1.2, 2.5]:
-					for h: float in [-0.5, 0.5, 1.5]:
-						if _solid(grid, info, cam + fwd * k + right * side + Vector3.UP * h):
-							score -= 2.0
-		for k in range(1, 14):
-			if _solid(grid, info, s - out * k + Vector3.UP * 1.8):
-				score -= 1.5
-		if score > best:
-			best = score
-			_spot = s
-			_out = out
+		inward = inward.normalized()
+		for turn in 8:
+			var out := inward.rotated(Vector3.UP, turn * PI * 0.25)
+			var score := s.y * 0.4 - (0.0 if turn == 0 else 1.0)
+			for a: float in [-SWAY, 0.0, SWAY]:
+				var dir := out.rotated(Vector3.UP, a)
+				var fwd := -dir
+				var right := fwd.cross(Vector3.UP)
+				var cam := s + dir * CAM_DISTANCE + Vector3.UP * CAM_HEIGHT + right * FRAME_SHIFT
+				var chest := s + Vector3.UP * 1.2
+				for i in range(1, 11):
+					for h: float in [-0.6, 0.0, 0.6]:
+						if _solid(grid, info, chest.lerp(cam, i / 10.0) + Vector3.UP * h):
+							score -= 10.0
+				for k: float in [0.5, 1.5, 2.5, 3.5]:
+					for side: float in [-2.5, -1.2, 0.0, 1.2, 2.5]:
+						for h: float in [-0.5, 0.5, 1.5]:
+							if _solid(grid, info, cam + fwd * k + right * side + Vector3.UP * h):
+								score -= 2.0
+				# The side thirds of the view, 3 to 15 m out: anything solid there frames the
+				# shot with trunks and leaves.
+				for k: float in [3.0, 5.0, 7.5, 10.0, 12.5, 15.0]:
+					for f: float in [-0.95, -0.65, -0.4, 0.4, 0.65, 0.95]:
+						for h: float in [0.0, 1.5, 3.0, 4.5, 6.0]:
+							if _solid(grid, info, cam + fwd * k + right * (f * half_w * k) + Vector3.UP * h):
+								score -= 0.6
+			# The view past the avatar, up to tree-top height.
+			for k in range(1, 14):
+				for h: float in [1.8, 3.5, 5.5]:
+					if _solid(grid, info, s - out * k + Vector3.UP * h):
+						score -= 1.0
+			if score > best:
+				best = score
+				_spot = s
+				_out = out
 
 
 func _solid(grid: VoxelGrid, info: MapInfo, p: Vector3) -> bool:

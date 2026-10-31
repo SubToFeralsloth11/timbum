@@ -375,7 +375,7 @@ func _build_home() -> MenuScreen:
 	head.offset_top = 22
 	home.add_child(head)
 	head.add_child(BlockTitle.new())
-	var tagline := UIKit.label("BLOCKY FREE-FOR-ALL SHOOTER", &"SubheaderLabel")
+	var tagline := UIKit.label("BLOCKY ARENA SHOOTER  ·  6 MODES", &"SubheaderLabel")
 	tagline.add_theme_font_size_override("font_size", 15)
 	tagline.add_theme_color_override("font_color", Color(UITheme.TEXT, 0.85))
 	head.add_child(tagline)
@@ -420,6 +420,8 @@ func _build_home() -> MenuScreen:
 	_play_button.custom_minimum_size.x = 210
 	_play_button.add_theme_constant_override("h_separation", 22)
 	MenuTile.round_styles(_play_button, UITheme.BUTTON_GREEN, 26)
+	# The accent pill would sit in the gap between SHOP and PLAY.
+	_play_button.show_pill = false
 	_play_button.pressed.connect(_toggle_flyout)
 	_home_controls.append(_play_button)
 	dock.add_child(_play_button)
