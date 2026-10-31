@@ -479,6 +479,14 @@ func _reset_defaults() -> void:
 
 
 func _build_controls(parent: VBoxContainer) -> void:
+	parent.add_child(UIKit.label("HOLD OR TOGGLE", &"SubheaderLabel"))
+	_option_row(parent, "sprint_mode", "Sprint", Profile.HOLD_TOGGLE_NAMES)
+	_option_row(parent, "peek_mode", "Peek (lean)", Profile.HOLD_TOGGLE_NAMES)
+	_option_row(parent, "aim_mode", "Aim down sights", Profile.HOLD_TOGGLE_NAMES)
+	_option_row(parent, "crouch_mode", "Crouch", Profile.HOLD_TOGGLE_NAMES)
+	var mode_tip := UIKit.label("Toggle: press once instead of holding (keys and controller alike). Sprint runs until you stop moving forward, aim, fire or press it again. Peek stays leaned until you press the same side again or the other side. Aim stays up until you press it again or sprint. Crouch stays down until you press it again, jump or sprint.", &"DimLabel")
+	mode_tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	parent.add_child(mode_tip)
 	parent.add_child(UIKit.label("CONTROLLER", &"SubheaderLabel"))
 	_slider_row(parent, "pad_sens", "Stick look sensitivity", 0.2, 3.0, 0.05, "%.2f")
 	_check_row(parent, "pad_invert_y", "Invert stick look Y")

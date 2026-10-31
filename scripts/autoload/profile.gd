@@ -19,6 +19,12 @@ const DEFAULT_SETTINGS := {
 	"pad_deadzone": 0.15,
 	"pad_curve": 1,
 	"aim_assist": 2,
+	## Hold (0) or Toggle (1) for sprint, peek (lean), aim down sights and crouch
+	## (HOLD_TOGGLE_NAMES; Player._read_input). Hold is the original behaviour.
+	"sprint_mode": 0,
+	"peek_mode": 0,
+	"aim_mode": 0,
+	"crouch_mode": 0,
 	"master_volume": 0.8,
 	"music_volume": 0.45,
 	"sfx_volume": 0.85,
@@ -61,6 +67,8 @@ const DEFAULT_SETTINGS := {
 }
 
 const ANTI_ALIASING_NAMES: Array[String] = ["Off", "FXAA", "MSAA 2x", "MSAA 4x", "TAA"]
+## Names of the sprint / peek / aim / crouch modes (settings `*_mode`).
+const HOLD_TOGGLE_NAMES: Array[String] = ["Hold", "Toggle"]
 ## Controller stick response curves: [name, exponent]. The stick's travel past the deadzone (0..1)
 ## is raised to the exponent, so higher curves give finer control near the centre.
 const PAD_CURVES: Array = [["Linear", 1.0], ["Classic", 1.8], ["Precise", 2.8]]

@@ -133,6 +133,13 @@ var inspect_left := 0.0
 var in_grapple := false
 ## -1 peek left, 0 none, 1 peek right.
 var in_lean := 0
+## LOCAL: Toggle-mode latches (settings sprint/peek/aim/crouch_mode) and last frame's buttons,
+## for press edges. See _read_input.
+var _sprint_latch := false
+var _lean_latch := 0
+var _aim_latch := false
+var _crouch_latch := false
+var _prev_buttons := 0
 
 var slots: Array[String] = []
 var current_slot := 0
@@ -558,6 +565,12 @@ func _read_input() -> void:
 	# and holding fire afterwards needs a fresh press.
 	_fire_gated = (_fire_gated or not captured or world.streaks.targeting) and fire_held
 	_aim_gated = (_aim_gated or not captured) and aim_held
+	# Held buttons as bits, so a press is a bit set now but not last frame.
+	var buttons := int(Input.is_action_pressed("sprint")) | int(Input.is_action_pressed("crouch")) << 1 \
+		| int(Input.is_action_pressed("lean_left")) << 2 | int(Input.is_action_pressed("lean_right")) << 3 \
+		| int(aim_held and not _aim_gated) << 4 | int(Input.is_action_pressed("jump")) << 5
+	var pressed := buttons & ~_prev_buttons
+	_prev_buttons = buttons
 	if world.input_blocked() or not alive:
 		in_move = Vector2.ZERO
 		in_jump = false
@@ -566,14 +579,53 @@ func _read_input() -> void:
 		in_sprint = false
 		in_crouch = false
 		in_lean = 0
+		_clear_latches()
 		return
 	in_move = Input.get_vector("move_left", "move_right", "move_back", "move_forward", float(Profile.get_setting("pad_deadzone")))
-	in_jump = Input.is_action_pressed("jump")
-	in_crouch = Input.is_action_pressed("crouch")
-	in_sprint = Input.is_action_pressed("sprint")
-	in_lean = int(Input.is_action_pressed("lean_right")) - int(Input.is_action_pressed("lean_left"))
+	in_jump = (buttons & 32) != 0
 	in_fire = fire_held and not _fire_gated
-	in_aim = aim_held and not _aim_gated
+	# Toggle modes: a press flips a latch that stands in for holding the button.
+	if int(Profile.get_setting("aim_mode")) == 1:
+		if pressed & 16:
+			_aim_latch = not _aim_latch
+		if pressed & 1 or current_slot == 2:
+			_aim_latch = false
+		in_aim = _aim_latch
+	else:
+		in_aim = (buttons & 16) != 0
+	if int(Profile.get_setting("sprint_mode")) == 1:
+		if pressed & 1:
+			_sprint_latch = not _sprint_latch
+		if in_move.y <= 0.3 or in_aim or in_fire:
+			_sprint_latch = false
+		in_sprint = _sprint_latch
+	else:
+		in_sprint = (buttons & 1) != 0
+	if int(Profile.get_setting("crouch_mode")) == 1:
+		if pressed & 2:
+			_crouch_latch = not _crouch_latch
+		if pressed & 1 or (pressed & 32 and not sliding) or in_prone:
+			_crouch_latch = false
+		in_crouch = _crouch_latch
+	else:
+		in_crouch = (buttons & 2) != 0
+	if int(Profile.get_setting("peek_mode")) == 1:
+		if pressed & 4:
+			_lean_latch = 0 if _lean_latch == -1 else -1
+		if pressed & 8:
+			_lean_latch = 0 if _lean_latch == 1 else 1
+		if sprinting:
+			_lean_latch = 0
+		in_lean = _lean_latch
+	else:
+		in_lean = int((buttons & 8) != 0) - int((buttons & 4) != 0)
+
+
+func _clear_latches() -> void:
+	_sprint_latch = false
+	_lean_latch = 0
+	_aim_latch = false
+	_crouch_latch = false
 
 
 ## Right stick (the look_* actions): turns the view at PAD_LOOK_SPEED x pad sensitivity, scaled
@@ -1848,6 +1900,7 @@ func _clear_intent() -> void:
 	in_lean = 0
 	in_slot = -1
 	in_inspect = false
+	_clear_latches()
 
 
 ## The camera rises behind the corpse, on the side away from the killer, and turns to keep the
