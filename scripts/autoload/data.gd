@@ -249,11 +249,14 @@ const WEAPONS := {
 ## Extra reach (m) the server allows a melee hit beyond the weapon's `range`, measured between
 ## the two players' feet (lag, the sweep's radius and the target's body). The knife: 2.4 + 2.1.
 const MELEE_SERVER_SLACK := 2.1
-## Gun hits: the server caps a reported hit at the falloff damage for the feet-to-feet distance
-## between shooter and target minus this many metres (movement and lag between the client's shot
-## and the server's positions, eye height), and drops a target farther than Player.HITSCAN_RANGE
-## plus this from the shooter.
+## Gun hits: the server caps a reported hit at the falloff damage for the distance from the
+## shooter's eye to the target's body centre minus a slack, and drops a target farther than
+## Player.HITSCAN_RANGE plus the slack. The slack is this many metres (aim point on the body,
+## small position errors) plus how far shooter and target can move in the lag between the
+## client's view and the server's positions (`World._shot_slack`).
 const SHOT_SERVER_SLACK := 3.0
+## Upper bound (s) of that lag: Player.INTERP_DELAY plus the shooter's round-trip time.
+const SHOT_LAG_MAX := 0.35
 
 ## Frag grenades explode on impact (with the world or a player); `fuse` only caps a throw that
 ## never hits anything.

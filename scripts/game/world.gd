@@ -717,14 +717,29 @@ func _server_shot(shooter_id: int, wid: String, ends: PackedVector3Array, normal
 		else:
 			# The client's falloff damage is only trusted up to what the server's own positions
 			# allow: beyond the hitscan reach the hit is dropped, and the damage is capped at the
-			# falloff for the distance (less the slack), every pellet a headshot if it reported one.
-			if dist > Player.HITSCAN_RANGE + Data.SHOT_SERVER_SLACK:
+			# falloff for the eye-to-body-centre distance (less the slack), every pellet a headshot
+			# if it reported one.
+			var eye_dist := shooter.head.global_position.distance_to(
+				(target.global_position + target.head.global_position) * 0.5)
+			var slack := _shot_slack(shooter, target)
+			if eye_dist > Player.HITSCAN_RANGE + slack:
 				continue
-			var near := maxf(0.0, dist - Data.SHOT_SERVER_SLACK)
+			var near := maxf(0.0, eye_dist - slack)
 			var cap := Player.damage_at(w, near, shooter.mod("barrel")) * float(w.pellets) \
 				* (float(w.head_mult) if head_hit[tid] else 1.0) + 0.01
 			dmg = minf(dmg, cap)
 		_server_damage(target, dmg, shooter_id, wid, head_hit[tid], shooter.global_position)
+
+
+## Server: metres a gun hit's distance may shrink before the falloff cap. The server sees a
+## remote target INTERP_DELAY plus the travel time of its snapshots behind, and the shooter's
+## client saw the target (and the server sees the shooter) about as late again, so each one's
+## movement over that time is added to Data.SHOT_SERVER_SLACK: lag = INTERP_DELAY + the
+## shooter's RTT (0 for the host and bots), at most Data.SHOT_LAG_MAX.
+func _shot_slack(shooter: Player, target: Player) -> float:
+	var rtt := 0.0 if shooter.is_bot else Net.peer_rtt(shooter.id)
+	var lag := minf(Data.SHOT_LAG_MAX, Player.INTERP_DELAY + rtt)
+	return Data.SHOT_SERVER_SLACK + (target.observed_speed() + shooter.observed_speed()) * lag
 
 
 ## Server: a melee hit lands only if the world (MASK_WORLD) leaves a clear line from the

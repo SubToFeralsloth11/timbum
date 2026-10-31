@@ -1565,6 +1565,26 @@ func push_snapshot(pos: Vector3, p_yaw: float, p_pitch: float, flags: int) -> vo
 		_snapshots.pop_front()
 
 
+## Speed (m/s) the server sees this player move at, for the gun-hit slack (`World._shot_slack`):
+## a REMOTE player's from its displacement over the last ~0.3 s of snapshots, anyone else's
+## from its velocity. Capped at GRAPPLE_MAX_SPEED, so forged snapshots can't widen the slack.
+func observed_speed() -> float:
+	var v := velocity.length()
+	if mode == Mode.REMOTE:
+		v = 0.0
+		if _snapshots.size() >= 2:
+			var last: Array = _snapshots[-1]
+			var first: Array = last
+			for i in range(_snapshots.size() - 2, -1, -1):
+				first = _snapshots[i]
+				if float(last[0]) - float(first[0]) >= 0.3:
+					break
+			var span := float(last[0]) - float(first[0])
+			if span >= 0.05:
+				v = (last[1] as Vector3).distance_to(first[1]) / span
+	return minf(v, GRAPPLE_MAX_SPEED)
+
+
 ## REMOTE: the player just fired or swung. Shots arrive ahead of the interpolated state, so a
 ## reload pose (a shotgun reload that firing interrupts, or any reload a knife swing cancels)
 ## stops now, and the stale reload flag still in the snapshot buffer may not restart it.
