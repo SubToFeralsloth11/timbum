@@ -68,14 +68,18 @@ var _coll := PackedVector3Array()
 
 ## Builds every chunk of `g` under `parent`, with grid cell (0,0,0) at
 ## `origin` (parent space). Collision faces are also added to `nav_source`
-## using `nav_xform` (parent's global transform).
-static func build(g: VoxelGrid, parent: Node3D, origin: Vector3, nav_source: NavigationMeshSourceGeometryData3D, nav_xform: Transform3D) -> void:
+## using `nav_xform` (parent's global transform). A null `nav_source` builds meshes only (no
+## collision bodies: the menu backdrop), and `keep_chunk(cx, cz)` (grid cells of the chunk's
+## corner), when given, skips the chunks it returns false for.
+static func build(g: VoxelGrid, parent: Node3D, origin: Vector3, nav_source: NavigationMeshSourceGeometryData3D, nav_xform: Transform3D, keep_chunk := Callable()) -> void:
 	var m := VoxelMesher.new()
 	m._prepare(g)
 	var opaque_mat := BlockAtlas.material(false)
 	var glass_mat := BlockAtlas.material(true)
 	for cz in range(0, g.size.z, CHUNK):
 		for cx in range(0, g.size.x, CHUNK):
+			if keep_chunk.is_valid() and not keep_chunk.call(cx, cz):
+				continue
 			m._mesh_chunk(g, cx, cz)
 			if m._coll.is_empty():
 				continue
@@ -90,6 +94,9 @@ static func build(g: VoxelGrid, parent: Node3D, origin: Vector3, nav_source: Nav
 			mi.name = "Chunk_%d_%d" % [cx / CHUNK, cz / CHUNK]
 			mi.mesh = mesh
 			mi.position = origin + Vector3(cx, 0, cz)
+			parent.add_child(mi)
+			if nav_source == null:
+				continue
 			var body := StaticBody3D.new()
 			body.collision_layer = 1
 			body.collision_mask = 0
@@ -99,7 +106,6 @@ static func build(g: VoxelGrid, parent: Node3D, origin: Vector3, nav_source: Nav
 			cs.shape = shape
 			body.add_child(cs)
 			mi.add_child(body)
-			parent.add_child(mi)
 			nav_source.add_faces(m._coll, nav_xform * mi.transform)
 
 

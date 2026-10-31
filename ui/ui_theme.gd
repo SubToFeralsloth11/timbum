@@ -94,6 +94,23 @@ static func panel_box(bg := PANEL, border := Color(1, 1, 1, 0.08), border_w := 2
 	return s
 
 
+## Smooth rounded panel / button face (anti-aliased curves, optional soft shadow).
+static func round_box(bg: Color, border := Color(1, 1, 1, 0.08), border_w := 2, radius := 14, pad := 16, shadow := 0) -> StyleBoxFlat:
+	var s := StyleBoxFlat.new()
+	s.bg_color = bg
+	s.border_color = border
+	s.set_border_width_all(border_w)
+	s.set_corner_radius_all(radius)
+	s.corner_detail = 10
+	s.anti_aliasing = true
+	s.set_content_margin_all(pad)
+	if shadow > 0:
+		s.shadow_color = Color(0, 0, 0, 0.35)
+		s.shadow_size = shadow
+		s.shadow_offset = Vector2(0, shadow * 0.5)
+	return s
+
+
 ## Pixel-art bevelled button texture: dark outline, light top/left, dark bottom/right,
 ## subtle dithered noise in the face. `pressed` inverts the bevel.
 static func bevel_box(base: Color, outline := OUTLINE, pressed := false, pad_h := 16, pad_v := 8) -> StyleBoxTexture:

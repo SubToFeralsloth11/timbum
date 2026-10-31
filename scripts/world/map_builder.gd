@@ -31,11 +31,28 @@ static var _previews := {}
 
 
 static func build(map_id: String, root: Node3D, quality: int) -> MapInfo:
+	var info := MapInfo.new()
+	var grid := generate(map_id, info)
+	var map_root := Node3D.new()
+	map_root.name = "Map"
+	root.add_child(map_root)
+	var xform := map_root.global_transform if map_root.is_inside_tree() else Transform3D.IDENTITY
+	var source := NavigationMeshSourceGeometryData3D.new()
+	VoxelMesher.build(grid, map_root, info.bounds.position, source, xform)
+	_add_bounds(map_root, info.bounds)
+	_add_environment(map_root, GENERATORS[info.id].ATMOSPHERE, quality)
+	info.nav_map = _add_navigation(map_root, source, info.bounds)
+	_add_jump_pads(map_root, info)
+	return info
+
+
+## Runs map `map_id`'s generator: fills `info` (id, name, kill height, world-space spawns, pickups,
+## marks and bounds) and returns the block grid, whose cell (0,0,0) sits at `info.bounds.position`.
+static func generate(map_id: String, info: MapInfo) -> VoxelGrid:
 	if not GENERATORS.has(map_id):
 		push_error("MapBuilder: unknown map '%s', using village" % map_id)
 		map_id = "village"
 	var gen: GDScript = GENERATORS[map_id]
-	var info := MapInfo.new()
 	info.id = map_id
 	info.display_name = Data.MAPS[map_id].name
 	info.kill_y = gen.KILL_Y
@@ -52,18 +69,20 @@ static func build(map_id: String, root: Node3D, quality: int) -> MapInfo:
 	for key: String in info.marks:
 		info.marks[key] = _offset_mark(info.marks[key], origin)
 	info.bounds = AABB(origin, Vector3(grid.size))
+	return grid
 
+
+## Scenery only, for the menu backdrop: the block meshes of the chunks `keep_chunk(cx, cz)` accepts
+## (VoxelMesher.build) plus sky, sun and fog, with `atmosphere` keys overriding the map's own (a
+## sunset, say). No collision, boundary walls, navigation or jump pads.
+static func build_scenery(grid: VoxelGrid, info: MapInfo, root: Node3D, quality: int, atmosphere: Dictionary, keep_chunk: Callable) -> void:
 	var map_root := Node3D.new()
 	map_root.name = "Map"
 	root.add_child(map_root)
-	var xform := map_root.global_transform if map_root.is_inside_tree() else Transform3D.IDENTITY
-	var source := NavigationMeshSourceGeometryData3D.new()
-	VoxelMesher.build(grid, map_root, origin, source, xform)
-	_add_bounds(map_root, info.bounds)
-	_add_environment(map_root, gen.ATMOSPHERE, quality)
-	info.nav_map = _add_navigation(map_root, source, info.bounds)
-	_add_jump_pads(map_root, info)
-	return info
+	VoxelMesher.build(grid, map_root, info.bounds.position, null, Transform3D.IDENTITY, keep_chunk)
+	var atm: Dictionary = GENERATORS[info.id].ATMOSPHERE.duplicate()
+	atm.merge(atmosphere, true)
+	_add_environment(map_root, atm, quality)
 
 
 ## One JumpPad per entry of the generator's `jump_pads` mark (MapKit.jump_pads: feet on the pad

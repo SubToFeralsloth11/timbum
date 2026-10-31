@@ -1,8 +1,10 @@
 extends Control
-## Main menu root: 3D backdrop, persistent top bar (coins, level), home screen and the
-## sub-screens (match setup, join, shop, locker, stats, challenges, achievements, settings) with
-## tweened transitions. The home screen also starts the Firing Range and the tutorial; a new
-## profile (Profile.tutorial_offered false) is offered the tutorial once, over the home screen.
+## Main menu root: 3D backdrop (MenuBackdrop), persistent top bar (coins, level), home screen and
+## the sub-screens (match setup, join, shop, locker, stats, challenges, achievements, settings)
+## with tweened transitions. Home is a short column of MenuTiles (PLAY, LOCKER, SHOP, PROGRESS,
+## SETTINGS, QUIT); PLAY and PROGRESS open sub-panels beside it (vs bots / host / join / Firing
+## Range / tutorial; stats / challenges / achievements). A new profile (Profile.tutorial_offered
+## false) is offered the tutorial once, over the home screen.
 
 const TRANSITION := 0.22
 const SLIDE := 36.0
@@ -24,8 +26,16 @@ var _xp_bar: ProgressBar
 var _xp_label: Label
 var _name_edit: LineEdit
 var _daily_button: Button
-var _play_button: Button
-var _challenges_button: Button
+var _play_button: MenuTile
+var _progress_button: MenuTile
+var _challenges_button: MenuTile
+## Home: the primary tiles, the sub-panels by id ("play", "progress"), the open one ("" = none),
+## the control they sit in, and the tile to focus when home shows again.
+var _primary: Array[MenuTile] = []
+var _flyouts := {}
+var _open_flyout := ""
+var _flyout_slot: Control
+var _home_focus: Control
 ## The first-launch tutorial offer (null once answered).
 var tutorial_offer: Control
 
@@ -86,15 +96,18 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed(&"ui_cancel") and _current != _screens["home"]:
 		get_viewport().set_input_as_handled()
 		(_current as MenuScreen).back_requested.emit()
+	elif event.is_action_pressed(&"ui_cancel") and not _open_flyout.is_empty():
+		get_viewport().set_input_as_handled()
+		_close_flyout(true)
 
 
-## Home's TUTORIAL button and the first-launch offer: the tutorial in the Firing Range.
+## The PLAY panel's TUTORIAL tile and the first-launch offer: the tutorial in the Firing Range.
 func start_tutorial() -> void:
 	Profile.mark_tutorial_offered()
 	Net.play_range(true)
 
 
-## The first-launch offer's NOT NOW (or Esc / B): never asked again; the TUTORIAL button stays.
+## The first-launch offer's NOT NOW (or Esc / B): never asked again; PLAY > TUTORIAL stays.
 func decline_tutorial() -> void:
 	Profile.mark_tutorial_offered()
 	if tutorial_offer != null:
@@ -115,7 +128,7 @@ func _add_tutorial_offer() -> void:
 	var center := CenterContainer.new()
 	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	tutorial_offer.add_child(center)
-	var panel := UIKit.panel()
+	var panel := _round_panel(UIKit.panel(), UITheme.PANEL_SOLID, Color(1, 1, 1, 0.1), 22)
 	panel.custom_minimum_size = Vector2(520, 0)
 	center.add_child(panel)
 	var v := UIKit.vbox(14)
@@ -128,12 +141,15 @@ func _add_tutorial_offer() -> void:
 	v.add_child(text)
 	var start := UIKit.button("START TUTORIAL", &"PrimaryButton")
 	start.custom_minimum_size.y = 54
+	MenuTile.round_styles(start, UITheme.BUTTON_GREEN, 17)
 	start.pressed.connect(start_tutorial)
 	v.add_child(start)
 	var later := UIKit.button("NOT NOW")
 	later.pressed.connect(decline_tutorial)
+	later.custom_minimum_size.y = 46
+	MenuTile.round_styles(later, UITheme.BUTTON_SLATE, 15)
 	v.add_child(later)
-	v.add_child(UIKit.label("You can take it any time with TUTORIAL on the main menu.", &"DimLabel", HORIZONTAL_ALIGNMENT_CENTER))
+	v.add_child(UIKit.label("You can take it any time from PLAY > TUTORIAL on the main menu.", &"DimLabel", HORIZONTAL_ALIGNMENT_CENTER))
 	start.grab_focus.call_deferred()
 
 
@@ -170,7 +186,7 @@ func go(screen_name: String) -> void:
 			prev.position.x = 0.0)
 	if screen_name == "home":
 		_refresh_profile()
-		_play_button.grab_focus.call_deferred()
+		_focus_home.call_deferred()
 	else:
 		_focus_screen.call_deferred(next)
 
@@ -291,13 +307,13 @@ func _add_top_bar() -> void:
 	bar.offset_top = 30
 	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bar)
-	var level_pill := UIKit.panel(&"CardPanel")
+	var level_pill := _round_panel(UIKit.panel(), UITheme.PANEL, Color(1, 1, 1, 0.08), 18, 10)
 	_level_label = UIKit.label("LVL 1", &"ValueLabel")
 	_level_label.add_theme_color_override("font_color", UITheme.ACCENT_2)
 	_level_label.add_theme_font_size_override("font_size", 18)
 	level_pill.add_child(_level_label)
 	bar.add_child(level_pill)
-	var coin_pill := UIKit.panel(&"CardPanel")
+	var coin_pill := _round_panel(UIKit.panel(), UITheme.PANEL, Color(1, 1, 1, 0.08), 18, 10)
 	var coins := UIKit.coin_amount(Profile.coins, 22)
 	_coins_label = coins.get_node("Amount")
 	_coins_label.add_theme_font_size_override("font_size", 18)
@@ -307,7 +323,7 @@ func _add_top_bar() -> void:
 
 func _add_toast() -> void:
 	_toast = UIKit.panel()
-	var style := UITheme.panel_box(UITheme.PANEL_SOLID, UITheme.ACCENT, 2, 4, 12)
+	var style := UITheme.round_box(UITheme.PANEL_SOLID, UITheme.ACCENT, 2, 18, 12, 6)
 	_toast.add_theme_stylebox_override("panel", style)
 	_toast.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
 	_toast.grow_horizontal = Control.GROW_DIRECTION_BOTH
@@ -352,7 +368,7 @@ func _build_home() -> MenuScreen:
 	var m := MarginContainer.new()
 	m.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	m.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	m.add_theme_constant_override("margin_left", 56)
+	m.add_theme_constant_override("margin_left", 64)
 	m.add_theme_constant_override("margin_right", 40)
 	m.add_theme_constant_override("margin_top", 30)
 	m.add_theme_constant_override("margin_bottom", 30)
@@ -363,7 +379,6 @@ func _build_home() -> MenuScreen:
 
 	var left := UIKit.vbox(10)
 	left.alignment = BoxContainer.ALIGNMENT_CENTER
-	left.custom_minimum_size.x = 440
 	left.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(left)
 	var title := BlockTitle.new()
@@ -372,49 +387,41 @@ func _build_home() -> MenuScreen:
 	var tagline := UIKit.label("BLOCKY FREE-FOR-ALL SHOOTER", &"SubheaderLabel")
 	left.add_child(tagline)
 	var gap := Control.new()
-	gap.custom_minimum_size.y = 10
+	gap.custom_minimum_size.y = 18
 	left.add_child(gap)
 
-	var buttons := UIKit.vbox(10)
-	buttons.custom_minimum_size.x = 380
-	buttons.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	left.add_child(buttons)
-	_play_button = UIKit.button("PLAY VS BOTS", &"PrimaryButton")
-	_play_button.add_theme_font_size_override("font_size", 26)
-	_play_button.custom_minimum_size.y = 62
-	_play_button.pressed.connect(func() -> void: go("play"))
-	buttons.add_child(_play_button)
-	var net_row := UIKit.hbox(10)
-	buttons.add_child(net_row)
-	_add_grid_button(net_row, "HOST GAME", "host")
-	_add_grid_button(net_row, "JOIN GAME", "join")
-	var row2 := UIKit.hbox(10)
-	buttons.add_child(row2)
-	_add_grid_button(row2, "SHOP", "shop", &"GoldButton")
-	_add_grid_button(row2, "LOCKER", "locker")
-	var row3 := UIKit.hbox(10)
-	buttons.add_child(row3)
-	_add_grid_button(row3, "STATS", "stats")
-	_add_grid_button(row3, "SETTINGS", "settings")
-	var row4 := UIKit.hbox(10)
-	buttons.add_child(row4)
-	_challenges_button = _add_grid_button(row4, "CHALLENGES", "challenges")
-	_add_grid_button(row4, "ACHIEVEMENTS", "achievements")
-	var row5 := UIKit.hbox(10)
-	buttons.add_child(row5)
-	var range_button := UIKit.button("FIRING RANGE")
-	range_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	range_button.custom_minimum_size.y = 50
-	range_button.pressed.connect(func() -> void: Net.play_range())
-	row5.add_child(range_button)
-	var tutorial_button := UIKit.button("TUTORIAL")
-	tutorial_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	tutorial_button.custom_minimum_size.y = 50
-	tutorial_button.pressed.connect(start_tutorial)
-	row5.add_child(tutorial_button)
-	var quit := UIKit.button("QUIT", &"DangerButton")
-	quit.pressed.connect(func() -> void: get_tree().quit())
-	buttons.add_child(quit)
+	var menu_row := UIKit.hbox(22)
+	menu_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	left.add_child(menu_row)
+	var column := UIKit.vbox(10)
+	column.custom_minimum_size.x = 300
+	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	menu_row.add_child(column)
+	_flyout_slot = Control.new()
+	_flyout_slot.custom_minimum_size.x = 300
+	_flyout_slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	menu_row.add_child(_flyout_slot)
+
+	_play_button = _add_tile(column, "play", "PLAY", &"PrimaryButton", func() -> void: _toggle_flyout("play"))
+	_add_tile(column, "locker", "LOCKER", &"", func() -> void: go("locker"))
+	_add_tile(column, "shop", "SHOP", &"GoldButton", func() -> void: go("shop"))
+	_progress_button = _add_tile(column, "progress", "PROGRESS", &"", func() -> void: _toggle_flyout("progress"))
+	_add_tile(column, "settings", "SETTINGS", &"", func() -> void: go("settings"))
+	_add_tile(column, "quit", "QUIT", &"DangerButton", func() -> void: get_tree().quit())
+
+	_add_flyout("play", "PLAY", [
+		["bots", "PLAY VS BOTS", &"PrimaryButton", func() -> void: go("play")],
+		["host", "HOST GAME", &"", func() -> void: go("host")],
+		["join", "JOIN GAME", &"", func() -> void: go("join")],
+		["range", "FIRING RANGE", &"", func() -> void: Net.play_range()],
+		["tutorial", "TUTORIAL", &"", start_tutorial],
+	])
+	var progress := _add_flyout("progress", "PROGRESS", [
+		["stats", "STATS", &"", func() -> void: go("stats")],
+		["challenges", "CHALLENGES", &"", func() -> void: go("challenges")],
+		["achievements", "ACHIEVEMENTS", &"", func() -> void: go("achievements")],
+	])
+	_challenges_button = progress[1]
 
 	row.add_child(UIKit.spacer())
 	var right := UIKit.vbox(0)
@@ -431,18 +438,124 @@ func _build_home() -> MenuScreen:
 	return home
 
 
-func _add_grid_button(parent: Container, text: String, screen: String, variation: StringName = &"") -> Button:
-	var b := UIKit.button(text, variation)
-	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	b.size_flags_stretch_ratio = 1.0
-	b.custom_minimum_size.y = 50
-	b.pressed.connect(func() -> void: go(screen))
-	parent.add_child(b)
-	return b
+## A primary home tile (big, with icon): `action` runs on press. The PLAY and PROGRESS tiles'
+## ids are also their sub-panel ids.
+func _add_tile(parent: Container, icon_id: String, text: String, variation: StringName, action: Callable) -> MenuTile:
+	var dark := variation == &"GoldButton"
+	var t := MenuTile.new(text, icon_id, variation, 60.0, 24, UITheme.ACCENT,
+		Color("2a1c00") if dark else UITheme.TEXT)
+	t.pressed.connect(func() -> void:
+		if not _flyouts.has(icon_id):
+			# Clicked with the mouse while a sub-panel is open: close it first.
+			_close_flyout(false)
+			_home_focus = t
+		action.call())
+	_primary.append(t)
+	parent.add_child(t)
+	return t
+
+
+## A sub-panel beside the primary column, opened by tile `id`: a header, one tile per entry
+## (`[icon, text, variation, action]`) and BACK. Returns its tiles in entry order.
+func _add_flyout(id: String, header: String, entries: Array) -> Array[MenuTile]:
+	var panel := UIKit.panel()
+	_round_panel(panel, Color(0.04, 0.05, 0.08, 0.8), Color(UITheme.ACCENT, 0.35), 20, 14)
+	panel.custom_minimum_size.x = 300
+	panel.visible = false
+	_flyout_slot.add_child(panel)
+	var v := UIKit.vbox(8)
+	panel.add_child(v)
+	v.add_child(UIKit.label(header, &"SubheaderLabel"))
+	var tiles: Array[MenuTile] = []
+	for e: Array in entries:
+		var t := MenuTile.new(e[1], e[0], e[2], 50.0, 19)
+		var action: Callable = e[3]
+		t.pressed.connect(func() -> void:
+			_home_focus = t
+			action.call())
+		v.add_child(t)
+		tiles.append(t)
+	var back := MenuTile.new("BACK", "back", &"", 42.0, 16, UITheme.TEXT_DIM, UITheme.TEXT_DIM)
+	back.pressed.connect(func() -> void: _close_flyout(true))
+	v.add_child(back)
+	tiles.append(back)
+	# Left on the D-pad / arrow keys also steps back out to the primary column.
+	for t in tiles:
+		t.gui_input.connect(func(event: InputEvent) -> void:
+			if event.is_action_pressed(&"ui_left"):
+				t.accept_event()
+				_close_flyout(true))
+	_flyouts[id] = panel
+	return tiles
+
+
+func _toggle_flyout(id: String) -> void:
+	if _open_flyout == id:
+		_close_flyout(true)
+		return
+	if not _open_flyout.is_empty():
+		_close_flyout(false)
+	_open_flyout = id
+	var parent: MenuTile = _flyout_parent(id)
+	parent.selected = true
+	# While a sub-panel is open the primary tiles stay clickable but leave the focus chain, so the
+	# D-pad moves within the sub-panel; Esc / B / left / BACK return.
+	for t in _primary:
+		t.focus_mode = Control.FOCUS_NONE
+		if t != parent:
+			t.modulate = Color(1, 1, 1, 0.55)
+	var panel: Control = _flyouts[id]
+	panel.visible = true
+	panel.reset_size()
+	# Beside its tile, but never past the bottom of the window.
+	var lowest := get_viewport_rect().size.y - 24.0 - _flyout_slot.global_position.y - panel.size.y
+	panel.position = Vector2(-16.0, minf(maxf(parent.position.y - 44.0, 0.0), lowest))
+	panel.modulate.a = 0.0
+	var tw := panel.create_tween().set_parallel().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	tw.tween_property(panel, "modulate:a", 1.0, TRANSITION)
+	tw.tween_property(panel, "position:x", 0.0, TRANSITION)
+	var first := _first_focusable(panel)
+	_home_focus = first
+	first.grab_focus.call_deferred()
+
+
+## Closes the open sub-panel; `refocus` moves the focus back to the tile that opened it.
+func _close_flyout(refocus: bool) -> void:
+	if _open_flyout.is_empty():
+		return
+	var parent: MenuTile = _flyout_parent(_open_flyout)
+	(_flyouts[_open_flyout] as Control).visible = false
+	_open_flyout = ""
+	parent.selected = false
+	for t in _primary:
+		t.focus_mode = Control.FOCUS_ALL
+		t.modulate = Color.WHITE
+	_home_focus = parent
+	if refocus:
+		Sfx.play(&"ui_click")
+		parent.grab_focus()
+
+
+func _flyout_parent(id: String) -> MenuTile:
+	return _play_button if id == "play" else _progress_button
+
+
+## Focus for the home screen: the tile used last (inside an open sub-panel too), else PLAY.
+func _focus_home() -> void:
+	if _home_focus != null and _home_focus.is_visible_in_tree() and _home_focus.focus_mode == Control.FOCUS_ALL:
+		_home_focus.grab_focus()
+	else:
+		_play_button.grab_focus()
+
+
+## Gives `p` a smooth rounded panel style (radius `radius`, content padding `pad`).
+func _round_panel(p: PanelContainer, bg: Color, border: Color, radius: int, pad := 16) -> PanelContainer:
+	p.add_theme_stylebox_override("panel", UITheme.round_box(bg, border, 2, radius, pad, 8))
+	return p
 
 
 func _build_profile_card() -> Control:
-	var card := UIKit.panel()
+	var card := _round_panel(UIKit.panel(), UITheme.PANEL, Color(1, 1, 1, 0.08), 20)
 	card.custom_minimum_size.x = 360
 	var v := UIKit.vbox(10)
 	card.add_child(v)
@@ -453,6 +566,10 @@ func _build_profile_card() -> Control:
 	_name_edit.select_all_on_focus = true
 	_name_edit.text_submitted.connect(func(_t: String) -> void: _commit_name())
 	_name_edit.focus_exited.connect(_commit_name)
+	_name_edit.add_theme_stylebox_override("normal", UITheme.round_box(UITheme.INSET, Color(0, 0, 0, 0.35), 2, 12, 10))
+	var name_focus := UITheme.round_box(Color(0, 0, 0, 0), Color(UITheme.ACCENT, 0.95), 2, 13, 10)
+	name_focus.draw_center = false
+	_name_edit.add_theme_stylebox_override("focus", name_focus)
 	v.add_child(_name_edit)
 
 	var lvl_row := UIKit.hbox(8)
@@ -467,11 +584,14 @@ func _build_profile_card() -> Control:
 	_xp_bar.theme_type_variation = &"XPBar"
 	_xp_bar.show_percentage = false
 	_xp_bar.custom_minimum_size.y = 18
+	_xp_bar.add_theme_stylebox_override("background", UITheme.round_box(UITheme.INSET, Color(0, 0, 0, 0.35), 1, 9, 0))
+	_xp_bar.add_theme_stylebox_override("fill", UITheme.round_box(UITheme.ACCENT_2, Color(0, 0, 0, 0), 0, 9, 0))
 	v.add_child(_xp_bar)
 
 	v.add_child(HSeparator.new())
 	_daily_button = UIKit.button("", &"GoldButton", false)
 	_daily_button.custom_minimum_size.y = 50
+	MenuTile.round_styles(_daily_button, UITheme.BUTTON_GOLD, 16)
 	_daily_button.pressed.connect(_claim_daily)
 	v.add_child(_daily_button)
 	return card
@@ -497,7 +617,9 @@ func _refresh_profile() -> void:
 		_xp_bar.value = Profile.xp
 		_xp_label.text = "LVL %d  ·  %s / %s XP" % [Profile.level, UIKit.format_int(Profile.xp), UIKit.format_int(need)]
 	var to_claim := Profile.claimable_challenges()
-	_challenges_button.text = "CHALLENGES (%d)" % to_claim if to_claim > 0 else "CHALLENGES"
+	var badge := str(to_claim) if to_claim > 0 else ""
+	_challenges_button.set_badge(badge)
+	_progress_button.set_badge(badge)
 	_refresh_daily()
 
 
