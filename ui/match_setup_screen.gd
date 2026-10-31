@@ -22,6 +22,62 @@ const MODE_HINTS := {
 	"infected": "10 s in, one player turns Infected: melee only (their own melee weapon), faster, tougher. Everyone they kill turns too. Survivors win if any are left at the end. Rocket Party and Snipers Only are off.",
 	"tactical": "25 v 25 in Block HQ, bots fill every slot. 30 s of planning behind barriers, then find your weapons: everyone starts with their melee weapon. One life; the last team standing wins.",
 }
+## One line under each mode card's name.
+const MODE_TAGS := {
+	"ffa": "Everyone for themselves",
+	"tdm": "Two teams, team kills count",
+	"gungame": "A new gun with every kill",
+	"koth": "Hold the moving zone alone",
+	"infected": "Outlast the spreading horde",
+	"tactical": "25 v 25, plan, one life",
+}
+const MODE_COLORS := {
+	"ffa": Color("ff8a4c"), "tdm": Color("4fa3ff"), "gungame": Color("ffc531"),
+	"koth": Color("c58bff"), "infected": Color("7be05a"), "tactical": Color("9fb3c8"),
+}
+
+
+## Small code-drawn emblem on a mode card.
+class ModeIcon extends Control:
+	var mode := "ffa"
+	var color := Color.WHITE
+
+	func _init(p_mode: String, p_color: Color) -> void:
+		mode = p_mode
+		color = p_color
+		custom_minimum_size = Vector2(40, 40)
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		size_flags_vertical = Control.SIZE_SHRINK_CENTER
+
+	func _draw() -> void:
+		var c := size * 0.5
+		draw_circle(c, 20.0, Color(color, 0.18))
+		var w := 3.0
+		match mode:
+			"ffa":
+				draw_arc(c, 10.0, 0.0, TAU, 32, color, w, true)
+				for d: Vector2 in [Vector2.UP, Vector2.DOWN, Vector2.LEFT, Vector2.RIGHT]:
+					draw_line(c + d * 6.0, c + d * 15.0, color, w, true)
+			"tdm":
+				draw_colored_polygon(PackedVector2Array([c + Vector2(-9, -11), c + Vector2(-1, 3), c + Vector2(-17, 3)]), color)
+				draw_rect(Rect2(c + Vector2(2, -6), Vector2(14, 14)), Color("ff8a4c"))
+			"gungame":
+				for i in 3:
+					draw_rect(Rect2(c + Vector2(-13 + i * 9, 8 - i * 7), Vector2(7, 6 + i * 7)), color)
+			"koth":
+				draw_colored_polygon(PackedVector2Array([c + Vector2(-13, 9), c + Vector2(-13, -7), c + Vector2(-6, 0),
+					c + Vector2(0, -11), c + Vector2(6, 0), c + Vector2(13, -7), c + Vector2(13, 9)]), color)
+			"infected":
+				draw_circle(c, 12.0, color)
+				draw_circle(c + Vector2(-4.5, -2), 2.6, Color(0.05, 0.12, 0.05))
+				draw_circle(c + Vector2(4.5, -2), 2.6, Color(0.05, 0.12, 0.05))
+				draw_line(c + Vector2(-5, 5), c + Vector2(5, 5), Color(0.05, 0.12, 0.05), 2.0, true)
+			"tactical":
+				draw_rect(Rect2(c + Vector2(-11, -13), Vector2(22, 26)), color)
+				for y in 3:
+					for x in 2:
+						draw_rect(Rect2(c + Vector2(-7 + x * 9, -9 + y * 7), Vector2(5, 4)), Color(0.08, 0.1, 0.14))
+
 
 const LINK_HINTS := {
 	Net.Link.DIRECT: "Wi-Fi friends see it under Join; others use the room code.",
@@ -38,6 +94,7 @@ var _status: Label
 var _start: Button
 var _players_slider: HSlider
 var _map_group: ButtonGroup
+var _map_grid: GridContainer
 var _difficulty_row: HBoxContainer
 ## Port and address rows, only shown for the DIRECT connection.
 var _direct_rows: Array[Control] = []
@@ -52,10 +109,14 @@ var _mutator_row: HBoxContainer
 var _streak_row: HBoxContainer
 ## Map preview rects still waiting for their texture.
 var _preview_queue: Array[TextureRect] = []
+## Mode cards in MODE_IDS order (a ButtonGroup of toggles).
 var _mode_row: Container
 ## Rule rows (name label and control) and the modes that show them.
 var _mode_rules: Array = []
 var _rules_hint: Label
+## Second preset row (name, SAVE, RENAME, DELETE), opened with the EDIT toggle.
+var _preset_manage: Container
+var _preset_edit: Button
 var _link_row: Container
 ## Match setup presets (Profile.match_presets): the list, the name field and its buttons.
 var _preset_pick: OptionButton
@@ -127,25 +188,43 @@ static func current_choice() -> Dictionary:
 func _ready() -> void:
 	var page := make_page()
 	page.add_child(make_header("HOST GAME" if hosting else "PLAY VS BOTS",
-		"Friends join by room code, on the same Wi-Fi or through Steam. Bots fill the empty slots." if hosting else "Offline match against bots."))
-	var body := UIKit.hbox(18)
+		"Friends join by room code, Wi-Fi or Steam. Bots fill the empty slots." if hosting else "Offline match against bots."))
+	var body := UIKit.hbox(16)
 	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	page.add_child(body)
 
-	# Map picker
-	var map_panel := UIKit.panel()
-	map_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	map_panel.size_flags_stretch_ratio = 1.55
-	body.add_child(map_panel)
-	var mv := UIKit.vbox(12)
-	map_panel.add_child(mv)
-	mv.add_child(UIKit.label("MAP", &"SubheaderLabel"))
+	# Left: one big card per mode.
+	var modes := UIKit.vbox(8)
+	modes.custom_minimum_size.x = 262
+	body.add_child(modes)
+	modes.add_child(UIKit.label("MODE", &"SubheaderLabel"))
+	_mode_row = UIKit.vbox(8)
+	_mode_row.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	modes.add_child(_mode_row)
+	var mode_group := ButtonGroup.new()
+	for id: String in MODE_IDS:
+		_mode_row.add_child(_mode_card(id, mode_group))
+
+	# Middle: map preview cards.
+	var mv := UIKit.vbox(8)
+	mv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	body.add_child(mv)
+	var map_head := UIKit.hbox(12)
+	mv.add_child(map_head)
+	map_head.add_child(UIKit.label("MAP", &"SubheaderLabel"))
+	_map_desc = UIKit.label("", &"DimLabel")
+	_map_desc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_map_desc.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_map_desc.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	_map_desc.add_theme_font_size_override("font_size", 14)
+	map_head.add_child(_map_desc)
 	var grid := GridContainer.new()
 	grid.columns = 3
-	grid.add_theme_constant_override("h_separation", 12)
-	grid.add_theme_constant_override("v_separation", 12)
+	grid.add_theme_constant_override("h_separation", 10)
+	grid.add_theme_constant_override("v_separation", 10)
 	grid.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	mv.add_child(grid)
+	_map_grid = grid
 	var group := ButtonGroup.new()
 	_map_group = group
 	_add_map_card(grid, group, ROTATION, "Rotation", "Play every map in turn.")
@@ -153,51 +232,36 @@ func _ready() -> void:
 		_add_map_card(grid, group, id, Data.MAPS[id].name, Data.MAPS[id].desc)
 	# Tactical's map; the only card shown in that mode.
 	_add_map_card(grid, group, Data.TACTICAL_MAP, Data.MAPS[Data.TACTICAL_MAP].name, Data.MAPS[Data.TACTICAL_MAP].desc)
-	_map_desc = UIKit.label("", &"DimLabel")
-	_map_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	mv.add_child(_map_desc)
 
-	# Rules
+	# Right: presets strip, the rules that apply to the mode, START.
 	var rules_panel := UIKit.panel()
-	rules_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	rules_panel.custom_minimum_size.x = 384
 	body.add_child(rules_panel)
-	var rv := UIKit.vbox(12)
+	var rv := UIKit.vbox(10)
 	rules_panel.add_child(rv)
 	_build_presets(rv)
-	rv.add_child(HSeparator.new())
-	rv.add_child(UIKit.label("MATCH RULES", &"SubheaderLabel"))
+	rv.add_child(UIKit.label("RULES", &"SubheaderLabel"))
 	# The rules (and the host's connection rows) scroll when a mode's rows outgrow a 720p window,
 	# so the status line and the start button always stay on screen below them.
 	var scroll := UIKit.pad_friendly(ScrollContainer.new())
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	rv.add_child(scroll)
-	var sv := UIKit.vbox(12)
+	var sv := UIKit.vbox(10)
 	sv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(sv)
 	var rules := GridContainer.new()
 	rules.columns = 2
-	rules.add_theme_constant_override("h_separation", 14)
-	rules.add_theme_constant_override("v_separation", 12)
+	rules.add_theme_constant_override("h_separation", 10)
+	rules.add_theme_constant_override("v_separation", 8)
 	sv.add_child(rules)
 
-	var mode_names: Array[String] = []
-	for id in MODE_IDS:
-		mode_names.append(str(Data.MODES[id].short))
-	# Six modes: two rows of three buttons.
-	_mode_row = _segmented(mode_names, MODE_IDS.find(_choice.mode), func(i: int) -> void:
-		_choice.mode = MODE_IDS[i]
-		_apply_mode(), 3)
-	_rule(rules, "MODE", _mode_row)
-
-	var players_row := UIKit.hbox(10)
+	var players_row := UIKit.hbox(8)
 	var players := HSlider.new()
 	_players_slider = players
 	players.min_value = 2
 	players.max_value = Data.MAX_PLAYERS
 	players.step = 1
-	players.tick_count = Data.MAX_PLAYERS - 1
-	players.ticks_on_borders = true
 	players.value = _choice.bots_fill
 	players.custom_minimum_size.y = 26
 	players.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -206,9 +270,10 @@ func _ready() -> void:
 		_choice.bots_fill = int(v)
 		_update_players_label())
 	players_row.add_child(players)
-	_players_label = UIKit.label("", &"ValueLabel", HORIZONTAL_ALIGNMENT_RIGHT)
-	_players_label.add_theme_font_size_override("font_size", 16)
-	_players_label.custom_minimum_size.x = 104
+	_players_label = UIKit.label("", &"SmallLabel", HORIZONTAL_ALIGNMENT_RIGHT)
+	_players_label.add_theme_color_override("font_color", UITheme.TEXT)
+	_players_label.custom_minimum_size.x = 86
+	_players_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	players_row.add_child(_players_label)
 	_rule(rules, "PLAYERS", players_row)
 	_mode_rule(rules, ["ffa", "tdm", "gungame", "koth", "infected"])
@@ -224,7 +289,7 @@ func _ready() -> void:
 		kill_names.append(str(k))
 	_kill_row = _segmented(kill_names, KILL_LIMITS.find(_choice.kill_limit),
 		func(i: int) -> void: _choice.kill_limit = KILL_LIMITS[i])
-	_rule(rules, "KILL LIMIT", _kill_row)
+	_rule(rules, "KILLS", _kill_row)
 	_mode_rule(rules, ["ffa"])
 	var team_kill_names: Array[String] = []
 	for k in TEAM_KILL_LIMITS:
@@ -235,10 +300,10 @@ func _ready() -> void:
 	_mode_rule(rules, ["tdm"])
 	var ladder_names: Array[String] = []
 	for n in GunGame.LENGTHS:
-		ladder_names.append("%d GUNS" % (n - 1) if n < GunGame.max_length() else "ALL %d" % (n - 1))
+		ladder_names.append("%d" % (n - 1) if n < GunGame.max_length() else "ALL %d" % (n - 1))
 	_ladder_row = _segmented(ladder_names, GunGame.LENGTHS.find(_choice.ladder),
 		func(i: int) -> void: _choice.ladder = GunGame.LENGTHS[i])
-	_rule(rules, "LADDER", _ladder_row)
+	_rule(rules, "GUNS", _ladder_row)
 	_mode_rule(rules, ["gungame"])
 	var koth_names: Array[String] = []
 	for k in KingOfTheBlock.LIMITS:
@@ -252,7 +317,7 @@ func _ready() -> void:
 		time_names.append("%d MIN" % t)
 	_time_row = _segmented(time_names, TIME_LIMITS.find(_choice.time_minutes),
 		func(i: int) -> void: _choice.time_minutes = TIME_LIMITS[i])
-	_rule(rules, "TIME LIMIT", _time_row)
+	_rule(rules, "TIME", _time_row)
 	var mutator_names: Array[String] = ["RANDOM", "OFF"]
 	_mutator_row = _segmented(mutator_names, 0 if _choice.mutators else 1,
 		func(i: int) -> void: _choice.mutators = i == 0)
@@ -260,8 +325,9 @@ func _ready() -> void:
 	_mode_rule(rules, ["ffa", "tdm", "gungame", "koth", "infected"])
 	_streak_row = _segmented(["ON", "OFF"] as Array[String], 0 if _streaks_on() else 1,
 		func(i: int) -> void: _choice.streaks[_choice.mode] = i == 0)
-	_rule(rules, "KILLSTREAKS", _streak_row)
+	_rule(rules, "STREAKS", _streak_row)
 	_rules_hint = UIKit.label(MODE_HINTS.ffa, &"DimLabel")
+	_rules_hint.add_theme_font_size_override("font_size", 13)
 	_rules_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	sv.add_child(_rules_hint)
 
@@ -270,11 +336,12 @@ func _ready() -> void:
 		_build_host_section(sv)
 
 	_status = UIKit.label("", &"DimLabel")
+	_status.add_theme_font_size_override("font_size", 13)
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	rv.add_child(_status)
 	_start = UIKit.button("START HOSTING" if hosting else "START MATCH", &"PrimaryButton")
 	_start.add_theme_font_size_override("font_size", 24)
-	_start.custom_minimum_size.y = 56
+	_start.custom_minimum_size.y = 58
 	_start.pressed.connect(_on_start)
 	rv.add_child(_start)
 
@@ -283,6 +350,44 @@ func _ready() -> void:
 		if _host_pending:
 			Net.leave())
 	_select_map(_choice.map)
+	_apply_mode()
+
+
+## A big selectable mode card: emblem, name and a one-line description.
+func _mode_card(id: String, group: ButtonGroup) -> Button:
+	var card := UIKit.button("", &"CardButton")
+	card.toggle_mode = true
+	card.button_group = group
+	card.name = id
+	card.custom_minimum_size = Vector2(0, 62)
+	card.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	card.button_pressed = id == _choice.mode
+	card.pressed.connect(func() -> void: pick_mode(id))
+	var h := UIKit.hbox(12)
+	h.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	h.offset_left = 12
+	h.offset_right = -10
+	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(h)
+	h.add_child(ModeIcon.new(id, MODE_COLORS[id]))
+	var v := UIKit.vbox(0)
+	v.alignment = BoxContainer.ALIGNMENT_CENTER
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	h.add_child(v)
+	var title := UIKit.label(str(Data.MODES[id].name).to_upper(), &"ValueLabel")
+	title.add_theme_font_size_override("font_size", 16)
+	v.add_child(title)
+	var tag := UIKit.label(MODE_TAGS[id], &"DimLabel")
+	tag.add_theme_font_size_override("font_size", 13)
+	v.add_child(tag)
+	return card
+
+
+## Picks a mode as its card would (also used by scripted checks).
+func pick_mode(id: String) -> void:
+	_choice.mode = id
+	_pick_segment(_mode_row, MODE_IDS.find(id))
 	_apply_mode()
 
 
@@ -325,6 +430,8 @@ func _apply_mode() -> void:
 	_pick_segment(_streak_row, 0 if _streaks_on() else 1)
 	for b in _map_group.get_buttons():
 		b.visible = (b.name == Data.TACTICAL_MAP) == tactical
+	# Tactical's single card keeps a card's size instead of filling the whole column.
+	_map_grid.size_flags_vertical = Control.SIZE_SHRINK_BEGIN if tactical else Control.SIZE_EXPAND_FILL
 	if tactical:
 		for b in _map_group.get_buttons():
 			b.set_pressed_no_signal(b.name == Data.TACTICAL_MAP)
@@ -340,7 +447,7 @@ func _pick_segment(row: Container, selected: int) -> void:
 
 func _rule_name(text: String) -> Label:
 	var l := UIKit.label(text, &"SmallLabel")
-	l.add_theme_color_override("font_color", UITheme.TEXT)
+	l.custom_minimum_size.x = 72
 	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	return l
 
@@ -359,21 +466,15 @@ func _mode_rule(grid: GridContainer, modes: Array) -> void:
 
 func _update_players_label() -> void:
 	var bots: int = _choice.bots_fill - 1
-	_players_label.text = "%d  ·  %d BOT%s" % [_choice.bots_fill, bots, "" if bots == 1 else "S"]
+	_players_label.text = "%d · %d BOT%s" % [_choice.bots_fill, bots, "" if bots == 1 else "S"]
 
 
-## Row of toggle buttons acting as a radio group (`columns` > 0: a grid of that many columns).
-func _segmented(names: Array[String], selected: int, on_pick: Callable, columns := 0) -> Container:
-	var h: Container = UIKit.hbox(6)
-	if columns > 0:
-		var grid := GridContainer.new()
-		grid.columns = columns
-		grid.add_theme_constant_override("h_separation", 6)
-		grid.add_theme_constant_override("v_separation", 6)
-		h = grid
+## Row of small toggle chips acting as a radio group.
+func _segmented(names: Array[String], selected: int, on_pick: Callable) -> Container:
+	var h: Container = UIKit.hbox(4)
 	var group := ButtonGroup.new()
 	for i in names.size():
-		var b := UIKit.button(names[i], &"TabButton")
+		var b := UIKit.button(names[i], &"ChipButton")
 		b.toggle_mode = true
 		b.button_group = group
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -389,24 +490,27 @@ func _add_map_card(grid: GridContainer, group: ButtonGroup, id: String, title: S
 	card.button_group = group
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	card.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	card.custom_minimum_size = Vector2(170, 130)
+	card.custom_minimum_size = Vector2(150, 120)
 	card.name = id
 	card.set_meta(&"desc", desc)
 	card.pressed.connect(func() -> void: _select_map(id))
+	if id == Data.TACTICAL_MAP:
+		card.custom_minimum_size.y = 300
 	grid.add_child(card)
-	var v := UIKit.vbox(6)
+	var v := UIKit.vbox(4)
 	v.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	v.offset_left = 8
-	v.offset_top = 8
-	v.offset_right = -8
-	v.offset_bottom = -8
+	v.offset_left = 6
+	v.offset_top = 6
+	v.offset_right = -6
+	v.offset_bottom = -6
 	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(v)
-	var pic_frame := UIKit.panel(&"InsetPanel")
-	pic_frame.add_theme_stylebox_override("panel", UITheme.panel_box(Color(0.1, 0.15, 0.22), Color(0, 0, 0, 0.6), 2, 2, 0))
+	# The rounded frame masks the preview's corners.
+	var pic_frame := PanelContainer.new()
+	pic_frame.add_theme_stylebox_override("panel", UITheme.round_box(Color(0.1, 0.15, 0.22), Color(0, 0, 0, 0), 0, 10, 0))
+	pic_frame.clip_children = CanvasItem.CLIP_CHILDREN_AND_DRAW
 	pic_frame.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	pic_frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	pic_frame.clip_contents = true
 	v.add_child(pic_frame)
 	if id == ROTATION:
 		var strip := UIKit.hbox(2)
@@ -417,7 +521,9 @@ func _add_map_card(grid: GridContainer, group: ButtonGroup, id: String, title: S
 	else:
 		pic_frame.add_child(_preview_rect(id))
 	var name_label := UIKit.label(title.to_upper(), &"ValueLabel")
-	name_label.add_theme_font_size_override("font_size", 16)
+	name_label.add_theme_font_size_override("font_size", 14)
+	name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	name_label.clip_text = true
 	v.add_child(name_label)
 
 
@@ -456,38 +562,34 @@ func _select_map(id: String) -> void:
 func _build_host_section(parent: VBoxContainer) -> void:
 	var grid := GridContainer.new()
 	grid.columns = 2
-	grid.add_theme_constant_override("h_separation", 14)
+	grid.add_theme_constant_override("h_separation", 10)
 	grid.add_theme_constant_override("v_separation", 8)
 	parent.add_child(grid)
 	var links: Array[int] = [Net.Link.DIRECT, Net.Link.STEAM, Net.Link.WEBRTC]
-	var link_names: Array[String] = ["CODE + WI-FI", "STEAM", "WEBRTC"]
+	var link_names: Array[String] = ["CODE · WI-FI", "STEAM", "WEBRTC"]
 	_link_row = _segmented(link_names, links.find(_choice.link), func(i: int) -> void:
 		_choice.link = links[i]
 		_update_link_rows())
-	_rule(grid, "CONNECTION", _link_row)
+	_rule(grid, "LINK", _link_row)
 
-	# One row per address; the first also holds the port (only joining by address uses it, and
-	# only over the internet does it need forwarding).
+	# One row per address, then the port (only joining by address uses it, and only over the
+	# internet does it need forwarding).
 	_port_edit = LineEdit.new()
 	_port_edit.text = str(Net.DEFAULT_PORT)
 	_port_edit.max_length = 5
 	_port_edit.custom_minimum_size.x = 84
+	_port_edit.add_theme_font_size_override("font_size", 15)
 	_port_edit.tooltip_text = "Port for joining by address. Forward it only for internet joins by address."
 	var addresses := NetLinkAddresses.local_addresses()
 	if addresses.is_empty():
-		var row := UIKit.hbox(8)
 		var none := UIKit.label("No local network found.", &"DimLabel")
-		none.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		none.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		row.add_child(none)
-		row.add_child(UIKit.label("PORT", &"SmallLabel"))
-		row.add_child(_port_edit)
-		_direct_rule(grid, "ADDRESS", row)
+		_direct_rule(grid, "ADDRESS", none)
 	for i in addresses.size():
 		var ip: String = addresses[i].address
-		var row := UIKit.hbox(8)
+		var row := UIKit.hbox(6)
 		var ip_label := UIKit.label(ip, &"ValueLabel")
-		ip_label.add_theme_font_size_override("font_size", 18)
+		ip_label.add_theme_font_size_override("font_size", 16)
 		ip_label.add_theme_color_override("font_color", UITheme.ACCENT_2)
 		ip_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		row.add_child(ip_label)
@@ -495,17 +597,15 @@ func _build_host_section(parent: VBoxContainer) -> void:
 		kind.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		kind.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		row.add_child(kind)
-		if i == 0:
-			var port_label := UIKit.label("PORT", &"SmallLabel")
-			port_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-			row.add_child(port_label)
-			row.add_child(_port_edit)
-		var copy := UIKit.button("COPY", &"IconButton")
+		var copy := UIKit.button("COPY", &"ChipButton")
 		copy.pressed.connect(func() -> void:
 			DisplayServer.clipboard_set(ip)
 			_status.text = "Copied %s to the clipboard." % ip)
 		row.add_child(copy)
 		_direct_rule(grid, "ADDRESS" if i == 0 else "", row)
+	var port_row := UIKit.hbox(6)
+	port_row.add_child(_port_edit)
+	_direct_rule(grid, "PORT", port_row)
 	_update_link_rows()
 
 
@@ -526,44 +626,51 @@ func _update_link_rows() -> void:
 
 # ---------------------------------------------------------------- presets
 
-## Saved match setups (Profile.match_presets): pick one to load, rename, delete or start it right
-## away (QUICK PLAY / QUICK HOST); SAVE stores the current choices under the typed name.
+## Saved match setups (Profile.match_presets), as a compact strip: pick one to load or start it
+## right away (QUICK PLAY / QUICK HOST); EDIT opens a second row to save the current choices under
+## a name, rename or delete the picked one.
 func _build_presets(parent: VBoxContainer) -> void:
-	var top := UIKit.hbox(8)
+	var top := UIKit.hbox(4)
 	parent.add_child(top)
-	var title := UIKit.label("PRESETS", &"SubheaderLabel")
-	title.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	top.add_child(title)
 	_preset_pick = OptionButton.new()
 	_preset_pick.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_preset_pick.fit_to_longest_item = false
+	_preset_pick.clip_text = true
+	_preset_pick.add_theme_font_size_override("font_size", 14)
 	_preset_pick.item_selected.connect(_on_preset_picked)
 	top.add_child(_preset_pick)
-	_preset_quick = UIKit.button("QUICK HOST" if hosting else "QUICK PLAY")
+	_preset_load = UIKit.button("LOAD", &"ChipButton")
+	_preset_load.pressed.connect(_on_preset_load)
+	top.add_child(_preset_load)
+	_preset_quick = UIKit.button("QUICK HOST" if hosting else "QUICK PLAY", &"ChipButton")
 	_preset_quick.tooltip_text = "Load the picked preset and start straight away."
 	_preset_quick.pressed.connect(_on_preset_quick)
 	top.add_child(_preset_quick)
-	var row := UIKit.hbox(6)
+	_preset_edit = UIKit.button("EDIT", &"ChipButton")
+	_preset_edit.toggle_mode = true
+	_preset_edit.tooltip_text = "Save, rename or delete presets."
+	_preset_edit.toggled.connect(func(on: bool) -> void: _preset_manage.visible = on)
+	top.add_child(_preset_edit)
+	var row := UIKit.hbox(4)
+	_preset_manage = row
+	row.visible = false
 	parent.add_child(row)
 	_preset_name = LineEdit.new()
 	_preset_name.placeholder_text = "Preset name"
 	_preset_name.max_length = 16
 	_preset_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_preset_name.custom_minimum_size.x = 150
+	_preset_name.add_theme_font_size_override("font_size", 15)
 	_preset_name.text_submitted.connect(func(_t: String) -> void: _on_preset_save())
 	row.add_child(_preset_name)
-	var save := UIKit.button("SAVE", &"IconButton")
+	var save := UIKit.button("SAVE", &"ChipButton")
 	save.tooltip_text = "Save the current settings under this name (replaces a preset of the same name)."
 	save.pressed.connect(_on_preset_save)
 	row.add_child(save)
-	_preset_load = UIKit.button("LOAD", &"IconButton")
-	_preset_load.pressed.connect(_on_preset_load)
-	row.add_child(_preset_load)
-	_preset_rename = UIKit.button("RENAME", &"IconButton")
+	_preset_rename = UIKit.button("RENAME", &"ChipButton")
 	_preset_rename.tooltip_text = "Give the picked preset the name typed here."
 	_preset_rename.pressed.connect(_on_preset_rename)
 	row.add_child(_preset_rename)
-	_preset_delete = UIKit.button("DELETE", &"IconButton")
+	_preset_delete = UIKit.button("DELETE", &"ChipButton")
 	_preset_delete.pressed.connect(_on_preset_delete)
 	row.add_child(_preset_delete)
 	_refresh_presets(0)

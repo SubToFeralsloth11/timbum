@@ -99,7 +99,7 @@ func _card(id: String) -> Control:
 	var icon := PanelContainer.new()
 	icon.custom_minimum_size = Vector2(46, 46)
 	icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	icon.add_theme_stylebox_override("panel", UITheme.panel_box(GOLD.darkened(0.15) if unlocked else Color(0.22, 0.24, 0.3), GOLD if unlocked else Color(0.35, 0.37, 0.45), 2, 4, 0))
+	icon.add_theme_stylebox_override("panel", UITheme.round_box(GOLD.darkened(0.15) if unlocked else Color(0.22, 0.24, 0.3), GOLD if unlocked else Color(0.35, 0.37, 0.45), 2, 12, 0))
 	var mark := UIKit.label("★" if unlocked else "?", &"ValueLabel", HORIZONTAL_ALIGNMENT_CENTER)
 	mark.add_theme_font_size_override("font_size", 24)
 	mark.add_theme_color_override("font_color", Color(0.25, 0.14, 0.0) if unlocked else UITheme.TEXT_DIM)
