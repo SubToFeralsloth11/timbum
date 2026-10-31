@@ -219,6 +219,7 @@ func _ready() -> void:
 	_slider_row(audio, "master_volume", "Master volume", 0.0, 1.0, 0.01, "pct")
 	_slider_row(audio, "music_volume", "Music volume", 0.0, 1.0, 0.01, "pct")
 	_slider_row(audio, "sfx_volume", "Effects volume", 0.0, 1.0, 0.01, "pct")
+	_check_row(audio, "mute_unfocused", "Mute when unfocused")
 
 	var controls := _page(pages)
 	_build_controls(controls)

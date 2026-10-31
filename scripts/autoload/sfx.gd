@@ -54,6 +54,9 @@ func _init() -> void:
 		p.doppler_tracking = AudioStreamPlayer3D.DOPPLER_TRACKING_DISABLED
 		p.attenuation_filter_cutoff_hz = 9000.0
 		p.attenuation_filter_db = -12.0
+		# World sounds stop with a frozen (paused) offline match and resume with it; the rest of
+		# Sfx keeps running so pause-menu clicks and music still play.
+		p.process_mode = Node.PROCESS_MODE_PAUSABLE
 		add_child(p)
 		_pos.append(p)
 	_pos_started.resize(POSITIONAL_VOICES)

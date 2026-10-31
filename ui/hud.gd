@@ -165,6 +165,8 @@ var _map_vote_buttons: Array[Button] = []
 ## The last next-map vote counts from the server.
 var _map_counts: Array = []
 var _pause: PauseMenu
+## Canvas layer of the pause menu: above every HUD layer (the HUD is 10, overlays 11, photo mode 20).
+const PAUSE_LAYER := 50
 var _fps_label: Label
 ## Kill cam (KillCam) playing: the player's own cards, crosshair and death screen are hidden;
 ## the kill feed, chat, toasts, scoreboard and pause menu stay.
@@ -284,7 +286,14 @@ func _ready() -> void:
 	_pause.resume_requested.connect(_close_pause)
 	_pause.spectate_requested.connect(_on_spectate_requested)
 	_pause.photo_requested.connect(open_photo)
-	add_child(_pause)
+	# Its own canvas layer above every HUD overlay (streak and airstrike warnings, kill cam banner,
+	# Tactical / range / zone / ping overlays, tutorial and Gun Game cards, photo mode).
+	var pause_layer := CanvasLayer.new()
+	pause_layer.layer = PAUSE_LAYER
+	add_child(pause_layer)
+	pause_layer.add_child(_pause)
+	# Window focus-out notifications aren't propagated to child nodes, so listen to the window.
+	get_window().focus_exited.connect(_on_focus_lost)
 	# The scoreboard's SPECTATORS list follows Net.players.
 	Net.players_changed.connect(func() -> void: _scores_dirty = true)
 
@@ -1708,11 +1717,16 @@ func _open_pause() -> void:
 	world.set_frozen(true)
 
 
-## Clicking or alt-tabbing out of the game window opens the pause menu (and freezes an offline
-## match), so the match doesn't carry on without you.
+## Clicking or alt-tabbing out of the game, or minimising its window, opens the pause menu (and
+## freezes an offline match), so the match doesn't carry on without you.
 func _notification(what: int) -> void:
-	if what == NOTIFICATION_APPLICATION_FOCUS_OUT and is_inside_tree() and not _pause.visible \
-			and not _results.visible and not _celebrating and not world.photo.is_open():
+	if what == NOTIFICATION_APPLICATION_FOCUS_OUT:
+		_on_focus_lost()
+
+
+func _on_focus_lost() -> void:
+	if _pause != null and is_inside_tree() and not _pause.visible and not _results.visible and not _celebrating \
+			and not world.photo.is_open():
 		_close_chat()
 		_open_pause()
 

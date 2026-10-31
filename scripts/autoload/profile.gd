@@ -22,6 +22,8 @@ const DEFAULT_SETTINGS := {
 	"master_volume": 0.8,
 	"music_volume": 0.45,
 	"sfx_volume": 0.85,
+	## Silence the Master bus while the game window doesn't have focus (also in menus).
+	"mute_unfocused": true,
 	"fullscreen": false,
 	"vsync": true,
 	"quality": 1,
@@ -144,6 +146,8 @@ func _ready() -> void:
 	load_profile()
 	apply_settings()
 	get_tree().root.window_input.connect(_note_device)
+	get_tree().root.focus_exited.connect(_on_window_focus.bind(false))
+	get_tree().root.focus_entered.connect(_on_window_focus.bind(true))
 
 
 # ---------------------------------------------------------------- inventory
@@ -950,7 +954,7 @@ func set_setting(key: String, value: Variant) -> void:
 
 
 func apply_settings() -> void:
-	_set_bus_volume("Master", float(get_setting("master_volume")))
+	_apply_master()
 	_set_bus_volume("Music", float(get_setting("music_volume")))
 	_set_bus_volume("SFX", float(get_setting("sfx_volume")))
 	if DisplayServer.get_name() == "headless":
@@ -975,6 +979,22 @@ func _apply_graphics() -> void:
 	vp.scaling_3d_scale = float(get_setting("render_scale"))
 	BlockAtlas.set_detail(bool(get_setting("block_detail")))
 	MapBuilder.apply_graphics(get_tree())
+
+
+## The game window has focus. Clicking away, alt-tabbing or minimising clears it; with the
+## "mute_unfocused" setting the Master bus is muted until the window gets focus back.
+var window_focused := true
+
+
+func _on_window_focus(focused: bool) -> void:
+	window_focused = focused
+	_apply_master()
+
+
+func _apply_master() -> void:
+	_set_bus_volume("Master", float(get_setting("master_volume")))
+	if not window_focused and get_setting("mute_unfocused"):
+		AudioServer.set_bus_mute(AudioServer.get_bus_index("Master"), true)
 
 
 func _set_bus_volume(bus_name: String, linear: float) -> void:
