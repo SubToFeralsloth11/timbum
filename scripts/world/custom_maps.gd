@@ -197,30 +197,204 @@ static func _vec(v: Variant, size: Vector3i) -> Variant:
 # ---------------------------------------------------------------- validation
 
 ## Why `map` can't be played (empty when it can): at least MIN_SPAWNS spawns, the grid size within
-## MIN_SIZE..MAX_SIZE, and every spawn, pickup, jump pad and landing on a solid floor with two
-## free cells (feet and head) above.
+## MIN_SIZE..MAX_SIZE, every spawn, pickup, jump pad and landing on a solid floor with two
+## free cells (feet and head) above, and (once those spots are fine) every spawn, pickup and pad
+## reachable on foot from spawn 1 (`unreachable`, player rules).
 static func validate(map: Dictionary) -> PackedStringArray:
 	var out := PackedStringArray()
 	var g: VoxelGrid = map.grid
 	var s := g.size
 	if s.x < MIN_SIZE.x or s.y < MIN_SIZE.y or s.z < MIN_SIZE.z or s.x > MAX_SIZE.x or s.y > MAX_SIZE.y or s.z > MAX_SIZE.z:
 		out.append("Size %dx%dx%d is outside %dx%dx%d to %dx%dx%d." % [s.x, s.y, s.z, MIN_SIZE.x, MIN_SIZE.y, MIN_SIZE.z, MAX_SIZE.x, MAX_SIZE.y, MAX_SIZE.z])
+	var spots_ok := out.is_empty()
 	if map.spawns.size() < MIN_SPAWNS:
 		out.append("Place at least %d spawns (%d placed)." % [MIN_SPAWNS, map.spawns.size()])
 	for i in map.spawns.size():
 		var why := spot_problem(g, map.spawns[i])
 		if not why.is_empty():
 			out.append("Spawn %d %s." % [i + 1, why])
+			spots_ok = false
 	for i in map.pickups.size():
 		var why := spot_problem(g, map.pickups[i].pos)
 		if not why.is_empty():
 			out.append("%s pickup %d %s." % [str(map.pickups[i].kind).capitalize(), i + 1, why])
+			spots_ok = false
 	for i in map.jump_pads.size():
 		for key: String in ["pos", "target"]:
 			var why := spot_problem(g, map.jump_pads[i][key])
 			if not why.is_empty():
 				out.append("Jump pad %d %s %s." % [i + 1, "pad" if key == "pos" else "landing", why])
+				spots_ok = false
+	if spots_ok and not map.spawns.is_empty():
+		out.append_array(unreachable(map, false))
 	return out
+
+
+## The spawns, pickups and jump pads that can't be reached from spawn 1, as messages. Expects
+## validate()'s spot checks to pass. Player rules make a map unplayable (validate); bot rules are
+## advice the Map Editor shows on a playable map. A flood fill over the cells feet can stand in
+## (a full block below, two air cells for feet and head), with jump pads as one-way links from
+## the pad cell to the landing cell. Player rules (`bots` false): step to a neighbour on the
+## same level, jump up one block (with head room over the take-off cell), or drop down any
+## height onto a floor.
+## Bot rules (`bots` true) are the navmesh's (MapBuilder.navigation_mesh): it climbs at most
+## 0.25 m and links no drops, so bots only walk on the level; its 0.5 m agent radius erodes a
+## one-block-wide strip (walls, ledges or low ceilings on both sides) away. A bot counts as
+## reaching a spot when it gets to the spot's cell or a level neighbour of it.
+static func unreachable(map: Dictionary, bots: bool) -> PackedStringArray:
+	var f := _Flood.new(map, bots)
+	var out := PackedStringArray()
+	var why := " (bots only walk on the level, through gaps two blocks wide, and take jump pads)." if bots \
+		else " (walking, jumping up one block, dropping down or taking a jump pad)."
+	var lead := "Bots can't get from spawn 1 to %s" if bots else "%s can't be reached from spawn 1"
+	for i in range(1, map.spawns.size()):
+		if not f.reached(map.spawns[i]):
+			out.append(lead % ("spawn %d" % (i + 1) if bots else "Spawn %d" % (i + 1)) + why)
+	for i in map.pickups.size():
+		if not f.reached(map.pickups[i].pos):
+			out.append(lead % ("%s pickup %d" % [str(map.pickups[i].kind), i + 1] if bots \
+				else "%s pickup %d" % [str(map.pickups[i].kind).capitalize(), i + 1]) + why)
+	for i in map.jump_pads.size():
+		if not f.reached(map.jump_pads[i].pos):
+			out.append(lead % ("jump pad %d" % (i + 1) if bots else "Jump pad %d" % (i + 1)) + why)
+	return out
+
+
+## The flood fill behind unreachable(): `seen` marks the cells reached from spawn 1 (by
+## VoxelGrid.index). Standable cells are worked out once each (`_memo`), reading the grid's
+## arrays directly, so a 96 x 96 map stays cheap enough to recheck after every edit.
+class _Flood:
+	const DIRS: Array[Vector2i] = [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
+	var seen := PackedByteArray()
+	var bots := false
+	var _blocks: PackedByteArray
+	var _shapes: PackedByteArray
+	## Per cell: 0 not worked out yet, 1 standable, 2 not.
+	var _memo := PackedByteArray()
+	var _sx := 0
+	var _sy := 0
+	var _sz := 0
+	var _layer := 0
+
+	func _init(map: Dictionary, p_bots: bool) -> void:
+		var g: VoxelGrid = map.grid
+		bots = p_bots
+		_blocks = g.blocks
+		_shapes = g.shapes
+		_sx = g.size.x
+		_sy = g.size.y
+		_sz = g.size.z
+		_layer = _sx * _sz
+		seen.resize(_blocks.size())
+		_memo.resize(_blocks.size())
+		_fill(map)
+
+	## Index of cell (x, y, z), or -1 outside the grid.
+	func idx(x: int, y: int, z: int) -> int:
+		if x < 0 or y < 0 or z < 0 or x >= _sx or y >= _sy or z >= _sz:
+			return -1
+		return (y * _sz + z) * _sx + x
+
+	func cell(feet: Vector3) -> int:
+		return idx(floori(feet.x), floori(feet.y + 0.01), floori(feet.z))
+
+	## Air (outside the grid counts as air, like VoxelGrid.is_air).
+	func air(x: int, y: int, z: int) -> bool:
+		var i := idx(x, y, z)
+		return i < 0 or _blocks[i] == BlockAtlas.AIR
+
+	## Feet fit in cell (x, y, z): a full block under it, air for feet and head.
+	func stand(x: int, y: int, z: int) -> bool:
+		var i := idx(x, y, z)
+		if i < 0 or y == 0:
+			return false
+		var m := _memo[i]
+		if m == 0:
+			var below := i - _layer
+			var ok := _blocks[i] == BlockAtlas.AIR and _blocks[below] != BlockAtlas.AIR \
+				and _shapes[below] == VoxelGrid.CUBE and (y + 1 >= _sy or _blocks[i + _layer] == BlockAtlas.AIR)
+			m = 1 if ok else 2
+			_memo[i] = m
+		return m == 1
+
+	## A cell the bots' navmesh keeps: standable and not a one-wide strip along x or z.
+	func bot_cell(x: int, y: int, z: int) -> bool:
+		if not stand(x, y, z):
+			return false
+		if not stand(x - 1, y, z) and not stand(x + 1, y, z):
+			return false
+		return stand(x, y, z - 1) or stand(x, y, z + 1)
+
+	## Whether the spot with feet at `feet` was reached (bots: or a level neighbour of its cell).
+	func reached(feet: Vector3) -> bool:
+		var x := floori(feet.x)
+		var y := floori(feet.y + 0.01)
+		var z := floori(feet.z)
+		var i := idx(x, y, z)
+		if i >= 0 and seen[i] != 0:
+			return true
+		if bots:
+			for d in DIRS:
+				var j := idx(x + d.x, y, z + d.y)
+				if j >= 0 and seen[j] != 0:
+					return true
+		return false
+
+	func _fill(map: Dictionary) -> void:
+		# Pad cell index -> landing cells. A bot's route reaches a pad from a level neighbour too.
+		var pads := {}
+		for j: Dictionary in map.jump_pads:
+			var to := cell(j.target)
+			var p: Vector3 = j.pos
+			var from: Array[int] = [cell(p)]
+			if bots:
+				for d in DIRS:
+					from.append(cell(p + Vector3(d.x, 0, d.y)))
+			for k in from:
+				if k >= 0 and to >= 0:
+					if not pads.has(k):
+						pads[k] = []
+					pads[k].append(to)
+		var queue := PackedInt32Array()
+		var first := cell(map.spawns[0])
+		if first < 0:
+			return
+		seen[first] = 1
+		queue.append(first)
+		var head := 0
+		while head < queue.size():
+			var i := queue[head]
+			head += 1
+			var y := i / _layer
+			var z := (i % _layer) / _sx
+			var x := i % _sx
+			for d in DIRS:
+				var nx := x + d.x
+				var nz := z + d.y
+				if nx < 0 or nz < 0 or nx >= _sx or nz >= _sz:
+					continue
+				var to := -1
+				if bots:
+					if bot_cell(nx, y, nz):
+						to = idx(nx, y, nz)
+				elif stand(nx, y, nz):
+					to = idx(nx, y, nz)
+				elif stand(nx, y + 1, nz) and air(x, y + 2, z):
+					to = idx(nx, y + 1, nz)
+				elif air(nx, y, nz) and air(nx, y + 1, nz):
+					var fy := y
+					while fy > 0 and air(nx, fy - 1, nz):
+						fy -= 1
+					if stand(nx, fy, nz):
+						to = idx(nx, fy, nz)
+				if to >= 0 and seen[to] == 0:
+					seen[to] = 1
+					queue.append(to)
+			if pads.has(i):
+				for to: int in pads[i]:
+					if seen[to] == 0:
+						seen[to] = 1
+						queue.append(to)
 
 
 ## "" when feet at `feet` (grid space) stand on a full block with two air cells above, else why not.
@@ -246,6 +420,19 @@ static func save(map: Dictionary) -> Error:
 	f.close()
 	MapBuilder.forget_preview(id_for(map.name))
 	return OK
+
+
+## After the map saved as `old_name` was saved again as `new_name`: removes the old file. When
+## only the letter case changed on a case-insensitive disk the save rewrote the old file, so it
+## is renamed instead (its name then matches the map's).
+static func renamed(old_name: String, new_name: String) -> void:
+	if not FileAccess.file_exists(path_for(old_name)):
+		return
+	if DirAccess.get_files_at(DIR).has(new_name + ".json"):
+		DirAccess.remove_absolute(path_for(old_name))
+	else:
+		DirAccess.rename_absolute(path_for(old_name), path_for(new_name))
+	MapBuilder.forget_preview(id_for(old_name))
 
 
 ## The saved map `map_name`, or {} when it is missing or broken.

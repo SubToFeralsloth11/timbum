@@ -10,6 +10,9 @@ extends CanvasLayer
 ## control is a focusable button, so a controller can drive it.
 
 const PANEL_WIDTH := 430.0
+## Seconds between validation-card rechecks: the reachability flood fill costs up to tens of
+## milliseconds on the largest maps, so a run of edits rechecks a few times a second, not per edit.
+const CHECK_GAP := 0.3
 
 var editor: MapEditor
 
@@ -23,6 +26,9 @@ var _problems: Label
 var _problems_card: PanelContainer
 var _message: Label
 var _message_t := 0.0
+## The validation card needs a recheck (refresh), and seconds until the next one may run.
+var _check_due := true
+var _check_wait := 0.0
 var _tool_row: HBoxContainer
 var _hotbar: HBoxContainer
 var _panel: PanelContainer
@@ -101,6 +107,11 @@ func _process(delta: float) -> void:
 	if _message_t > 0.0:
 		_message_t -= delta
 		_message.modulate.a = clampf(_message_t, 0.0, 1.0)
+	_check_wait -= delta
+	if _check_due and _check_wait <= 0.0 and not editor.map.is_empty():
+		_check_due = false
+		_check_wait = CHECK_GAP
+		_refresh_checks()
 
 
 # ---------------------------------------------------------------- build
@@ -362,6 +373,30 @@ func _refresh_open_list() -> void:
 
 # ---------------------------------------------------------------- refresh
 
+## The validation card: what stops the map from being played (CustomMaps.validate), or on a
+## playable map the spots bots can't route to (MapEditor.bot_warnings), plus the marker counts.
+func _refresh_checks() -> void:
+	var problems := editor.problems()
+	var counts := "Spawns %d · Pickups %d · Jump pads %d" % [editor.map.spawns.size(), editor.map.pickups.size(), editor.map.jump_pads.size()]
+	if problems.is_empty():
+		var notes := editor.bot_warnings()
+		if notes.is_empty():
+			_problems.text = "READY TO PLAY\n" + counts
+			_problems.add_theme_color_override("font_color", UITheme.GOOD.lightened(0.2))
+		else:
+			var lines := notes.slice(0, 2)
+			if notes.size() > 2:
+				lines.append("... and %d more" % (notes.size() - 2))
+			_problems.text = "READY TO PLAY (BOTS WILL STRUGGLE)\n" + "\n".join(lines) + "\n" + counts
+			_problems.add_theme_color_override("font_color", Color(1, 0.9, 0.55))
+	else:
+		var lines := problems.slice(0, 4)
+		if problems.size() > 4:
+			lines.append("... and %d more" % (problems.size() - 4))
+		_problems.text = "NOT PLAYABLE YET\n" + "\n".join(lines) + "\n" + counts
+		_problems.add_theme_color_override("font_color", Color(1, 0.75, 0.6))
+
+
 func refresh() -> void:
 	if editor.map.is_empty():
 		return
@@ -373,17 +408,7 @@ func refresh() -> void:
 		tool_text += "  ·  %s" % ("PLACE THE LANDING" if editor.pad_start != null else "PLACE THE PAD")
 	_info.text = "%s%s  ·  %d x %d x %d\n%s" % [editor.map.name, " *" if editor.unsaved else "", s.x, s.z, s.y, tool_text]
 	_keys.text = "LMB place · RMB remove · 1-9 / wheel block · Q / E tool · R brush\nWASD fly · Space / Ctrl up / down · Shift fast · Ctrl+Z / Ctrl+Y undo / redo · Ctrl+S save · Tab menu"
-	var problems := editor.problems()
-	var counts := "Spawns %d · Pickups %d · Jump pads %d" % [editor.map.spawns.size(), editor.map.pickups.size(), editor.map.jump_pads.size()]
-	if problems.is_empty():
-		_problems.text = "READY TO PLAY\n" + counts
-		_problems.add_theme_color_override("font_color", UITheme.GOOD.lightened(0.2))
-	else:
-		var lines := problems.slice(0, 4)
-		if problems.size() > 4:
-			lines.append("... and %d more" % (problems.size() - 4))
-		_problems.text = "NOT PLAYABLE YET\n" + "\n".join(lines) + "\n" + counts
-		_problems.add_theme_color_override("font_color", Color(1, 0.75, 0.6))
+	_check_due = true
 	for chip: PanelContainer in _tool_row.get_children():
 		var t: String = chip.get_meta(&"tool")
 		var on := t == editor.tool

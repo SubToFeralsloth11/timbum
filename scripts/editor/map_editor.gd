@@ -59,6 +59,9 @@ var brush := 1
 var aim := {}
 ## Changes since the last save or load.
 var unsaved := false
+## The saved file (name) this map was opened from or last saved to; "" for a new, unsaved map.
+## A save under a different name moves the map: the old file goes once the new one is written.
+var file_name := ""
 ## JUMP PAD: the pad's feet position (grid space) once the first press placed it, else null.
 var pad_start: Variant = null
 var cam: FreeCam
@@ -108,6 +111,7 @@ func _ready() -> void:
 ## Starts a fresh map of `size` (a flat floor), named DEFAULT_NAME.
 func new_map(size: Vector3i) -> void:
 	_open(CustomMaps.new_map(size, DEFAULT_NAME))
+	file_name = ""
 	message.emit("New %d x %d map. Build away." % [size.x, size.z], false)
 
 
@@ -118,21 +122,27 @@ func load_saved(map_name: String) -> bool:
 		message.emit("Couldn't open %s." % map_name, true)
 		return false
 	_open(m)
+	file_name = map_name
 	message.emit("Opened %s." % map_name, false)
 	return true
 
 
 ## Saves to user://maps/<name>.json. Returns the validation problems (saved either way, so
-## unfinished maps keep; only playable maps show up in match setup).
+## unfinished maps keep; only playable maps show up in match setup). After a rename the file
+## under the old name is removed, but only once the new one was written.
 func save() -> PackedStringArray:
 	var problems := CustomMaps.validate(map)
 	var err := CustomMaps.save(map)
 	if err != OK:
 		message.emit("Couldn't save: %s." % error_string(err), true)
 		return problems
+	if not file_name.is_empty() and file_name != map.name:
+		CustomMaps.renamed(file_name, map.name)
+	file_name = map.name
 	unsaved = false
 	if problems.is_empty():
-		message.emit("Saved %s. It's in match setup under CUSTOM." % map.name, false)
+		var notes := bot_warnings()
+		message.emit("Saved %s. It's in match setup under CUSTOM.%s" % [map.name, "" if notes.is_empty() else " " + notes[0]], not notes.is_empty())
 	else:
 		message.emit("Saved %s, but it can't be played yet: %s" % [map.name, problems[0]], true)
 	changed.emit()
@@ -159,6 +169,11 @@ func set_time_of_day(tod: String) -> void:
 
 func problems() -> PackedStringArray:
 	return CustomMaps.validate(map)
+
+
+## Playable-map advice: the spots bots can't route to from spawn 1 (call when problems() is empty).
+func bot_warnings() -> PackedStringArray:
+	return CustomMaps.unreachable(map, true)
 
 
 func _open(m: Dictionary) -> void:
