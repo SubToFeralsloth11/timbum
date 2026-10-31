@@ -5,6 +5,17 @@ class_name UIKit
 static var _coin: ImageTexture
 
 
+## Screen point for a world-space marker. In front of the camera it is the projected point;
+## behind it (or level with it, where projecting fails) it sits on the bottom edge on the side
+## the point is on. Callers clamp it into their margins.
+static func marker_point(cam: Camera3D, pos: Vector3, view: Vector2) -> Vector2:
+	var local := cam.global_transform.affine_inverse() * pos
+	if -local.z < 0.05:
+		var side := signf(local.x) if absf(local.x) > 0.001 else 0.0
+		return Vector2(view.x * 0.5 + side * view.x * 0.5, view.y)
+	return cam.unproject_position(pos)
+
+
 ## Creates a themed button. `click` false lets the caller play its own sound (buy/error).
 static func button(text: String, variation: StringName = &"", click := true) -> Button:
 	var b := Button.new()

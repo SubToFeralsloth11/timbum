@@ -33,14 +33,7 @@ class MarkerLayer extends Control:
 		var view := get_viewport_rect().size
 		var me := cam.global_position
 		var pos := feet + Vector3.UP * 2.6
-		var at: Vector2
-		if cam.is_position_behind(pos):
-			# Mirror behind-the-camera points onto the bottom edge.
-			at = cam.unproject_position(me * 2.0 - pos)
-			at = Vector2(view.x - at.x, view.y - 40.0)
-		else:
-			at = cam.unproject_position(pos)
-		at = at.clamp(Vector2(40, 80), view - Vector2(40, 70))
+		var at := UIKit.marker_point(cam, pos, view).clamp(Vector2(40, 80), view - Vector2(40, 70))
 		var d := 12.0
 		var outline := PackedVector2Array([at + Vector2(0, -d), at + Vector2(d, 0), at + Vector2(0, d), at + Vector2(-d, 0), at + Vector2(0, -d)])
 		draw_colored_polygon(PackedVector2Array([at + Vector2(0, -d), at + Vector2(d, 0), at + Vector2(0, d), at + Vector2(-d, 0)]), Color(col, 0.85))

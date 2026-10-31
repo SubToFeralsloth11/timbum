@@ -25,15 +25,7 @@ class MarkerLayer extends Control:
 		for m: Dictionary in tactical.team_markers:
 			var pos: Vector3 = m.pos + Vector3.UP * 1.3
 			var col: Color = MARKER_COLORS.get(str(m.kind), Color.WHITE)
-			var at: Vector2
-			var behind := cam.is_position_behind(pos)
-			if behind:
-				# Mirror behind-the-camera points onto the bottom edge.
-				at = cam.unproject_position(me * 2.0 - pos)
-				at = Vector2(view.x - at.x, view.y - 40.0)
-			else:
-				at = cam.unproject_position(pos)
-			at = at.clamp(Vector2(30, 70), view - Vector2(30, 60))
+			var at := UIKit.marker_point(cam, pos, view).clamp(Vector2(30, 70), view - Vector2(30, 60))
 			var d := 10.0
 			draw_colored_polygon(PackedVector2Array([at + Vector2(0, -d), at + Vector2(d, 0), at + Vector2(0, d), at + Vector2(-d, 0)]), col)
 			draw_polyline(PackedVector2Array([at + Vector2(0, -d), at + Vector2(d, 0), at + Vector2(0, d), at + Vector2(-d, 0), at + Vector2(0, -d)]), Color(0, 0, 0, 0.8), 2.0)

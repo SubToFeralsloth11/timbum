@@ -1409,7 +1409,8 @@ func _update_damage_numbers(delta: float) -> void:
 			_damage_numbers.remove_at(i)
 			continue
 		l.visible = not cam.is_position_behind(pos)
-		l.position = cam.unproject_position(pos) - l.size * 0.5
+		if l.visible:
+			l.position = cam.unproject_position(pos) - l.size * 0.5
 		l.modulate.a = clampf((DAMAGE_NUMBER_LIFE - entry[2]) / 0.3, 0.0, 1.0)
 
 
