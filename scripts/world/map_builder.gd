@@ -30,7 +30,9 @@ const GRAPHICS_GROUP := &"map_graphics"
 static var _previews := {}
 
 
-static func build(map_id: String, root: Node3D, quality: int) -> MapInfo:
+## `editable` (the Demolition mutator) keeps the block grid, the VoxelMesher and the navigation
+## region in the MapInfo so blocks can be removed and the navmesh rebaked mid-match.
+static func build(map_id: String, root: Node3D, quality: int, editable := false) -> MapInfo:
 	var info := MapInfo.new()
 	var grid := generate(map_id, info)
 	var map_root := Node3D.new()
@@ -38,11 +40,15 @@ static func build(map_id: String, root: Node3D, quality: int) -> MapInfo:
 	root.add_child(map_root)
 	var xform := map_root.global_transform if map_root.is_inside_tree() else Transform3D.IDENTITY
 	var source := NavigationMeshSourceGeometryData3D.new()
-	VoxelMesher.build(grid, map_root, info.bounds.position, source, xform)
+	var mesher := VoxelMesher.build(grid, map_root, info.bounds.position, source, xform, Callable(), editable)
 	_add_bounds(map_root, info.bounds)
 	_add_environment(map_root, GENERATORS[info.id].ATMOSPHERE, quality)
 	info.nav_map = _add_navigation(map_root, source, info.bounds)
 	_add_jump_pads(map_root, info)
+	if editable:
+		info.grid = grid
+		info.mesher = mesher
+		info.nav_region = map_root.get_node_or_null(^"Navigation")
 	return info
 
 
@@ -287,14 +293,7 @@ static func _apply_graphics_to(node: Node) -> void:
 ## the rounded values are set directly to keep the bake free of precision
 ## warnings.
 static func _add_navigation(parent: Node3D, source: NavigationMeshSourceGeometryData3D, bounds: AABB) -> RID:
-	var nm := NavigationMesh.new()
-	nm.cell_size = NAV_CELL
-	nm.cell_height = NAV_CELL
-	nm.agent_radius = ceilf(0.45 / NAV_CELL) * NAV_CELL
-	nm.agent_height = ceilf(1.8 / NAV_CELL) * NAV_CELL
-	nm.agent_max_climb = floorf(0.3 / NAV_CELL) * NAV_CELL
-	nm.agent_max_slope = 50.0
-	nm.filter_baking_aabb = bounds.grow(1.0)
+	var nm := navigation_mesh(bounds)
 	NavigationServer3D.bake_from_source_geometry_data(nm, source)
 	if not parent.is_inside_tree():
 		push_error("MapBuilder: build() root must be inside the scene tree for navigation")
@@ -307,9 +306,23 @@ static func _add_navigation(parent: Node3D, source: NavigationMeshSourceGeometry
 	region.navigation_mesh = nm
 	parent.add_child(region)
 	# Sync region and map now (not on a worker thread) so bots can path
-	# immediately. The map is static afterwards, so synchronous iterations
-	# cost nothing later.
+	# immediately. The map only changes when Demolition swaps in a rebaked
+	# navmesh, so synchronous iterations cost nothing otherwise.
 	NavigationServer3D.region_set_use_async_iterations(region.get_rid(), false)
 	NavigationServer3D.map_set_use_async_iterations(map, false)
 	NavigationServer3D.map_force_update(map)
 	return map
+
+
+## An empty NavigationMesh with the map's bake settings (see _add_navigation); Demolition bakes
+## its rebakes into one.
+static func navigation_mesh(bounds: AABB) -> NavigationMesh:
+	var nm := NavigationMesh.new()
+	nm.cell_size = NAV_CELL
+	nm.cell_height = NAV_CELL
+	nm.agent_radius = ceilf(0.45 / NAV_CELL) * NAV_CELL
+	nm.agent_height = ceilf(1.8 / NAV_CELL) * NAV_CELL
+	nm.agent_max_climb = floorf(0.3 / NAV_CELL) * NAV_CELL
+	nm.agent_max_slope = 50.0
+	nm.filter_baking_aabb = bounds.grow(1.0)
+	return nm

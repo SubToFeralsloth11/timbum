@@ -58,6 +58,8 @@ var streaks: Streaks
 var pings: Pings
 ## Sprays on the walls (child "Sprays").
 var sprays: Sprays
+## Destructible blocks (child "Demolition"; idle unless the mutator is "demolition").
+var demolition: Demolition
 ## Kill cam replay (records on every peer; plays when another player kills the local player).
 var killcam: KillCam
 ## Spectating: a spectator's free / follow camera, or a dead player following teammates (Tactical).
@@ -134,7 +136,7 @@ func _ready() -> void:
 	var map_root := Node3D.new()
 	map_root.name = "Map"
 	add_child(map_root)
-	map_info = MapBuilder.build(Net.current_map, map_root, int(Profile.get_setting("quality")))
+	map_info = MapBuilder.build(Net.current_map, map_root, int(Profile.get_setting("quality")), Demolition.enabled())
 	_apply_time_of_day(map_root, str(Net.config.time_of_day))
 	var post := PostProcess.new()
 	post.name = "PostProcess"
@@ -171,6 +173,9 @@ func _ready() -> void:
 	sprays = Sprays.new()
 	sprays.world = self
 	add_child(sprays)
+	demolition = Demolition.new()
+	demolition.world = self
+	add_child(demolition)
 	killcam = KillCam.new()
 	killcam.name = "KillCam"
 	killcam.world = self
@@ -832,6 +837,8 @@ func server_blast(pos: Vector3, radius: float, max_dmg: float, owner_id: int, wi
 		if eid == owner_id:
 			dmg *= self_scale
 		_server_damage(p, dmg, owner_id, wid, false, pos)
+	# Demolition: blocks go after the damage, so they still shielded players from this blast.
+	demolition.server_blast(pos, wid)
 
 
 func _server_pickups(t: float) -> void:
@@ -1079,6 +1086,8 @@ func _c_ready() -> void:
 	if not Net.players.has(pid) or _ready_peers.has(pid):
 		return
 	_ready_peers[pid] = true
+	# Removed blocks first, so nobody is placed on a block the newcomer would still see.
+	demolition.server_sync(pid)
 	for eid: int in entities:
 		var p: Player = entities[eid]
 		_s_spawn_entity.rpc_id(pid, eid, p.info, p.is_bot, p.global_position, p.yaw, p.health, p.alive)

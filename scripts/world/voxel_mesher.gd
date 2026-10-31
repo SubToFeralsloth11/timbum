@@ -3,8 +3,15 @@ extends RefCounted
 ## Turns a VoxelGrid into chunked MeshInstance3D nodes (opaque + glass
 ## surfaces, atlas layers in UV2.x, emission in UV2.y, ambient occlusion in
 ## vertex colours) and per-chunk trimesh StaticBody3D collision on layer 1.
+## An `editable` build keeps the mesher (padded grid copy, chunk nodes and their collision
+## triangles) so blocks can be removed later (Demolition): `clear_cells`, then
+## `snapshot().mesh_chunks` on a worker thread, then `apply_chunk` on the main thread. Its
+## collision is split into one body per SUB x SUB column of a chunk, and only the parts whose
+## triangles changed are rebuilt (Jolt builds a trimesh at about 1 us per triangle on assignment).
 
 const CHUNK := 16
+## Editable builds: side (cells) of the collision parts a chunk is split into.
+const SUB := 4
 ## Brightness for 0..3 unoccluded neighbours (classic voxel AO).
 const AO_CURVE: Array[float] = [0.42, 0.63, 0.82, 1.0]
 
@@ -28,14 +35,6 @@ class Surface:
 	var uv2s := PackedVector2Array()
 	var colors := PackedColorArray()
 	var indices := PackedInt32Array()
-
-	func clear() -> void:
-		verts.clear()
-		normals.clear()
-		uvs.clear()
-		uv2s.clear()
-		colors.clear()
-		indices.clear()
 
 	func arrays() -> Array:
 		var a := []
@@ -64,49 +63,187 @@ var _rev: Array[bool] = []
 var _opaque := Surface.new()
 var _glass := Surface.new()
 var _coll := PackedVector3Array()
+## Where each SUB-column part's triangles start in _coll (plus the end), from _mesh_chunk.
+var _sub_start := PackedInt32Array()
+## Editable builds, by chunk key Vector2i(cx / CHUNK, cz / CHUNK): its MeshInstance3D, its
+## collision triangles in chunk space (navmesh rebakes), and per collision part (SUB-column,
+## row-major in z then x) the part's triangles and its CollisionShape3D (null when it has none).
+var chunks := {}
+var faces := {}
+var part_faces := {}
+var part_shapes := {}
+var _grid: VoxelGrid
 
 
 ## Builds every chunk of `g` under `parent`, with grid cell (0,0,0) at
 ## `origin` (parent space). Collision faces are also added to `nav_source`
 ## using `nav_xform` (parent's global transform). A null `nav_source` builds meshes only (no
 ## collision bodies: the menu backdrop), and `keep_chunk(cx, cz)` (grid cells of the chunk's
-## corner), when given, skips the chunks it returns false for.
-static func build(g: VoxelGrid, parent: Node3D, origin: Vector3, nav_source: NavigationMeshSourceGeometryData3D, nav_xform: Transform3D, keep_chunk := Callable()) -> void:
+## corner), when given, skips the chunks it returns false for. `editable` keeps what
+## clear_cells / mesh_chunks / apply_chunk need (and `g` itself, which they change) and splits the
+## collision into SUB-column parts; keep the returned mesher.
+static func build(g: VoxelGrid, parent: Node3D, origin: Vector3, nav_source: NavigationMeshSourceGeometryData3D, nav_xform: Transform3D, keep_chunk := Callable(), editable := false) -> VoxelMesher:
 	var m := VoxelMesher.new()
 	m._prepare(g)
-	var opaque_mat := BlockAtlas.material(false)
-	var glass_mat := BlockAtlas.material(true)
 	for cz in range(0, g.size.z, CHUNK):
 		for cx in range(0, g.size.x, CHUNK):
 			if keep_chunk.is_valid() and not keep_chunk.call(cx, cz):
 				continue
-			m._mesh_chunk(g, cx, cz)
+			m._mesh_chunk(g, cx, cz, SUB if editable else CHUNK)
 			if m._coll.is_empty():
 				continue
-			var mesh := ArrayMesh.new()
-			if not m._opaque.indices.is_empty():
-				mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, m._opaque.arrays())
-				mesh.surface_set_material(mesh.get_surface_count() - 1, opaque_mat)
-			if not m._glass.indices.is_empty():
-				mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, m._glass.arrays())
-				mesh.surface_set_material(mesh.get_surface_count() - 1, glass_mat)
 			var mi := MeshInstance3D.new()
 			mi.name = "Chunk_%d_%d" % [cx / CHUNK, cz / CHUNK]
-			mi.mesh = mesh
+			mi.mesh = _chunk_mesh(_arrays_of(m._opaque), _arrays_of(m._glass))
 			mi.position = origin + Vector3(cx, 0, cz)
 			parent.add_child(mi)
 			if nav_source == null:
 				continue
-			var body := StaticBody3D.new()
-			body.collision_layer = 1
-			body.collision_mask = 0
-			var shape := ConcavePolygonShape3D.new()
-			shape.set_faces(m._coll)
-			var cs := CollisionShape3D.new()
-			cs.shape = shape
-			body.add_child(cs)
-			mi.add_child(body)
 			nav_source.add_faces(m._coll, nav_xform * mi.transform)
+			if not editable:
+				_add_body(mi, m._coll)
+				continue
+			var key := Vector2i(cx / CHUNK, cz / CHUNK)
+			m.chunks[key] = mi
+			m.faces[key] = m._coll
+			var parts := []
+			var shapes := []
+			for k in m._sub_start.size() - 1:
+				var part := m._coll.slice(m._sub_start[k], m._sub_start[k + 1])
+				parts.append(part)
+				shapes.append(null if part.is_empty() else _add_body(mi, part))
+			m.part_faces[key] = parts
+			m.part_shapes[key] = shapes
+	if editable:
+		m._grid = g
+	return m
+
+
+## A static trimesh body on layer 1 under `mi` with the triangles `tris`; returns its shape node.
+static func _add_body(mi: MeshInstance3D, tris: PackedVector3Array) -> CollisionShape3D:
+	var body := StaticBody3D.new()
+	body.collision_layer = 1
+	body.collision_mask = 0
+	var shape := ConcavePolygonShape3D.new()
+	shape.set_faces(tris)
+	var cs := CollisionShape3D.new()
+	cs.shape = shape
+	body.add_child(cs)
+	mi.add_child(body)
+	return cs
+
+
+## A chunk's ArrayMesh from its opaque and glass surface arrays (Surface.arrays(), or [] when the
+## chunk has no such faces).
+static func _chunk_mesh(opaque: Array, glass: Array) -> ArrayMesh:
+	var mesh := ArrayMesh.new()
+	if not opaque.is_empty():
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, opaque)
+		mesh.surface_set_material(mesh.get_surface_count() - 1, BlockAtlas.material(false))
+	if not glass.is_empty():
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, glass)
+		mesh.surface_set_material(mesh.get_surface_count() - 1, BlockAtlas.material(true))
+	return mesh
+
+
+static func _arrays_of(s: Surface) -> Array:
+	return [] if s.indices.is_empty() else s.arrays()
+
+
+## Editable builds: turns the grid cells `cells` (VoxelGrid.index values) into air in the grid and
+## the padded copy, and adds to `dirty` (as keys) every chunk whose mesh that changes: the cells'
+## own chunks and, for cells on a chunk border, the neighbour whose faces and AO they touch.
+func clear_cells(cells: PackedInt32Array, dirty: Dictionary) -> void:
+	var sx := _grid.size.x
+	var sxz := sx * _grid.size.z
+	for i in cells:
+		var x := i % sx
+		var z := (i / sx) % _grid.size.z
+		var y := i / sxz
+		_grid.blocks[i] = BlockAtlas.AIR
+		_grid.shapes[i] = VoxelGrid.CUBE
+		var p := (y + 1) * _pxz + (z + 1) * _px + x + 1
+		_pb[p] = 0
+		_ps[p] = 0
+		for dz in range(-1, 2):
+			for dx in range(-1, 2):
+				var nx := x + dx
+				var nz := z + dz
+				if nx >= 0 and nz >= 0 and nx < sx and nz < _grid.size.z:
+					dirty[Vector2i(nx / CHUNK, nz / CHUNK)] = true
+
+
+## Editable builds: a mesher sharing this one's (read-only) tables with its own copy of the padded
+## grid, so later clear_cells calls here don't reach it. `mesh_chunks` on the snapshot is safe on
+## a worker thread while this mesher keeps changing.
+func snapshot() -> VoxelMesher:
+	var s := VoxelMesher.new()
+	s._px = _px
+	s._pxz = _pxz
+	# Packed arrays are shared by reference in GDScript: the worker gets its own copies.
+	s._pb = _pb.duplicate()
+	s._ps = _ps.duplicate()
+	s._layers = _layers
+	s._noff = _noff
+	s._corner = _corner
+	s._uv = _uv
+	s._ao_off = _ao_off
+	s._rev = _rev
+	s._grid = _grid
+	return s
+
+
+## Meshes the chunks `keys` (Vector2i) from this mesher's padded grid: key -> [opaque surface
+## arrays, glass surface arrays, collision triangles, where each SUB-column part's triangles start
+## (plus the end)] for apply_chunk. Touches no nodes or servers.
+func mesh_chunks(keys: Array) -> Dictionary:
+	var out := {}
+	for key: Vector2i in keys:
+		_mesh_chunk(_grid, key.x * CHUNK, key.y * CHUNK, SUB)
+		out[key] = [_arrays_of(_opaque), _arrays_of(_glass), _coll, _sub_start]
+	return out
+
+
+## Editable builds, main thread: swaps in chunk `key`'s new mesh from mesh_chunks' `data` and
+## rebuilds the collision parts whose triangles changed (a chunk left with no faces is freed).
+## Returns how many parts it rebuilt. Chunks that never had a node stay empty: removing blocks
+## only takes faces away from, or exposes faces inside, built chunks.
+func apply_chunk(key: Vector2i, data: Array) -> int:
+	var mi: MeshInstance3D = chunks.get(key)
+	if mi == null:
+		return 0
+	var coll: PackedVector3Array = data[2]
+	if coll.is_empty():
+		chunks.erase(key)
+		faces.erase(key)
+		part_faces.erase(key)
+		part_shapes.erase(key)
+		mi.queue_free()
+		return 0
+	mi.mesh = _chunk_mesh(data[0], data[1])
+	faces[key] = coll
+	var starts: PackedInt32Array = data[3]
+	var parts: Array = part_faces[key]
+	var shapes: Array = part_shapes[key]
+	var rebuilt := 0
+	for k in parts.size():
+		var part := coll.slice(starts[k], starts[k + 1])
+		if part == parts[k]:
+			continue
+		parts[k] = part
+		rebuilt += 1
+		var cs: CollisionShape3D = shapes[k]
+		if part.is_empty():
+			if cs != null:
+				cs.get_parent().queue_free()
+				shapes[k] = null
+		elif cs == null:
+			shapes[k] = _add_body(mi, part)
+		else:
+			var shape := ConcavePolygonShape3D.new()
+			shape.set_faces(part)
+			cs.shape = shape
+	return rebuilt
 
 
 func _prepare(g: VoxelGrid) -> void:
@@ -179,28 +316,39 @@ func _offset(v: Vector3i) -> int:
 	return v.x + v.z * _px + v.y * _pxz
 
 
-func _mesh_chunk(g: VoxelGrid, cx: int, cz: int) -> void:
-	_opaque.clear()
-	_glass.clear()
-	_coll.clear()
+## Meshes the chunk at grid cells (cx, cz) into _opaque, _glass and _coll, one `sub` x `sub`
+## column at a time (z rows, then x), recording where each column's triangles start in _sub_start.
+## Each call starts fresh buffers (packed arrays are shared by reference, and callers keep the
+## previous chunk's).
+func _mesh_chunk(g: VoxelGrid, cx: int, cz: int, sub: int) -> void:
+	_opaque = Surface.new()
+	_glass = Surface.new()
+	_coll = PackedVector3Array()
+	_sub_start = PackedInt32Array()
 	var x1 := mini(cx + CHUNK, g.size.x)
 	var z1 := mini(cz + CHUNK, g.size.z)
-	for y in g.size.y:
-		for z in range(cz, z1):
-			var i := (y + 1) * _pxz + (z + 1) * _px + cx + 1
-			for x in range(cx, x1):
-				var b := _pb[i]
-				if b != 0:
-					var cell := Vector3(x - cx, y, z - cz)
-					var shape := _ps[i]
-					if shape == VoxelGrid.CUBE:
-						var surf := _glass if b == BlockAtlas.GLASS else _opaque
-						for d in 6:
-							if _cube_face_visible(b, i + _noff[d], d):
-								_face(surf, i, d, b, cell, -1, 0)
-					else:
-						_ramp(i, b, shape, cell)
-				i += 1
+	for sz in range(cz, z1, sub):
+		for sx in range(cx, x1, sub):
+			_sub_start.append(_coll.size())
+			var sx1 := mini(sx + sub, x1)
+			var sz1 := mini(sz + sub, z1)
+			for y in g.size.y:
+				for z in range(sz, sz1):
+					var i := (y + 1) * _pxz + (z + 1) * _px + sx + 1
+					for x in range(sx, sx1):
+						var b := _pb[i]
+						if b != 0:
+							var cell := Vector3(x - cx, y, z - cz)
+							var shape := _ps[i]
+							if shape == VoxelGrid.CUBE:
+								var surf := _glass if b == BlockAtlas.GLASS else _opaque
+								for d in 6:
+									if _cube_face_visible(b, i + _noff[d], d):
+										_face(surf, i, d, b, cell, -1, 0)
+							else:
+								_ramp(i, b, shape, cell)
+						i += 1
+	_sub_start.append(_coll.size())
 
 
 func _cube_face_visible(b: int, j: int, d: int) -> bool:

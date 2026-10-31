@@ -528,6 +528,7 @@ const MUTATORS := {
 	"rocket_party": {"name": "Rocket Party", "desc": "Everyone spawns with the Boom Block. Your own primary is the backup."},
 	"snipers": {"name": "Snipers Only", "desc": "Everyone spawns with the Voxel Longshot. Your own primary is the backup."},
 	"glass_cannon": {"name": "Glass Cannon", "desc": "All damage is doubled. Think fast."},
+	"demolition": {"name": "Demolition", "desc": "Rockets, frags and bomber strikes blow holes in the blocks."},
 }
 const TIMES_OF_DAY: Array[String] = ["day", "day", "sunset", "night"]
 

@@ -45,7 +45,8 @@ const GAME_ID := "timbum"
 ## 20: melee weapons and five new guns (`melee` in peer_info, a melee argument on
 ##     World._s_loadout, new weapon ids in shots and weapon indices).
 ## 21: snapshots in chunks of World.SNAPSHOT_CHUNK entities (several _s_snapshot RPCs per tick).
-const PROTOCOL_VERSION := 21
+## 22: the Demolition mutator ("demolition" in config.mutator, Demolition._s_remove).
+const PROTOCOL_VERSION := 22
 const CONNECT_TIMEOUT := 8.0
 ## A room-code join first tries a direct (NAT punch-through) link this long, then the relay.
 const NAT_CONNECT_TIMEOUT := 6.0

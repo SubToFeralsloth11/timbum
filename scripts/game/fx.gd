@@ -18,6 +18,9 @@ const SMOKE_PUFFS := 22
 const SMOKE_GROW := 1.2
 const SMOKE_FADE := 1.6
 const FLASH_BURST_LIFE := 0.45
+## Demolition: concurrent block-debris bursts (made on first use), and chunks per burst.
+const BLOCK_DEBRIS_POOL := 4
+const BLOCK_DEBRIS_AMOUNT := 48
 
 ## Soft billboarded smoke puff: value-noise blob with a round falloff; `fade` per instance.
 const SMOKE_SHADER := """
@@ -71,6 +74,8 @@ var _smoke_time: Array[Vector2] = []
 var _i_smoke := 0
 var _flash_burst: OmniLight3D
 var _flash_burst_life := 0.0
+var _block_debris: Array[CPUParticles3D] = []
+var _i_block_debris := 0
 
 
 func _ready() -> void:
@@ -321,6 +326,34 @@ func death_burst(pos: Vector3, color: Color) -> void:
 	_i_burst = (_i_burst + 1) % BURST_POOL
 	p.global_position = pos
 	p.color = color
+	p.restart()
+
+
+## Demolition: chunky cubes in the removed blocks' `colors` burst out of the box `center` +-
+## `extents` (the removed cells) and tumble down.
+func block_debris(center: Vector3, extents: Vector3, colors: PackedColorArray) -> void:
+	if colors.is_empty():
+		return
+	if _block_debris.is_empty():
+		var mat := _cube_material(true)
+		for i in BLOCK_DEBRIS_POOL:
+			var made := _make_particles(BLOCK_DEBRIS_AMOUNT, 1.6, 0.26, mat, Color.WHITE, 8.0, 18.0)
+			made.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
+			made.spread = 85.0
+			_block_debris.append(made)
+	var p := _block_debris[_i_block_debris]
+	_i_block_debris = (_i_block_debris + 1) % BLOCK_DEBRIS_POOL
+	# Each chunk picks one of the colours at random (constant-step gradient).
+	var ramp := Gradient.new()
+	ramp.interpolation_mode = Gradient.GRADIENT_INTERPOLATE_CONSTANT
+	var offsets := PackedFloat32Array()
+	for i in colors.size():
+		offsets.append(float(i) / colors.size())
+	ramp.offsets = offsets
+	ramp.colors = colors
+	p.color_initial_ramp = ramp
+	p.emission_box_extents = extents
+	p.global_position = center
 	p.restart()
 
 

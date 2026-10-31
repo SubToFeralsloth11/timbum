@@ -19,3 +19,9 @@ var marks := {}
 ## The map's jump pads (MapBuilder adds them from the generator's `jump_pads` mark; deathmatch
 ## maps only).
 var jump_pads: Array[JumpPad] = []
+## Editable builds only (MapBuilder.build `editable`, the Demolition mutator), else null: the
+## block grid (cell (0,0,0) at `bounds.position`), the mesher that rebuilds its chunks, and the
+## NavigationRegion3D whose navmesh is rebaked.
+var grid: VoxelGrid
+var mesher: VoxelMesher
+var nav_region: NavigationRegion3D
