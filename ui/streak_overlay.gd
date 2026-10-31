@@ -144,7 +144,9 @@ func toast(title: String, sub: String, color: Color) -> void:
 func _process(_delta: float) -> void:
 	var w := streaks.world
 	var p := w.local_player
+	_markers.visible = not w.hud.markers_hidden()
 	_markers.queue_redraw()
+	# Dead, spectating (no entity) or the match is over: nothing on this card concerns the player.
 	var live := p != null and p.alive and not w.match_over
 	_target_help.visible = live and streaks.targeting
 	if _target_help.visible:
@@ -156,6 +158,8 @@ func _process(_delta: float) -> void:
 		_danger_chip.modulate.a = 0.7 + 0.3 * sin(World.now() * 14.0)
 	if not live:
 		_card.visible = false
+		_radar_line.visible = false
+		_enemy_line.visible = false
 		return
 	var streak := int(w.scores.get(p.id, {}).get("streak", 0))
 	var next := ""
@@ -177,3 +181,8 @@ func _process(_delta: float) -> void:
 		_bomber_line.modulate.a = 0.7 + 0.3 * sin(World.now() * 6.0)
 	# Nothing to say before the first kill of a life.
 	_card.visible = streak > 0 or radar > 0.0 or _enemy_line.visible or _bomber_line.visible
+
+
+## Top edge of the status card on screen (INF while it is hidden): the Hud keeps its chat above it.
+func card_top() -> float:
+	return _card.get_global_rect().position.y if _card.visible else INF

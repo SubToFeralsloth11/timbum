@@ -118,7 +118,7 @@ func open() -> void:
 	_set_filter(0)
 	_fov.set_value_no_signal(_cam.fov)
 	_speed.set_value_no_signal(1.0)
-	_path_label.text = "Photos go to %s" % ProjectSettings.globalize_path(DIR)
+	_path_label.text = "Photos go to %s" % _breakable(ProjectSettings.globalize_path(DIR))
 	_open_folder.disabled = false
 	_refresh_keys()
 	_root.visible = true
@@ -190,10 +190,16 @@ func take_photo() -> String:
 		Sfx.play(&"ui_error")
 		return ""
 	last_path = path
-	_path_label.text = "Saved %s" % ProjectSettings.globalize_path(path)
+	_path_label.text = "Saved %s" % _breakable(ProjectSettings.globalize_path(path))
 	Sfx.play(&"ui_buy")
 	photo_taken.emit(path, img.get_size())
 	return path
+
+
+## A path for the narrow caption: a zero-width space after each "/" lets it wrap between folders (never inside a
+## folder name) while it still reads as the full path.
+static func _breakable(path: String) -> String:
+	return path.replace("/", "/\u200b")
 
 
 ## user://screenshots/timbum_<YYYY-MM-DD>_<HH-MM-SS>.png, numbered if that name is taken.
@@ -375,7 +381,7 @@ func _build_ui() -> void:
 	take.pressed.connect(take_photo)
 	v.add_child(take)
 	_path_label = UIKit.label("", &"SmallLabel")
-	_path_label.autowrap_mode = TextServer.AUTOWRAP_ARBITRARY
+	_path_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_path_label.custom_minimum_size.x = 300
 	v.add_child(_path_label)
 	var row := UIKit.hbox(8)

@@ -7,6 +7,8 @@ const KILLFEED_MAX := 5
 const KILLFEED_LIFE := 6.0
 const CHAT_LIFE := 10.0
 const CHAT_MAX := 8
+## The chat's bottom edge (from the screen bottom) when no killstreak card sits under it.
+const CHAT_BOTTOM := -140.0
 ## Results-table rows shown before it scrolls (a full lobby plus the highlights, rewards and the
 ## next-match strip would push the panel off a 720p screen).
 const RESULTS_VISIBLE_ROWS := 6
@@ -219,6 +221,8 @@ var _protect_label: Label
 ## under the kill feed.
 var _feat_box: VBoxContainer
 var _chat_log: VBoxContainer
+## Chat log + input, bottom left; lifted above the killstreak card while that shows.
+var _chat_box: VBoxContainer
 var _chat_input: LineEdit
 var _death_panel: Control
 var _death_title: Label
@@ -685,10 +689,11 @@ func _build_center() -> void:
 
 
 func _build_chat() -> void:
-	var box := VBoxContainer.new()
+	_chat_box = VBoxContainer.new()
+	var box := _chat_box
 	box.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
 	box.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	box.position = Vector2(18, -140)
+	box.position = Vector2(18, CHAT_BOTTOM)
 	box.custom_minimum_size = Vector2(440, 0)
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_root.add_child(box)
@@ -1049,6 +1054,15 @@ func _process(delta: float) -> void:
 	_age_list(_killfeed, delta, KILLFEED_LIFE)
 	if not _chat_input.visible:
 		_age_list(_chat_log, delta, CHAT_LIFE)
+	# The chat sits above the killstreak card (StreakOverlay, over the health card) while that shows.
+	var chat_bottom := CHAT_BOTTOM
+	var card_top := world.streaks.card_top()
+	if card_top < INF:
+		chat_bottom = minf(chat_bottom, card_top - 6.0 - _root.size.y)
+	if _chat_box.offset_bottom != chat_bottom:
+		var lift := chat_bottom - _chat_box.offset_bottom
+		_chat_box.offset_top += lift
+		_chat_box.offset_bottom += lift
 
 	_preset_bar.visible = _preset_pick_open()
 	if _preset_bar.visible:
@@ -1202,6 +1216,12 @@ func _age_list(list: Container, delta: float, life: float) -> void:
 
 # ---------------------------------------------------------------- world events
 
+## The Tab scoreboard, results screen or pause menu is up: the overlays above the Hud hide their world-space
+## markers (pings, Tactical markers and prompt, the zone marker, airstrike labels) so nothing draws over it.
+func markers_hidden() -> bool:
+	return _scoreboard.visible or _results.visible or _pause.visible
+
+
 func is_blocking() -> bool:
 	return _pause.visible or _chat_input.visible or _results.visible \
 		or (world.tactical != null and world.tactical.overlay.is_blocking()) \
@@ -1267,10 +1287,12 @@ func _sorted_rows() -> Array:
 
 
 ## Rows with a `team` (team modes) are grouped under a header per team (MatchMode.group_header).
-func _fill_rows(container: VBoxContainer, rows: Array) -> void:
+## Returns the local player's row (null when they have none).
+func _fill_rows(container: VBoxContainer, rows: Array) -> Control:
 	for c in container.get_children():
 		c.queue_free()
 	var me := world.my_id()
+	var my_row: Control = null
 	var group := -2
 	for i in rows.size():
 		var r: Dictionary = rows[i]
@@ -1289,7 +1311,24 @@ func _fill_rows(container: VBoxContainer, rows: Array) -> void:
 			color = Teams.color(team).lightened(0.35 if mine else 0.15)
 			if world.rules.row_dimmed(r):
 				color = color.darkened(0.45)
-		container.add_child(_score_row([i + 1, player_name] + world.rules.row_cells(r), color, mine))
+		var row := _score_row([i + 1, player_name] + world.rules.row_cells(r), color, mine)
+		container.add_child(row)
+		if mine:
+			my_row = row
+	return my_row
+
+
+## Scrolls the results table so `row` is fully in view (no-op when it already is or has been freed).
+func _scroll_to_row(row: Control) -> void:
+	if not is_instance_valid(row) or row.is_queued_for_deletion() or not _results_scroll.is_ancestor_of(row):
+		return
+	var top := row.position.y
+	var bottom := top + row.size.y
+	var view := _results_scroll.size.y
+	if top < _results_scroll.scroll_vertical:
+		_results_scroll.scroll_vertical = int(top)
+	elif bottom > _results_scroll.scroll_vertical + view:
+		_results_scroll.scroll_vertical = int(ceil(bottom - view))
 
 
 ## A team's header line in the scoreboard and results table.
@@ -1706,15 +1745,15 @@ func show_results(rows: Array, placement: int, rewards: Dictionary, wait: float,
 		_results_title.text = "YOU PLACED #%d" % placement
 	else:
 		_results_title.text = "MATCH OVER"
-	_fill_rows(_results_rows, rows)
+	var my_row := _fill_rows(_results_rows, rows)
 	if not rows.is_empty():
 		var last: Control = _results_rows.get_child(_results_rows.get_child_count() - 1)
 		var row_h := last.get_combined_minimum_size().y + _results_rows.get_theme_constant("separation")
 		_results_scroll.custom_minimum_size.y = row_h * mini(rows.size(), RESULTS_VISIBLE_ROWS)
-		if placement > RESULTS_VISIBLE_ROWS:
-			# Once the scrollbar learns the table's height, bring this player's row into view.
-			var target := int(row_h * (placement - RESULTS_VISIBLE_ROWS))
-			_results_scroll.get_v_scroll_bar().changed.connect(func() -> void: _results_scroll.scroll_vertical = target, CONNECT_ONE_SHOT)
+		if my_row != null:
+			# Once the scrollbar learns the table's height (and the rows are laid out), bring this player's row into
+			# view. Scroll to the row node itself: team modes put a header line above each team's rows.
+			_results_scroll.get_v_scroll_bar().changed.connect(func() -> void: _scroll_to_row.call_deferred(my_row), CONNECT_ONE_SHOT)
 	_fill_highlights(rows)
 	_fill_rewards(rewards)
 	_fill_match_stats(rewards)

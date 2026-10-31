@@ -24,6 +24,8 @@ const BURST_GAP := 0.25
 ## where it throws you.
 const ARC_SPACING := 0.45
 const ARC_FLOW := 1.6
+## A navigation link end further than this (m) from the navmesh stays where it is (see _on_navmesh).
+const NAV_SNAP := 1.0
 
 ## Landing spot (feet, world space) and the arc's highest point (world y).
 var target := Vector3.ZERO
@@ -222,9 +224,22 @@ func _add_link(link_name: String, from: Vector3, to: Vector3) -> void:
 	var link := NavigationLink3D.new()
 	link.name = link_name
 	link.bidirectional = false
-	link.start_position = from
-	link.end_position = to
+	link.start_position = _on_navmesh(from)
+	link.end_position = _on_navmesh(to)
 	add_child(link)
+
+
+## `local` (pad space) moved onto the closest navmesh point when one is within NAV_SNAP m. The navmesh lies a
+## little above the blocks it was baked from (voxel rounding), so feet positions sit ~0.5 m under it; a link end
+## on the mesh joins its polygon exactly instead of relying on the map's link connection radius. MapBuilder adds
+## the pads after the navmesh is synced, so it is there to snap to.
+func _on_navmesh(local: Vector3) -> Vector3:
+	var map := get_world_3d().navigation_map
+	if NavigationServer3D.map_get_iteration_id(map) == 0:
+		return local
+	var spot := global_transform * local
+	var snapped := NavigationServer3D.map_get_closest_point(map, spot)
+	return global_transform.affine_inverse() * snapped if snapped.distance_to(spot) <= NAV_SNAP else local
 
 
 func _process(delta: float) -> void:

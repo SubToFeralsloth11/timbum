@@ -77,4 +77,5 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
+	_markers.visible = not pings.world.hud.markers_hidden()
 	_markers.queue_redraw()

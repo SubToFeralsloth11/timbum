@@ -156,7 +156,7 @@ func _panel() -> PanelContainer:
 func _process(delta: float) -> void:
 	var w := tactical.world
 	var over := w.match_over
-	_markers.visible = not over and not map.visible
+	_markers.visible = not over and not map.visible and not w.hud.markers_hidden()
 	_markers.queue_redraw()
 	_banner.visible = tactical.is_planning() and not over
 	if _banner.visible:
@@ -174,6 +174,7 @@ func _process(delta: float) -> void:
 	_toast_t -= delta
 	_toast.modulate.a = clampf(_toast_t, 0.0, 1.0)
 	_prompt.text = _prompt_text()
+	_prompt.visible = not w.hud.markers_hidden()
 	_spectate.visible = tactical.is_spectating() and not over and not map.visible
 	if _spectate.visible and tactical.spectating != null:
 		var s := tactical.spectating

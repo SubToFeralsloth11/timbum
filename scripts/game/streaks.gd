@@ -115,6 +115,11 @@ func enemy_radar_left(viewer: Player) -> float:
 	return _radar_left(viewer, false)
 
 
+## Screen y of the top of the streak status card (INF while hidden): the Hud's chat stays above it.
+func card_top() -> float:
+	return _overlay.card_top() if _overlay != null else INF
+
+
 func _radar_left(viewer: Player, friendly: bool) -> float:
 	if viewer == null or radar_until.is_empty():
 		return 0.0

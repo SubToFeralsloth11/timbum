@@ -119,6 +119,7 @@ func _process(_delta: float) -> void:
 	var w := koth.world
 	var p := w.local_player
 	_card.visible = p != null and koth.zone >= 0 and not w.match_over
+	_markers.visible = not w.hud.markers_hidden()
 	_markers.queue_redraw()
 	if not _card.visible:
 		return
