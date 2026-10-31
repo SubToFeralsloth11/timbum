@@ -8,6 +8,11 @@ extends Node3D
 ## `_broadcast`). `_c_*` methods are client -> server requests. `_server_*` is server-only logic.
 
 const SNAPSHOT_INTERVAL := 0.05
+## Entities per _s_snapshot RPC. An entry ([id, position, yaw, pitch, flags]) encodes to at most
+## 72 bytes, so a chunk stays near 1 KB, under ENet's 1392-byte MTU: an unreliable packet above
+## it is fragmented and lost if any fragment is (Tactical has up to 50 entities, 3.2 KB in one).
+## Each entry carries its id, so every chunk applies on its own.
+const SNAPSHOT_CHUNK := 14
 const CLOCK_INTERVAL := 1.0
 const REGEN_INTERVAL := 0.25
 ## Seconds every camera watches the winner perform their win emote before the results screen.
@@ -347,6 +352,14 @@ func _server_send_snapshots() -> void:
 	for eid: int in entities:
 		var p: Player = entities[eid]
 		snap.append([eid, p.global_position, p.yaw, p.pitch, p.net_flags()])
+		if snap.size() == SNAPSHOT_CHUNK:
+			_send_snapshot_chunk(snap)
+			snap = []
+	if not snap.is_empty():
+		_send_snapshot_chunk(snap)
+
+
+func _send_snapshot_chunk(snap: Array) -> void:
 	for pid: int in _ready_peers:
 		_s_snapshot.rpc_id(pid, snap)
 
