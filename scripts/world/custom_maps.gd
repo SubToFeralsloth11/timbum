@@ -118,7 +118,11 @@ static func to_json(map: Dictionary) -> String:
 ## network): sizes, ids, kinds and positions are checked, unknown block ids become STONE and
 ## marker lists are cut to their maximum.
 static func from_json(text: String) -> Dictionary:
-	var parsed: Variant = JSON.parse_string(text)
+	# JSON.parse (not parse_string): a broken file is an expected case, not an engine error line.
+	var json := JSON.new()
+	if json.parse(text) != OK:
+		return {}
+	var parsed: Variant = json.data
 	if typeof(parsed) != TYPE_DICTIONARY:
 		return {}
 	var d: Dictionary = parsed
@@ -413,10 +417,15 @@ static func spot_problem(g: VoxelGrid, feet: Vector3) -> String:
 
 ## Writes user://maps/<map.name>.json. `old_name` is the file the map was opened from or last
 ## saved to ("" for a new map). ERR_ALREADY_EXISTS (nothing written) when that would overwrite a
-## different saved map: see name_taken().
-static func save(map: Dictionary, old_name := "") -> Error:
+## different saved map: see name_taken(). When the file under that name can't be read
+## (is_broken: corrupt or not a map) it is ERR_FILE_CORRUPT instead, unless `replace_broken`
+## (the player confirmed replacing it): then the broken file is overwritten.
+static func save(map: Dictionary, old_name := "", replace_broken := false) -> Error:
 	if name_taken(map.name, old_name):
-		return ERR_ALREADY_EXISTS
+		if not is_broken(map.name):
+			return ERR_ALREADY_EXISTS
+		if not replace_broken:
+			return ERR_FILE_CORRUPT
 	DirAccess.make_dir_recursive_absolute(DIR)
 	var f := FileAccess.open(path_for(map.name), FileAccess.WRITE)
 	if f == null:
@@ -438,6 +447,12 @@ static func name_taken(new_name: String, old_name: String) -> bool:
 	if old_name.is_empty() or new_name.to_lower() != old_name.to_lower():
 		return true
 	return DirAccess.get_files_at(DIR).has(new_name + ".json")
+
+
+## True when user://maps/<map_name>.json exists but doesn't load as a map (damaged, not a map,
+## too big, or from a newer version): the editor offers to replace it instead of blocking its name.
+static func is_broken(map_name: String) -> bool:
+	return FileAccess.file_exists(path_for(map_name)) and load_map(map_name).is_empty()
 
 
 ## After the map saved as `old_name` was saved again as `new_name`: removes the old file. When

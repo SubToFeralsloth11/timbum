@@ -15,6 +15,9 @@ extends Node3D
 
 signal changed
 signal message(text: String, error: bool)
+## A save hit an unreadable file under the map's name (CustomMaps.is_broken): the Hud asks
+## whether to replace it (save(true)).
+signal replace_broken_asked(map_name: String)
 
 const SCENE := "res://scenes/map_editor.tscn"
 const TOOLS: Array[String] = ["block", "spawn", "health", "ammo", "grenade", "pad"]
@@ -131,12 +134,19 @@ func load_saved(map_name: String) -> bool:
 ## unfinished maps keep; only playable maps show up in match setup). After a rename the file
 ## under the old name is removed, but only once the new one was written. A name that belongs to
 ## another saved map is refused (nothing written or removed); the returned list then holds why.
-func save() -> PackedStringArray:
+## A broken file under the name (can't be read as a map) is refused too, with
+## replace_broken_asked; `replace_broken` (the player confirmed) overwrites it.
+func save(replace_broken := false) -> PackedStringArray:
 	var problems := CustomMaps.validate(map)
-	var err := CustomMaps.save(map, file_name)
+	var err := CustomMaps.save(map, file_name, replace_broken)
 	if err == ERR_ALREADY_EXISTS:
 		var why := "Another map is already called %s. Pick a different name." % map.name
 		message.emit("Not saved: " + why, true)
+		return PackedStringArray([why])
+	if err == ERR_FILE_CORRUPT:
+		var why := "%s.json is unreadable (damaged or newer). Replace it or pick another name." % map.name
+		message.emit("Not saved: " + why, true)
+		replace_broken_asked.emit(map.name)
 		return PackedStringArray([why])
 	if err != OK:
 		var why := "Couldn't save: %s." % error_string(err)

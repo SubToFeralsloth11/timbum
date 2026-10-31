@@ -43,6 +43,8 @@ var _redo_button: Button
 var _exit_button: Button
 var _exit_armed := false
 var _first_focus: Control
+## Asks before a save replaces an unreadable file under the map's name (MapEditor.replace_broken_asked).
+var _replace_confirm: ConfirmationDialog
 
 
 func _ready() -> void:
@@ -59,6 +61,7 @@ func _ready() -> void:
 	_build_panel()
 	editor.changed.connect(refresh)
 	editor.message.connect(show_message)
+	editor.replace_broken_asked.connect(ask_replace_broken)
 	refresh()
 
 
@@ -94,6 +97,27 @@ func toggle_panel() -> void:
 		close_panel()
 	else:
 		open_panel()
+
+
+## The save found an unreadable file under the map's name: offer to replace it. NO is the
+## default (focused); REPLACE saves over the broken file.
+func ask_replace_broken(map_name: String) -> void:
+	if _replace_confirm == null:
+		_replace_confirm = ConfirmationDialog.new()
+		_replace_confirm.title = "Broken map file"
+		_replace_confirm.ok_button_text = "Replace"
+		_replace_confirm.cancel_button_text = "No"
+		_replace_confirm.theme = UITheme.get_theme()
+		_replace_confirm.confirmed.connect(func() -> void:
+			editor.save(true)
+			_refresh_open_list())
+		add_child(_replace_confirm)
+	if not _panel.visible:
+		open_panel()
+	_replace_confirm.dialog_text = ("The file %s.json in your maps folder can't be read: it is damaged or was made by a newer Timbum.\n"
+		+ "Replace it with this map? The broken file will be lost.") % map_name
+	_replace_confirm.popup_centered()
+	_replace_confirm.get_cancel_button().grab_focus.call_deferred()
 
 
 func show_message(text: String, error: bool) -> void:
