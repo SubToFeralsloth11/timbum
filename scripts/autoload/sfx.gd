@@ -12,13 +12,17 @@ const CROSSFADE := 0.6
 const PITCH_JITTER := 0.04
 const MAX_DISTANCE := 90.0
 const MUSIC_TRACKS: Array[StringName] = [&"menu", &"shop", &"match", &"results"]
-## Song files per track. A track with several songs plays a different one each time it starts
-## (each match gets the next song of a shuffled cycle).
+const MENU_SONG := "res://audio/music/menu_blocksmith_daydream.mp3"
+const SHOP_SONG := "res://audio/music/shop_coin_shop_spark.mp3"
+const MATCH_SONGS: Array[String] = ["res://audio/music/match_arena_rush.mp3",
+	"res://audio/music/match_combat_groove.mp3", "res://audio/music/match_arcade_arena.mp3"]
+## Song tracks: the song each starts with ("" = any from its playlist) and the playlist that
+## follows, song to song, for as long as the track stays on. Menu and shop run through all five
+## songs; matches through the three match songs.
 const MUSIC_FILES := {
-	&"menu": ["res://audio/music/menu_blocksmith_daydream.mp3"],
-	&"shop": ["res://audio/music/shop_coin_shop_spark.mp3"],
-	&"match": ["res://audio/music/match_arena_rush.mp3", "res://audio/music/match_combat_groove.mp3",
-		"res://audio/music/match_arcade_arena.mp3"],
+	&"menu": {"first": MENU_SONG, "playlist": [MENU_SONG, SHOP_SONG] + MATCH_SONGS},
+	&"shop": {"first": SHOP_SONG, "playlist": [MENU_SONG, SHOP_SONG] + MATCH_SONGS},
+	&"match": {"first": "", "playlist": MATCH_SONGS},
 }
 
 var _enabled := false
@@ -26,8 +30,10 @@ var _enabled := false
 var _streams := {}
 ## track -> AudioStreamWAV for procedural tracks, filled as music workers finish.
 var _music := {}
-## Song cycle for tracks with several files: the order still to play.
+## Per song track: the shuffled playlist order still to play.
 var _song_queue := {}
+## The song file playing now (so the next one never repeats it straight away).
+var _song_path := ""
 var _warned := {}
 var _flat: Array[AudioStreamPlayer] = []
 var _flat_started := PackedInt64Array()
@@ -75,6 +81,7 @@ func _init() -> void:
 		var p := AudioStreamPlayer.new()
 		p.bus = &"Music"
 		p.volume_linear = 0.0
+		p.finished.connect(_on_song_finished.bind(p))
 		add_child(p)
 		_music_players.append(p)
 	# Two parallel jobs: the results fanfare alone, and the effects bank.
@@ -150,7 +157,8 @@ func play(sound: StringName, pos: Variant = null, volume_db := 0.0, pitch := 1.0
 
 
 ## Crossfades to `track` (&"menu", &"shop", &"match", &"results"). Song tracks start at once and
-## loop; a procedural track still being rendered starts as soon as it is ready.
+## then play their playlist song to song; a procedural track still being rendered starts as soon
+## as it is ready.
 func play_music(track: StringName) -> void:
 	if not _enabled:
 		return
@@ -161,20 +169,39 @@ func play_music(track: StringName) -> void:
 		return
 	_music_track = track
 	if MUSIC_FILES.has(track):
-		_crossfade_to(_next_song(track))
+		var first: String = MUSIC_FILES[track].first
+		_crossfade_to(_song(first if first != "" else _next_song_path(track)))
 	elif _music.has(track):
 		_crossfade_to(_music[track])
 
 
-## The next song of `track`'s shuffled cycle, loaded and set to loop.
-func _next_song(track: StringName) -> AudioStream:
+## The active song ended: the next one of the track's playlist follows.
+func _on_song_finished(player: AudioStreamPlayer) -> void:
+	if player == _music_players[_music_active] and MUSIC_FILES.has(_music_track):
+		_crossfade_to(_song(_next_song_path(_music_track)))
+
+
+## The next song of `track`'s shuffled playlist, never the one that just played.
+func _next_song_path(track: StringName) -> String:
 	var queue: Array = _song_queue.get(track, [])
-	if queue.is_empty():
-		queue = (MUSIC_FILES[track] as Array).duplicate()
+	if queue.is_empty() or (queue.size() == 1 and queue[0] == _song_path):
+		queue = (MUSIC_FILES[track].playlist as Array).duplicate()
 		queue.shuffle()
+		if queue.size() > 1 and queue[0] == _song_path:
+			queue.push_back(queue.pop_front())
 		_song_queue[track] = queue
-	var stream := load(queue.pop_front()) as AudioStreamMP3
-	stream.loop = true
+	var path: String = queue.pop_front()
+	if path == _song_path and not queue.is_empty():
+		queue.push_back(path)
+		path = queue.pop_front()
+	return path
+
+
+## Loads a song; it plays once (the playlist moves on when it ends).
+func _song(path: String) -> AudioStream:
+	_song_path = path
+	var stream := load(path) as AudioStreamMP3
+	stream.loop = false
 	return stream
 
 
