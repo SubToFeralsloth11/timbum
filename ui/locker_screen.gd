@@ -237,6 +237,12 @@ func _fill_pickers() -> void:
 				o.add_item(String(Data.catalog(row[0])[id].name))
 			o.set_item_metadata(o.item_count - 1, id)
 		o.select(ids.find(_current(key)))
+		_style_picker(o, row[0], _current(key))
+
+
+## A picker showing a Dev Pack piece gets the neon edge and text, like its shop card.
+static func _style_picker(o: OptionButton, category: String, id: String) -> void:
+	o.theme_type_variation = &"DevOptionButton" if UIKit.is_dev_item(category, id) else &""
 
 
 func _on_pick(key: String, idx: int) -> void:
@@ -246,6 +252,7 @@ func _on_pick(key: String, idx: int) -> void:
 			category = row[0]
 	var id: String = _pickers[key].get_item_metadata(idx)
 	if Profile.equip(category, id):
+		_style_picker(_pickers[key], category, id)
 		if key in ["primary", "secondary", "melee"]:
 			_fill_mastery()
 		if key in Profile.LOADOUT_KEYS:

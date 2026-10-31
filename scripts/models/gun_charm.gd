@@ -50,6 +50,8 @@ static func create(id: String) -> GunCharm:
 ## Shared mesh for a charm: a ring and chain from the origin down to the trinket around
 ## (0, -LENGTH, 0). Cached per id.
 static func mesh_for(id: String) -> ArrayMesh:
+	if id == "dev_core":
+		return DevPack.charm_mesh(LENGTH)
 	if _meshes.has(id):
 		return _meshes[id]
 	var spec: Dictionary = Models.CATALOG.CHARMS.get(id, Models.CATALOG.CHARMS.cube)

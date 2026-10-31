@@ -79,6 +79,18 @@ static func badge(text: String, variation: StringName = &"BadgePanel") -> PanelC
 	return p
 
 
+## True for a Dev Pack piece (catalog entry with `dev: true`): never sold, shown as CODE ONLY.
+static func is_dev_item(category: String, id: String) -> bool:
+	return bool(Data.catalog(category).get(id, {}).get("dev", false))
+
+
+## The tag a Dev Pack piece shows instead of a price.
+static func code_only_badge() -> PanelContainer:
+	var p := badge("CODE ONLY", &"DevBadgePanel")
+	(p.get_child(0) as Label).add_theme_color_override("font_color", DevPack.NEON)
+	return p
+
+
 ## Pixel-art coin icon.
 static func coin_icon() -> Texture2D:
 	if _coin == null:

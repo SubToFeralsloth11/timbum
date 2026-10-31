@@ -1,7 +1,8 @@
 class_name StatsScreen
 extends MenuScreen
 ## Career statistics from Profile.stats, shown as big number tiles, plus a live
-## development progress card while a build is being worked on.
+## development progress card while a build is being worked on. CREDITS opens the CreditsPanel
+## overlay (and, behind its DEV row, the keypad for the dev code).
 
 ## Written by the developer tooling while new features are built; the card is
 ## hidden when the file is absent. Format:
@@ -29,6 +30,8 @@ var _import_path := ""
 var _prestige_btn: Button
 var _prestige_confirm: ConfirmationDialog
 var _weapon_table: GridContainer
+var _credits_btn: Button
+var _credits: CreditsPanel
 ## Per-weapon table columns: [header, minimum width].
 const WEAPON_COLUMNS: Array = [["WEAPON", 190], ["KILLS", 70], ["ACCURACY", 100], ["HEADSHOT %", 100],
 	["DAMAGE", 90], ["MASTERY", 160]]
@@ -96,6 +99,10 @@ func _ready() -> void:
 	import_btn.tooltip_text = "Load progress from a file you exported (replaces what you have now)."
 	import_btn.pressed.connect(func() -> void: _import_dialog.popup_centered_ratio(0.7))
 	backup.add_child(import_btn)
+	_credits_btn = UIKit.button("CREDITS", &"IconButton")
+	_credits_btn.tooltip_text = "Who made Timbum."
+	_credits_btn.pressed.connect(open_credits)
+	backup.add_child(_credits_btn)
 	_build_backup_dialogs()
 
 	_grid = GridContainer.new()
@@ -125,6 +132,14 @@ func _ready() -> void:
 			_dev_timer.start()
 		else:
 			_dev_timer.stop())
+	# Last child, so the overlay covers the page.
+	_credits = CreditsPanel.new(page.get_parent())
+	_credits.closed.connect(func() -> void: _credits_btn.grab_focus())
+	add_child(_credits)
+
+
+func open_credits() -> void:
+	_credits.open()
 
 
 ## Export/import of the whole profile (Profile.export_to / import_from) through the system's
@@ -243,6 +258,7 @@ func _refresh_dev() -> void:
 
 
 func on_shown() -> void:
+	_credits.close()
 	var s := Profile.stats
 	var kills := int(s.kills)
 	var deaths := int(s.deaths)

@@ -372,6 +372,8 @@ static func _anim_skin_material(skin: Dictionary, seed: int) -> ShaderMaterial:
 ## skin's colours. Cached per skin id. "mastery_<weapon id>" is that gun's mastery camo; skins
 ## with pattern "anim" are a ShaderMaterial of ANIM_SKIN_SHADER (see _anim_skin_material).
 static func skin_material(skin_id: String) -> Material:
+	if skin_id == "dev_circuit":
+		return DevPack.skin_material()
 	if _skin_materials.has(skin_id):
 		return _skin_materials[skin_id]
 	if skin_id.begins_with("mastery_") and CATALOG.WEAPONS.has(skin_id.trim_prefix("mastery_")):
@@ -463,6 +465,8 @@ static func build_avatar(outfit_id: String, hat_id: String) -> Avatar:
 ## Hat whose origin is the top centre of the 0.45 m avatar head (front = -Z).
 ## "none" (or an unknown id) returns an empty Node3D.
 static func build_hat(hat_id: String) -> Node3D:
+	if hat_id == "dev_halo":
+		return DevPack.build_hat()
 	var root := Node3D.new()
 	root.name = "Hat"
 	if hat_id == "none" or not CATALOG.HATS.has(hat_id):
@@ -539,8 +543,11 @@ static func set_render(node: Node, layers: int, shadows: GeometryInstance3D.Shad
 		(node as GeometryInstance3D).cast_shadow = shadows
 
 
-## Character atlas material for an outfit (64x64 pixel-art skin). Cached per outfit id.
-static func outfit_material(outfit_id: String) -> StandardMaterial3D:
+## Character atlas material for an outfit (64x64 pixel-art skin). Cached per outfit id. The Dev
+## Suit is DevPack's animated ShaderMaterial; callers only assign it to material_override.
+static func outfit_material(outfit_id: String) -> Material:
+	if outfit_id == "dev_suit":
+		return DevPack.outfit_material()
 	if _outfit_materials.has(outfit_id):
 		return _outfit_materials[outfit_id]
 	if not CATALOG.OUTFITS.has(outfit_id):

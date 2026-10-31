@@ -15,14 +15,14 @@ extends RefCounted
 ## green, then fades over FLASH_TIME (instance uniform `kill_flash`, so the shared materials stay
 ## shared and only the killer flashes).
 ##
-## NOT WIRED INTO THE GAME YET. dev_pack/ has a .gdignore, so Godot neither parses nor exports
-## this folder. dev_pack/README.md is the integration brief; follow it exactly.
+## Unlocked only by the dev code, typed on the keypad behind Stats > CREDITS > DEV
+## (Profile.redeem_code). dev_pack/README.md has the integration notes and previews.
 ##
 ## Depends only on MeshKit and Models.AVATAR_PARTS / Models.ATLAS_SIZE.
 
-## Unlock code "LastMinutePlaysonyt". Only its SHA-256 (of the lower-cased code) ships in the game,
-## so the plain code isn't sitting in the exported build. Compared case-insensitively, spaces ignored.
-const UNLOCK_CODE_SHA256 := "b8bdeb5bdc377f0bbd605ba77dd40e1b77208a709f589c329b745a98fd544471"
+## SHA-256 of the lower-cased unlock code. Only the hash ships in the game, so the plain code
+## isn't sitting in the exported build. Compared case-insensitively, spaces ignored.
+const UNLOCK_CODE_SHA256 := "33d70488bb0a6aff7d8e80a2a92c424d8a0ab6272ee06cbcf8e1c5bca183b13e"
 
 ## Catalog ids, one per category (Data.catalog() category names).
 const IDS := {"outfits": "dev_suit", "skins": "dev_circuit", "hats": "dev_halo", "charms": "dev_core"}

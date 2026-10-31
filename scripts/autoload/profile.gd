@@ -179,6 +179,32 @@ func buy(category: String, id: String) -> bool:
 	return true
 
 
+## Results of redeem_code(), shown as-is by the credits keypad.
+const REDEEM_UNLOCKED := "THE DEV PACK UNLOCKED"
+const REDEEM_ALREADY := "Already unlocked"
+const REDEEM_INVALID := "Invalid code"
+
+
+## The dev code (DevPack.code_matches: only its SHA-256 ships) unlocks every Dev Pack piece for
+## free. Typed on the keypad behind Stats > CREDITS > DEV; the pack is never sold.
+func redeem_code(code: String) -> String:
+	if not DevPack.code_matches(code):
+		return REDEEM_INVALID
+	var added := false
+	for cat: String in DevPack.IDS:
+		var list: Array = owned.get(cat, [])
+		if not list.has(DevPack.IDS[cat]):
+			list.append(DevPack.IDS[cat])
+			added = true
+		owned[cat] = list
+	if not added:
+		return REDEEM_ALREADY
+	save()
+	changed.emit()
+	return REDEEM_UNLOCKED
+
+
+
 func is_equipped(category: String, id: String) -> bool:
 	match category:
 		"weapons":

@@ -313,6 +313,11 @@ const SKINS := {
 	"glitch": {"name": "Glitch", "price": 2400, "pattern": "anim", "anim": "glitch",
 		"desc": "Corrupted pixels: rows tear sideways, colour channels split and bright blocks flicker. Animated, glows.",
 		"a": Color("00ffd0"), "b": Color("ff2a6a"), "glow": 2.4},
+	# THE DEV PACK (DevPack.ENTRIES): price -1 = never sold and never free; only the dev code
+	# (Profile.redeem_code) unlocks it. dev: true = CODE ONLY card, left out of bot picks.
+	"dev_circuit": {"name": "Dev Circuit", "price": -1, "pattern": "dev", "dev": true,
+		"desc": "Carbon black with neon green circuit traces. Pulses race to the muzzle. Flashes on every kill.",
+		"a": Color("39ff14"), "b": Color("07080a"), "glow": 3.0},
 }
 
 const HATS := {
@@ -330,6 +335,8 @@ const HATS := {
 	"viking": {"name": "Viking Helmet", "price": 600},
 	"halo": {"name": "Halo", "price": 800},
 	"crown": {"name": "Crown", "price": 1200},
+	"dev_halo": {"name": "Dev Halo", "price": -1, "dev": true,
+		"desc": "A black circlet under a floating neon halo and the </> glyph. Flashes on every kill."},
 }
 
 ## Outfit colours: skin, shirt, pants, shoes, accent. pattern adds detail.
@@ -393,6 +400,10 @@ const OUTFITS := {
 		"desc": "Wrapped head to toe in old bandages, with glowing green eyes.",
 		"skin": Color("d9cfae"), "shirt": Color("d9cfae"), "pants": Color("cfc4a0"),
 		"shoes": Color("b8ac88"), "accent": Color("6dff6a")},
+	"dev_suit": {"name": "Dev Suit", "price": -1, "pattern": "dev", "dev": true,
+		"desc": "Matte black with X eyes, a wide stitched smile and neon green seams. The lines crawl and the core beats. The only animated outfit. Flashes on every kill.",
+		"skin": Color("07080a"), "shirt": Color("39ff14"), "pants": Color("07080a"),
+		"shoes": Color("07080a"), "accent": Color("39ff14")},
 }
 
 ## Weapon charms dangle from a short chain on the left of every gun (except the knife) and
@@ -422,6 +433,9 @@ const CHARMS := {
 		"a": Color("8ef0ff"), "b": Color("3fc6e0")},
 	"crown": {"name": "Tiny Crown", "price": 1200, "desc": "For the king of the lobby.", "shape": "crown",
 		"a": Color("ffcc33"), "b": Color("e8304a")},
+	"dev_core": {"name": "Dev Core", "price": -1, "dev": true, "shape": "dev",
+		"desc": "A black core in a neon cage. Flashes on every kill.",
+		"a": Color("39ff14"), "b": Color("07080a")},
 }
 
 ## Win emotes: the match winner's character performs theirs at the end of the match while

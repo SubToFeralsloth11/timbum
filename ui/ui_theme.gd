@@ -317,6 +317,34 @@ static func _build() -> Theme:
 	t.set_stylebox("hover_pressed", "CardButton", cp)
 	t.set_stylebox("disabled", "CardButton", cn)
 	t.set_stylebox("focus", "CardButton", _focus_box())
+	# Dev Pack cards and tags: matte black with a DevPack.NEON edge, so the code-only set reads
+	# as exclusive in the shop.
+	t.set_type_variation("DevCardButton", "Button")
+	var dn := cn.duplicate() as StyleBoxFlat
+	dn.bg_color = Color(0.03, 0.04, 0.035, 0.95)
+	dn.border_color = Color(DevPack.NEON, 0.6)
+	dn.set_border_width_all(2)
+	var dh := dn.duplicate() as StyleBoxFlat
+	dh.bg_color = Color(0.05, 0.08, 0.05, 0.95)
+	dh.border_color = DevPack.NEON
+	var dp := dh.duplicate() as StyleBoxFlat
+	dp.bg_color = Color(0.07, 0.14, 0.06, 0.95)
+	dp.set_border_width_all(3)
+	t.set_stylebox("normal", "DevCardButton", dn)
+	t.set_stylebox("hover", "DevCardButton", dh)
+	t.set_stylebox("pressed", "DevCardButton", dp)
+	t.set_stylebox("hover_pressed", "DevCardButton", dp)
+	t.set_stylebox("disabled", "DevCardButton", dn)
+	t.set_stylebox("focus", "DevCardButton", _focus_box())
+	t.set_type_variation("DevBadgePanel", "PanelContainer")
+	t.set_stylebox("panel", "DevBadgePanel", chip_box(DevPack.BLACK, DevPack.NEON))
+	# Locker picker showing a Dev Pack piece.
+	t.set_type_variation("DevOptionButton", "OptionButton")
+	_button_type(t, "DevOptionButton", Color("0c140c"), 17, DevPack.NEON, 14, 6)
+	for st: String in ["normal", "hover", "pressed", "hover_pressed"]:
+		var s := t.get_stylebox(st, "DevOptionButton") as StyleBoxFlat
+		s.border_color = Color(DevPack.NEON, 1.0 if st != "normal" else 0.6)
+		s.set_border_width_all(2)
 
 	# Line edits
 	var le := round_box(Color(0.02, 0.025, 0.04, 0.7), Color(1, 1, 1, 0.08), 1, 10, 12)

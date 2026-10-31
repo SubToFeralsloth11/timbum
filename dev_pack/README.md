@@ -1,13 +1,19 @@
 # THE DEV PACK
 
-**Status: assets only. NOT in the game.** This folder has a `.gdignore`, so Godot doesn't parse,
-import or export anything here. Nothing outside `dev_pack/` references it. Only add it to the game
-when the owner asks; when you do, follow this file exactly.
+**Status: in the game.** The script now lives at `scripts/models/dev_pack.gd`; this folder keeps
+the notes and previews and has a `.gdignore`, so Godot doesn't parse, import or export it.
 
 ## What it is
 
-A four-piece cosmetic set that can't be bought. The only way to get it is the redeem code
-**`LastMinutePlaysonyt`**. Matte black as the main colour, neon green (`#39ff14`) for every line,
+A four-piece cosmetic set that can't be bought. The only way to get it is a secret dev code typed
+on the keypad behind **Stats > CREDITS > DEV**. It is not redeemable in the shop: the shop only
+shows the pieces as CODE ONLY and never says what the code is or where to enter it.
+
+**The code changed** from the one this pack was first made with. The old code no longer works;
+the game only holds the SHA-256 of the new one (`DevPack.UNLOCK_CODE_SHA256`). Don't write the
+plain code in the repo (code, docs or commits); ask the owner for it.
+
+Matte black as the main colour, neon green (`#39ff14`) for every line,
 and it all glows. It's the most exclusive item set in Timbum and should look and read that way
 everywhere it appears.
 
@@ -28,7 +34,7 @@ Previews are in `preview/`: `turntable.mp4` / `turntable.gif` (a kill flash ever
 
 ## Files
 
-- `dev_pack.gd`: `class_name DevPack`. Everything: catalog entries (`DevPack.ENTRIES`), the code
+- `../scripts/models/dev_pack.gd`: `class_name DevPack`. Everything: catalog entries (`DevPack.ENTRIES`), the code
   check, three shaders (each with a first-person `VIEWMODEL` variant), materials, hat and charm
   meshes, and `DevPack.flash()`. It depends only on `MeshKit` and `Models.AVATAR_PARTS` / `Models.ATLAS_SIZE`.
 - `preview/`: render stills and turntable. Reference only; don't ship them.
@@ -46,9 +52,10 @@ Previews are in `preview/`: `turntable.mp4` / `turntable.gif` (a kill flash ever
 - First person: `DevPack.viewmodel_material(m)` returns the depth-squashing copy of a pack material
   (`m` unchanged if it isn't from the pack).
 
-## Integration checklist (when asked to add it)
+## Integration checklist (done; kept as the map of where it's wired in)
 
-Do every step. Each one is needed.
+Steps 7 and 12 differ from the original brief, at the owner's request: no shop redeem button, and
+the code changed.
 
 1. **Move the script:** `git mv dev_pack/dev_pack.gd scripts/models/dev_pack.gd`. Leave `dev_pack/`
    (README, previews, `.gdignore`) where it is.
@@ -71,13 +78,16 @@ Do every step. Each one is needed.
    `killer_id != victim_id` and `entities.get(killer_id)` is a Player, call `DevPack.flash(killer)`.
    That covers the third-person avatar, gun, hat and charm. If the killer is `local_player`, also
    call `DevPack.flash(local_player.viewmodel)` (null-check it). `flash()` ignores anything that isn't from the pack, so it's safe on every killer.
-7. **Redeem code:** add `Profile.redeem_code(code: String) -> String` to `scripts/autoload/profile.gd`.
-   If `DevPack.code_matches(code)` and the pack isn't owned yet, append every `DevPack.IDS` id to
-   `owned[category]`, `save()`, `changed.emit()` and return "THE DEV PACK UNLOCKED". If it's already
-   owned, return "Already redeemed". Otherwise return "Invalid code". The plain code must never
-   appear in game code; only the SHA-256 in `DevPack.UNLOCK_CODE_SHA256` ships.
-   Add a **REDEEM CODE** button and a LineEdit to the shop screen (`ui/shop_screen.gd`), built with
-   `UIKit` like the rest of the screen, that calls it and shows the result.
+7. **Redeem code:** `Profile.redeem_code(code: String) -> String` in `scripts/autoload/profile.gd`.
+   If `DevPack.code_matches(code)` and the pack isn't owned yet, it appends every `DevPack.IDS` id to
+   `owned[category]`, `save()`, `changed.emit()` and returns `Profile.REDEEM_UNLOCKED`
+   ("THE DEV PACK UNLOCKED"); already owned returns `REDEEM_ALREADY` ("Already unlocked"), anything
+   else `REDEEM_INVALID` ("Invalid code"). The plain code must never appear in game code; only the
+   SHA-256 in `DevPack.UNLOCK_CODE_SHA256` ships.
+   The only caller is the credits keypad (`ui/credits_panel.gd`, `CreditsPanel`): Stats > CREDITS
+   lists the credits, and the DEV row opens a rounded on-screen keypad (A-Z, 0-9, CLEAR, BACKSPACE,
+   ENTER; keyboard typing and controller navigation work too). A wrong code shakes the display and
+   says "Invalid code"; the right one unlocks all four with a celebration. There is no shop button.
 8. **Shop / locker display** (`ui/shop_screen.gd`, `ui/ui_kit.gd`, locker): any item with `dev: true`
    shows a **CODE ONLY** tag instead of a price (never the raw `-1`) and no Buy button. Owned, it
    equips like any other item. Give owned pack cards a neon green (`DevPack.NEON`) border and title
@@ -88,7 +98,7 @@ Do every step. Each one is needed.
 11. **Docs:** document `DevPack` in `docs/ARCHITECTURE.md` (Models section: the pack, its
     shaders, the instance-uniform flash, and the shader-drawn face) and add a README changelog line.
 12. **Verify:** load the game (through `~/.agents/bin/heavy`) with a fresh profile. Check: the pack
-    shows CODE ONLY and can't be bought; a wrong code fails; `lastminuteplaysonyt` (any case)
+    shows CODE ONLY and can't be bought; a wrong code fails on the keypad; the dev code (any case)
     unlocks all four; equip them and check the shop preview, the third-person avatar and the
     first-person view (lines move, pulses run); get a kill against a bot and watch the flash on the
     viewmodel; check that a bot wearing a normal outfit doesn't flash.

@@ -6,6 +6,8 @@ extends MenuScreen
 ## preview, stats (weapons), price and Buy/Equip actions.
 ## The ATTACHMENTS tab sells upgrade levels instead of items (Data.ATTACHMENTS): one level at a
 ## time, each dearer than the last, applying to every gun.
+## Dev Pack pieces (`dev: true`) get a neon-edged card and a CODE ONLY tag instead of a price and
+## no Buy button; owned, they equip like anything else.
 
 ## Group name -> its sub-tabs ([tab id, label]); a tab id is a Data catalog, or "melee".
 const GROUPS := {
@@ -226,7 +228,9 @@ func _show_category(tab: String) -> void:
 
 func _make_card(cat: String, id: String, group: ButtonGroup) -> Button:
 	var item: Dictionary = _items(cat)[id]
-	var card := UIKit.button("", &"CardButton")
+	var dev := cat != "attachments" and UIKit.is_dev_item(cat, id)
+	# Dev Pack pieces: neon-edged black card and neon title, CODE ONLY instead of a price.
+	var card := UIKit.button("", &"DevCardButton" if dev else &"CardButton")
 	card.toggle_mode = true
 	card.button_group = group
 	card.custom_minimum_size = Vector2(CARD_WIDTH, 168)
@@ -270,6 +274,8 @@ func _make_card(cat: String, id: String, group: ButtonGroup) -> Button:
 	title.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	title.clip_text = true
+	if dev:
+		title.add_theme_color_override("font_color", DevPack.NEON)
 	name_row.add_child(title)
 	if cat != "attachments":
 		var colors := UIKit.item_colors(cat, id)
@@ -327,6 +333,8 @@ func _refresh_cards() -> void:
 			var owned := UIKit.label("OWNED", &"SmallLabel")
 			owned.add_theme_font_size_override("font_size", 12)
 			foot.add_child(owned)
+		elif UIKit.is_dev_item(_category, id):
+			foot.add_child(UIKit.code_only_badge())
 		else:
 			var price := UIKit.coin_amount(Profile.price_of(_category, id), 16)
 			if Profile.coins < Profile.price_of(_category, id):
@@ -420,6 +428,11 @@ func _refresh_detail() -> void:
 		c.queue_free()
 	for c in _price_row.get_children():
 		c.queue_free()
+	var dev := cat != "attachments" and UIKit.is_dev_item(cat, id)
+	if dev:
+		_name.add_theme_color_override("font_color", DevPack.NEON)
+	else:
+		_name.remove_theme_color_override("font_color")
 	if cat == "attachments":
 		_refresh_attachment_detail(id)
 		return
@@ -453,15 +466,19 @@ func _refresh_detail() -> void:
 			_kind.text = "DRAW ANIMATION · LOOKS ONLY, NEVER SLOWER"
 		"sprays":
 			_kind.text = "SPRAY · PAINT IT ON A WALL WITH %s" % Profile.key_text("spray")
+	if dev:
+		_kind.text += " · THE DEV PACK"
 	var owned := Profile.is_owned(cat, id)
 	var equipped := _is_equipped(id)
 	var price := Profile.price_of(cat, id)
-	_buy.visible = not owned
+	_buy.visible = not owned and not dev
 	_equip.visible = owned and not equipped
 	_state.visible = equipped
 	_state.text = "EQUIPPED"
 	_state.add_theme_color_override("font_color", UITheme.GOOD)
-	if not owned:
+	if not owned and dev:
+		_price_row.add_child(UIKit.code_only_badge())
+	elif not owned:
 		_price_row.add_child(UIKit.coin_amount(price, 26))
 		var short := price - Profile.coins
 		_buy.disabled = short > 0

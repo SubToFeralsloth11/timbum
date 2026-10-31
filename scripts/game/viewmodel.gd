@@ -710,10 +710,13 @@ func _convert(root: Node) -> void:
 
 ## The viewmodel copy of a material: StandardMaterial3D parameters (emission texture and operator
 ## included) go into SHADER_CODE; an animated skin (Models.anim_skin_shader) gets the shader's
-## depth-squashing variant with every parameter copied. Other ShaderMaterials stay as they are.
+## depth-squashing variant with every parameter copied, and Dev Pack materials get DevPack's.
+## Other ShaderMaterials stay as they are.
 static func _converted_material(m: Material) -> Material:
 	if _converted.has(m):
 		return _converted[m]
+	if DevPack.is_dev_material(m):
+		return DevPack.viewmodel_material(m)
 	if m is ShaderMaterial and (m as ShaderMaterial).shader == Models.anim_skin_shader():
 		var anim_src := m as ShaderMaterial
 		var vm := ShaderMaterial.new()

@@ -489,19 +489,24 @@ func _make_bot_info() -> Dictionary:
 	var secondaries := Data.weapon_ids_for_slot("secondary")
 	return {
 		"name": bot_name,
-		"outfit": Data.OUTFITS.keys().pick_random(),
-		"hat": Data.HATS.keys().pick_random(),
-		"skin": Data.SKINS.keys().pick_random(),
+		"outfit": _bot_pick(Data.OUTFITS),
+		"hat": _bot_pick(Data.HATS),
+		"skin": _bot_pick(Data.SKINS),
 		"primary": primaries.pick_random(),
 		"secondary": secondaries.pick_random(),
 		"tactical": Data.TACTICALS.keys().pick_random(),
 		"melee": Data.weapon_ids_for_slot("melee").pick_random(),
-		"charm": Data.CHARMS.keys().pick_random(),
+		"charm": _bot_pick(Data.CHARMS),
 		"emote": Data.EMOTES.keys().pick_random(),
 		"draw": "standard",
 		"mods": {},
 		"level": randi_range(1, 30),
 	}
+
+
+## A random cosmetic id from a Data catalog for a bot, never a Dev Pack (`dev: true`) piece.
+func _bot_pick(catalog: Dictionary) -> String:
+	return catalog.keys().filter(func(id: String) -> bool: return not catalog[id].get("dev", false)).pick_random()
 
 
 ## Picks a spawn far from living enemies (players not on `team`; everyone else in free-for-all),
@@ -1270,6 +1275,13 @@ func _s_killed(victim_id: int, killer_id: int, wid: String, head: bool, killer_h
 		Sfx.play(&"death", victim.global_position)
 		victim.die(entities.get(killer_id) if victim == local_player else null)
 	streaks.on_death(victim_id)
+	# Dev Pack kill flash on the killer's avatar, gun, hat and charm (a no-op without pack pieces);
+	# the local killer also sees it on their first-person arms, gun and charm.
+	var killer_node: Variant = entities.get(killer_id)
+	if killer_id != victim_id and killer_node is Player:
+		DevPack.flash(killer_node)
+		if killer_node == local_player and local_player.viewmodel != null:
+			DevPack.flash(local_player.viewmodel)
 	var teams := [Teams.of(entities.get(killer_id)), Teams.of(victim)]
 	hud.add_killfeed(tagged_name(killer_id), weapon_label(wid), tagged_name(victim_id), head, killer_id == victim_id, teams[0], teams[1], wid)
 	var me := my_id()
