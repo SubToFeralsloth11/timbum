@@ -28,6 +28,8 @@ var _summary: Label
 var _name_tag: Label
 ## Mastery rows (primary, secondary, melee weapon): progress and the camo switch, refilled on show.
 var _mastery_box: VBoxContainer
+## One ON/OFF switch per owned attachment upgrade (Profile.set_attachment_on), refilled on show.
+var _attach_box: VBoxContainer
 ## Loadout presets: one tab per preset (the pressed one is active, and the pickers below edit it)
 ## and a name field with RENAME.
 var _preset_tabs: Array[Button] = []
@@ -87,6 +89,10 @@ func _ready() -> void:
 			_mastery_box = UIKit.vbox(4)
 			v.add_child(_mastery_box)
 			v.add_child(HSeparator.new())
+			v.add_child(UIKit.label("ATTACHMENTS", &"SubheaderLabel"))
+			_attach_box = UIKit.vbox(4)
+			v.add_child(_attach_box)
+			v.add_child(HSeparator.new())
 			v.add_child(UIKit.label("STYLE", &"SubheaderLabel"))
 		var row: Array = ROWS[i]
 		var h := UIKit.hbox(10)
@@ -145,6 +151,7 @@ func on_shown() -> void:
 	_fill_presets()
 	_fill_pickers()
 	_fill_mastery()
+	_fill_attachments()
 	_rebuild_models()
 
 
@@ -205,6 +212,42 @@ func _fill_mastery() -> void:
 			if Profile.set_camo(wid, on):
 				_rebuild_models())
 		h.add_child(camo)
+
+
+## Owned attachment upgrades with their level and an ON/OFF switch: off plays as level 0 (a
+## Laser Sight switched off shows no beam); the bought level stays.
+func _fill_attachments() -> void:
+	for c in _attach_box.get_children():
+		c.queue_free()
+	var any := false
+	for id: String in Data.ATTACHMENTS:
+		var lvl := Profile.upgrade_level(id)
+		if lvl <= 0:
+			continue
+		any = true
+		var h := UIKit.hbox(8)
+		_attach_box.add_child(h)
+		var on := Profile.is_attachment_on(id)
+		var text := UIKit.label("%s  ·  LEVEL %d" % [str(Data.ATTACHMENTS[id].name).to_upper(), lvl], &"SmallLabel")
+		text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		text.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		text.add_theme_color_override("font_color", UITheme.TEXT if on else UITheme.TEXT_DIM)
+		h.add_child(text)
+		var sw := CheckButton.new()
+		sw.text = "ON" if on else "OFF"
+		sw.custom_minimum_size.x = 96
+		sw.button_pressed = on
+		sw.tooltip_text = "Switch %s off to play as if you hadn't bought it (it stays bought)." % Data.ATTACHMENTS[id].name
+		UIKit.wire(sw)
+		sw.toggled.connect(func(pressed: bool) -> void:
+			Profile.set_attachment_on(id, pressed)
+			sw.text = "ON" if pressed else "OFF"
+			text.add_theme_color_override("font_color", UITheme.TEXT if pressed else UITheme.TEXT_DIM))
+		h.add_child(sw)
+	if not any:
+		var none := UIKit.label("Attachment upgrades you buy in the shop can be switched on and off here.", &"DimLabel")
+		none.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		_attach_box.add_child(none)
 
 
 ## Owned item ids in `category`; for weapons, only those that go in loadout `slot`.

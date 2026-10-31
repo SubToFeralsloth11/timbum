@@ -496,6 +496,8 @@ func _refresh_attachment_detail(id: String) -> void:
 	var top := int(a.max)
 	_name.text = String(a.name).to_upper()
 	_kind.text = "ATTACHMENT · LEVEL %d / %d · EVERY GUN" % [lvl, top]
+	if lvl > 0 and not Profile.is_attachment_on(id):
+		_kind.text += " · SWITCHED OFF IN THE LOCKER"
 	_desc.text = String(a.desc)
 	var pips := UIKit.hbox(10)
 	pips.add_child(UIKit.label("LEVEL", &"SmallLabel"))

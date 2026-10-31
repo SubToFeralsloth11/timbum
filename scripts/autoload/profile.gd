@@ -106,6 +106,9 @@ const EQUIP_SLOTS := {"skin": "skins", "hat": "hats", "outfit": "outfits", "char
 var equipped := DEFAULT_EQUIPPED.duplicate()
 ## Attachment id -> level bought (see Data.ATTACHMENTS); missing means 0.
 var upgrades := {}
+## Attachment ids the player switched off in the locker: treated as level 0 for them (old saves:
+## none, so everything owned is on). The bought level stays.
+var attachments_off: Array = []
 var settings := DEFAULT_SETTINGS.duplicate()
 var stats := DEFAULT_STATS.duplicate()
 var last_daily := 0
@@ -271,6 +274,31 @@ func buy_upgrade(id: String) -> bool:
 	return true
 
 
+func is_attachment_on(id: String) -> bool:
+	return not attachments_off.has(id)
+
+
+## Switches an owned attachment upgrade on or off (off: it acts as level 0 in matches).
+func set_attachment_on(id: String, on: bool) -> void:
+	if not Data.ATTACHMENTS.has(id) or on == is_attachment_on(id):
+		return
+	if on:
+		attachments_off.erase(id)
+	else:
+		attachments_off.append(id)
+	save()
+	changed.emit()
+
+
+## The attachment levels this player plays with: bought levels, 0 for those switched off.
+func active_mods() -> Dictionary:
+	var out := upgrades.duplicate()
+	for id: String in attachments_off:
+		if out.has(id):
+			out[id] = 0
+	return out
+
+
 func peer_info() -> Dictionary:
 	return {
 		"name": player_name,
@@ -281,7 +309,7 @@ func peer_info() -> Dictionary:
 		"emote": equipped.emote,
 		"draw": equipped.draw,
 		"spray": equipped.spray,
-		"mods": upgrades.duplicate(),
+		"mods": active_mods(),
 		"primary": loadout.primary,
 		"secondary": loadout.secondary,
 		"tactical": loadout.tactical,
@@ -1072,7 +1100,7 @@ func _payload() -> Dictionary:
 	return {
 		"version": SAVE_VERSION,
 		"player_name": player_name, "coins": coins, "xp": xp, "level": level,
-		"owned": owned, "loadout": loadout, "equipped": equipped, "upgrades": upgrades,
+		"owned": owned, "loadout": loadout, "equipped": equipped, "upgrades": upgrades, "attachments_off": attachments_off,
 		"settings": settings, "stats": stats, "last_daily": last_daily, "bindings": bindings, "pad_bindings": pad_bindings,
 		"weapon_stats": weapon_stats, "mastery_paid": mastery_paid, "camos": camos, "prestige": prestige,
 		"challenges": challenges, "feats": feats, "achievements": achievements, "match_presets": match_presets,
@@ -1231,6 +1259,12 @@ func load_from_dict(d: Dictionary) -> void:
 			var lvl := clampi(_num(saved_up.get(id), 0), 0, int(Data.ATTACHMENTS[id].max))
 			if lvl > 0:
 				upgrades[id] = lvl
+	attachments_off = []
+	var saved_off: Variant = d.get("attachments_off", [])
+	if typeof(saved_off) == TYPE_ARRAY:
+		for id: Variant in saved_off:
+			if Data.ATTACHMENTS.has(str(id)) and not attachments_off.has(str(id)):
+				attachments_off.append(str(id))
 	# Per-weapon stats, mastery and prestige (saves from before them start empty / at rank 0).
 	weapon_stats = clean_weapon_stats(d.get("weapon_stats", {}))
 	mastery_paid = {}
