@@ -174,8 +174,10 @@ var viewmodel: Viewmodel
 var aim_assist: AimAssist
 var nametag: Label3D
 var brain: BotBrain
-## Laser Sight attachment beam (null without the upgrade).
+## Laser Sight attachment beam (null without the upgrade, or with it switched off).
 var laser: LaserSight
+## A Spectator's viewmodel showing this player in first person: the beam leaves its muzzle.
+var laser_viewmodel: Viewmodel
 
 var _shape: CapsuleShape3D
 var _collider: CollisionShape3D
@@ -194,6 +196,8 @@ var _step_timer := 0.0
 var _was_on_floor := true
 var _shown_weapon := ""
 var _muzzle: Node3D
+## Laser beam blend: 1 runs to the aim point (gun ready), 0 straight out of the barrel (animating).
+var _laser_ready := 1.0
 var _send_timer := 0.0
 var _snapshots: Array = []
 var _remote_flags := FLAG_FLOOR
@@ -1616,37 +1620,63 @@ func _update_visuals(delta: float) -> void:
 			target_fov += 9.0
 		camera.fov = lerpf(camera.fov, target_fov, minf(1.0, delta * 12.0))
 		viewmodel.update_pose(delta, self)
-	_update_laser()
+	# A spectator following this player drives the beam after posing its viewmodel.
+	if laser_viewmodel == null:
+		update_laser(delta)
 
 
-## Laser Sight attachment: beam from the gun to where the shot would go, hidden while the gun
-## is down (switching, reloading, sprinting, knife) and the beam (not the dot) when scoped.
-## During an inspect it shines straight out of the barrel, so it sweeps as the gun turns.
-func _update_laser() -> void:
+## Laser Sight attachment: the beam always leaves the muzzle of the gun model on screen: the
+## first-person viewmodel while this is the local player's own first-person view, a spectator's
+## viewmodel while one follows this player (`laser_viewmodel`), otherwise the avatar's gun (other
+## players, photo mode, win cam). With the gun ready it runs to where the shot would go (the dot
+## meets the crosshair); during a reload, switch, inspect, sprint or emote it eases to the
+## barrel's own direction, so it moves with the gun. Hidden only with a melee weapon, when dead,
+## when the gun model isn't shown (emote), and the beam (not the dot) when scoped in first person.
+## `delta` 0 (a refresh while the match is frozen, e.g. photo mode opening) snaps the blend.
+func update_laser(delta := 0.0) -> void:
 	if laser == null:
 		return
-	var down := not alive or current_slot == 2 or switch_timer > 0.0 or reloading or sprinting
-	if mode == Mode.REMOTE:
-		down = not alive or Data.is_melee(weapon_id()) or (_remote_flags & (FLAG_RELOAD | FLAG_SPRINT)) != 0
-	if down or world.match_over:
+	if not alive or Data.is_melee(weapon_id()):
 		laser.visible = false
 		return
-	if inspecting():
-		var barrel := Transform3D(Basis.IDENTITY, global_position)
-		if viewmodel != null:
-			barrel = viewmodel.muzzle_transform()
-		elif _muzzle != null and is_instance_valid(_muzzle):
-			barrel = _muzzle.global_transform
-		laser.aim(barrel.origin, barrel.origin, -barrel.basis.z, _exclude)
+	var barrel: Transform3D
+	var first_person := mode == Mode.LOCAL and viewmodel != null and viewmodel.visible \
+		and camera != null and camera.current and not camera.top_level
+	if first_person:
+		barrel = viewmodel.muzzle_transform()
+	elif laser_viewmodel != null and is_instance_valid(laser_viewmodel) and laser_viewmodel.visible:
+		barrel = laser_viewmodel.muzzle_transform()
+	elif _muzzle != null and is_instance_valid(_muzzle) and _muzzle.is_visible_in_tree():
+		barrel = _muzzle.global_transform
+	else:
+		laser.visible = false
 		return
-	var aim := aim_transform()
-	var from := aim.origin
-	if viewmodel != null:
-		from = viewmodel.muzzle_position()
-	elif _muzzle != null:
-		from = _muzzle.global_position
-	var scoped: bool = weapon_data().get("scope", false) and aim_blend > 0.85
-	laser.aim(from, aim.origin, -aim.basis.z, _exclude, not scoped)
+	var busy := inspecting() or avatar.is_reloading() or not avatar.emote.is_empty()
+	if mode == Mode.REMOTE:
+		busy = busy or (_remote_flags & (FLAG_RELOAD | FLAG_SPRINT)) != 0
+	else:
+		busy = busy or switch_timer > 0.0 or reloading or sprinting
+	var target := 0.0 if busy else 1.0
+	_laser_ready = target if delta <= 0.0 else move_toward(_laser_ready, target, delta * 6.0)
+	var from := barrel.origin
+	var dir := (-barrel.basis.z).normalized()
+	if _laser_ready > 0.0:
+		var aim := aim_transform()
+		var to_aim := (aim_point(aim) - from).normalized()
+		if to_aim.length_squared() > 0.5:
+			dir = dir.slerp(to_aim, _laser_ready).normalized()
+	var scoped: bool = first_person and weapon_data().get("scope", false) and aim_blend > 0.85
+	laser.aim(from, from, dir, _exclude, not scoped)
+
+
+## Where the aim ray from the eye first hits (or LaserSight.RANGE ahead).
+func aim_point(aim: Transform3D) -> Vector3:
+	var dir := -aim.basis.z
+	var q := PhysicsRayQueryParameters3D.create(aim.origin, aim.origin + dir * LaserSight.RANGE,
+		LaserSight.MASK, _exclude)
+	q.collide_with_areas = true
+	var r := get_world_3d().direct_space_state.intersect_ray(q)
+	return r.position if not r.is_empty() else aim.origin + dir * LaserSight.RANGE
 
 
 func _footsteps(delta: float) -> void:

@@ -1595,8 +1595,6 @@ func _start_win_cam(winner: Player) -> void:
 		winner.avatar.set_first_person(false)
 		if winner.viewmodel != null:
 			winner.viewmodel.visible = false
-	if winner.laser != null:
-		winner.laser.visible = false
 	_win_cam = Camera3D.new()
 	_win_cam.name = "WinCam"
 	_win_cam.fov = 55.0

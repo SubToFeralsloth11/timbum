@@ -254,8 +254,6 @@ func _apply_target_look() -> void:
 	target.avatar.set_first_person(hide)
 	if target.nametag != null:
 		target.nametag.visible = not hide and target.alive
-	if target.laser != null:
-		target.laser.visible = not hide
 
 
 func _release_target() -> void:
@@ -263,8 +261,7 @@ func _release_target() -> void:
 		target.avatar.set_first_person(false)
 		if target.nametag != null:
 			target.nametag.visible = target.alive
-		if target.laser != null:
-			target.laser.visible = true
+		target.laser_viewmodel = null
 	target = null
 
 
@@ -325,6 +322,9 @@ func _update_follow(delta: float) -> void:
 	_viewmodel.visible = not _photo
 	_viewmodel.pose(delta, _ads, (fl & Player.FLAG_SPRINT) != 0, sliding, p.grappling, Basis(Vector3.UP, p.yaw).inverse() * _vel,
 		(fl & Player.FLAG_FLOOR) != 0, Vector2(_vel.x, _vel.z).length(), (fl & Player.FLAG_CROUCH) != 0)
+	# Their Laser Sight beam leaves this viewmodel's muzzle (the body's while photo mode shows it).
+	p.laser_viewmodel = _viewmodel
+	p.update_laser(delta)
 
 
 ## World._play_shot_fx: the followed player's gun kicks or their melee weapon swings in the viewmodel.

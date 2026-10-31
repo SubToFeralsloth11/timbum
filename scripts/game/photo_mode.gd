@@ -114,6 +114,7 @@ func open() -> void:
 		me.avatar.set_first_person(false)
 		_player_changed = me
 	world.spectator.set_photo(true)
+	_refresh_lasers()
 	_set_filter(0)
 	_fov.set_value_no_signal(_cam.fov)
 	_speed.set_value_no_signal(1.0)
@@ -150,7 +151,15 @@ func close() -> void:
 	if is_instance_valid(_prev_cam):
 		_prev_cam.make_current()
 	_prev_cam = null
+	_refresh_lasers()
 	closed.emit()
+
+
+## The match is frozen, so re-aim every Laser Sight beam now: the local player's leaves their
+## body's gun while photo mode shows it, their viewmodel's again afterwards.
+func _refresh_lasers() -> void:
+	for eid: int in world.entities:
+		(world.entities[eid] as Player).update_laser()
 
 
 ## Saves what the camera sees (without this panel) and returns the user:// path ("" on failure).
