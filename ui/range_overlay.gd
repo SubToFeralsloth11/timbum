@@ -68,13 +68,7 @@ func _label(text: String, size: int, color := Color.WHITE) -> Label:
 
 func _build_card() -> void:
 	_card = PanelContainer.new()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.06, 0.07, 0.1, 0.66)
-	sb.set_corner_radius_all(4)
-	sb.set_content_margin_all(12)
-	sb.border_color = Color(1, 0.85, 0.35, 0.35)
-	sb.set_border_width_all(2)
-	_card.add_theme_stylebox_override("panel", sb)
+	_card.add_theme_stylebox_override("panel", UITheme.hud_card(0.6, 12, UITheme.CARD_RADIUS, Color(1, 0.85, 0.35, 0.35)))
 	_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_card.set_anchors_and_offsets_preset(Control.PRESET_CENTER_RIGHT)
 	_card.grow_horizontal = Control.GROW_DIRECTION_BEGIN

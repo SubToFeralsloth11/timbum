@@ -78,10 +78,8 @@ func _ready() -> void:
 	_hp_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_hp_bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_hp_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var bg := StyleBoxFlat.new()
-	bg.bg_color = Color(0, 0, 0, 0.45)
-	_hp_fill = StyleBoxFlat.new()
-	_hp_bar.add_theme_stylebox_override("background", bg)
+	_hp_fill = UITheme.bar_box(Color.WHITE, 4)
+	_hp_bar.add_theme_stylebox_override("background", UITheme.bar_box(Color(0, 0, 0, 0.45), 4))
 	_hp_bar.add_theme_stylebox_override("fill", _hp_fill)
 	hp_row.add_child(_hp_bar)
 	_weapon = _label("", 17, Color(1.0, 0.92, 0.7), HORIZONTAL_ALIGNMENT_LEFT)
@@ -92,12 +90,9 @@ func _ready() -> void:
 
 func _panel() -> PanelContainer:
 	var p := PanelContainer.new()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.06, 0.07, 0.1, 0.6)
-	sb.set_content_margin_all(10)
+	var sb := UITheme.hud_card(0.5, 10)
 	sb.content_margin_left = 16
 	sb.content_margin_right = 16
-	sb.set_corner_radius_all(4)
 	p.add_theme_stylebox_override("panel", sb)
 	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return p

@@ -66,12 +66,8 @@ func _ready() -> void:
 	_bar.step = 0.0
 	_bar.show_percentage = false
 	_bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	var bg := StyleBoxFlat.new()
-	bg.bg_color = Color(1, 1, 1, 0.15)
-	var fill := StyleBoxFlat.new()
-	fill.bg_color = Color(1.0, 0.32, 0.26)
-	_bar.add_theme_stylebox_override("background", bg)
-	_bar.add_theme_stylebox_override("fill", fill)
+	_bar.add_theme_stylebox_override("background", UITheme.bar_box(Color(1, 1, 1, 0.15), 3))
+	_bar.add_theme_stylebox_override("fill", UITheme.bar_box(Color(1.0, 0.32, 0.26), 3))
 	_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	foot.add_child(_bar)
 	Profile.device_changed.connect(_refresh_key)

@@ -46,13 +46,7 @@ func setup(p_game: GunGame) -> void:
 func _ready() -> void:
 	layer = 11
 	_panel = PanelContainer.new()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.06, 0.07, 0.1, 0.6)
-	sb.set_corner_radius_all(4)
-	sb.set_content_margin_all(10)
-	sb.border_color = Color(GOLD, 0.35)
-	sb.set_border_width_all(2)
-	_panel.add_theme_stylebox_override("panel", sb)
+	_panel.add_theme_stylebox_override("panel", UITheme.hud_card(0.5, 10, UITheme.CARD_RADIUS, Color(GOLD, 0.35)))
 	_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_panel.position = Vector2(16, 40)
 	_panel.custom_minimum_size = Vector2(250, 0)

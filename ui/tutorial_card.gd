@@ -59,13 +59,7 @@ func _ready() -> void:
 	_markers.tutorial = tutorial
 	root.add_child(_markers)
 	_card = PanelContainer.new()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.06, 0.07, 0.1, 0.78)
-	sb.set_corner_radius_all(4)
-	sb.set_content_margin_all(14)
-	sb.border_color = Color(1, 0.82, 0.25, 0.6)
-	sb.set_border_width_all(2)
-	_card.add_theme_stylebox_override("panel", sb)
+	_card.add_theme_stylebox_override("panel", UITheme.hud_card(0.7, 14, UITheme.PANEL_RADIUS, Color(1, 0.82, 0.25, 0.6)))
 	_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_card.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
 	_card.grow_horizontal = Control.GROW_DIRECTION_BOTH
@@ -89,12 +83,8 @@ func _ready() -> void:
 	_bar.step = 0.0
 	_bar.show_percentage = false
 	_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var bg := StyleBoxFlat.new()
-	bg.bg_color = Color(0, 0, 0, 0.5)
-	var fill := StyleBoxFlat.new()
-	fill.bg_color = Color(1, 0.82, 0.25)
-	_bar.add_theme_stylebox_override("background", bg)
-	_bar.add_theme_stylebox_override("fill", fill)
+	_bar.add_theme_stylebox_override("background", UITheme.bar_box(Color(0, 0, 0, 0.5), 4))
+	_bar.add_theme_stylebox_override("fill", UITheme.bar_box(Color(1, 0.82, 0.25), 4))
 	v.add_child(_bar)
 	_skip = _label("", 13, Color(0.7, 0.75, 0.85))
 	v.add_child(_skip)

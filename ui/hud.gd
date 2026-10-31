@@ -3,14 +3,16 @@ extends CanvasLayer
 ## In-match interface: crosshair, hitmarkers, health, ammo, clock, killfeed, chat,
 ## scoreboard, death screen, scope, pause menu and end-of-match results.
 
-const KILLFEED_MAX := 6
+const KILLFEED_MAX := 5
 const KILLFEED_LIFE := 6.0
 const CHAT_LIFE := 10.0
 const CHAT_MAX := 8
 ## Results-table rows shown before it scrolls (a full lobby plus the highlights, rewards and the
 ## next-match strip would push the panel off a 720p screen).
 const RESULTS_VISIBLE_ROWS := 6
-const HEALTH_SEGMENTS := 10
+## Callouts (kills, multi-kills, streaks, lead changes, mode events) under the score card.
+const CALLOUT_MAX := 3
+const CALLOUT_LIFE := 2.6
 
 
 ## Heading strip across the top of the screen: N/E/S/W letters and ticks every 15 degrees,
@@ -28,7 +30,7 @@ class Compass extends Control:
 		var w := size.x
 		var mid := w * 0.5
 		var font := get_theme_default_font()
-		draw_rect(Rect2(Vector2.ZERO, size), Color(0.06, 0.07, 0.1, 0.45))
+		draw_style_box(UITheme.hud_card(0.4, 0, 12), Rect2(Vector2.ZERO, size))
 		var deg := rad_to_deg(heading)
 		var first := int(floor((deg - SPAN * 0.5) / 15.0)) * 15
 		for d in range(first, int(deg + SPAN * 0.5) + 15, 15):
@@ -52,6 +54,49 @@ class Compass extends Control:
 			var c: Color = pip[1]
 			draw_colored_polygon(PackedVector2Array([Vector2(px, 9), Vector2(px + 6, 16), Vector2(px, 23), Vector2(px - 6, 16)]), c)
 
+
+## Small code-drawn icon for HUD chips and callouts: "frag", "tactical", "hook", "kill", "head",
+## "streak", "info".
+class HudIcon extends Control:
+	var kind := ""
+	var color := Color.WHITE
+
+	func _init(p_kind: String, p_color: Color, px := 16.0) -> void:
+		kind = p_kind
+		color = p_color
+		custom_minimum_size = Vector2(px, px)
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		size_flags_vertical = Control.SIZE_SHRINK_CENTER
+
+	func _draw() -> void:
+		var c := size * 0.5
+		var r := minf(size.x, size.y) * 0.5
+		match kind:
+			"frag":
+				draw_circle(c + Vector2(0, r * 0.15), r * 0.7, color)
+				draw_rect(Rect2(c + Vector2(-r * 0.25, -r * 0.95), Vector2(r * 0.5, r * 0.4)), color.darkened(0.3))
+			"tactical":
+				draw_rect(Rect2(c - Vector2(r, r) * 0.7, Vector2(r, r) * 1.4), color)
+				draw_rect(Rect2(c - Vector2(r, r) * 0.25, Vector2(r, r) * 0.5), color.lightened(0.6))
+			"hook":
+				draw_arc(c + Vector2(0, r * 0.2), r * 0.55, 0.0, PI, 12, color, 2.5, true)
+				draw_line(c + Vector2(r * 0.55, r * 0.2), c + Vector2(r * 0.55, -r * 0.9), color, 2.5, true)
+			"kill", "head":
+				draw_arc(c, r * 0.62, 0.0, TAU, 24, color, 2.5, true)
+				for d: Vector2 in [Vector2.UP, Vector2.DOWN, Vector2.LEFT, Vector2.RIGHT]:
+					draw_line(c + d * r * 0.3, c + d * r, color, 2.5, true)
+				if kind == "head":
+					draw_circle(c, r * 0.22, color)
+			"streak":
+				var pts := PackedVector2Array()
+				for i in 10:
+					var a := -PI * 0.5 + i * TAU / 10.0
+					pts.append(c + Vector2(cos(a), sin(a)) * (r if i % 2 == 0 else r * 0.45))
+				draw_colored_polygon(pts, color)
+			_:
+				draw_colored_polygon(PackedVector2Array([c + Vector2(0, -r * 0.8), c + Vector2(r * 0.8, 0), c + Vector2(0, r * 0.8), c + Vector2(-r * 0.8, 0)]), color)
+
+
 ## Kill-feed icon for a Block Bomber kill (Streaks): a little falling bomb with tail fins.
 class BomberIcon extends Control:
 	func _ready() -> void:
@@ -74,21 +119,27 @@ var _damage_ring: DamageRing
 var _scope: ScopeOverlay
 var _vignette: TextureRect
 var _health_label: Label
-## Overshield (Streaks) beside the health: "+50" and one cyan segment per 10 points, after the
-## health segments; hidden without a shield.
+## Health as a slim rounded bar; the Overshield (Streaks) as a cyan bar after it with "+50",
+## hidden without a shield.
+var _hp_bar: ProgressBar
+var _shield_bar: ProgressBar
 var _shield_label: Label
-var _shield_segments: Array[ColorRect] = []
-var _hp_segments: Array[ColorRect] = []
 var _status_label: Label
 var _ammo_label: Label
 var _reserve_label: Label
 var _weapon_label: Label
 var _mode_label: Label
 var _mag_bar: ProgressBar
+## Slot pips (one chip per weapon slot, the held one gold) and the slot they last showed.
+var _slot_chips: Array[PanelContainer] = []
 var _slot_labels: Array[Label] = []
+var _slot_drawn := -2
+## Equipment chips: frag and tactical counts, the grapple hook's cooldown.
 var _grenade_label: Label
 var _tactical_label: Label
-var _grapple_label: Label
+var _grenade_key: Label
+var _tactical_key: Label
+var _grapple_key: Label
 var _grapple_bar: ProgressBar
 ## Team modes: one name, bar and count per team (MatchMode.hud_bars), team 0 then team 1.
 var _team_names: Array[Label] = []
@@ -110,15 +161,17 @@ var _flash_peak := 0.0
 var _flash_left := 0.0
 var _flash_total := 1.0
 var _hint_label: Label
+var _hint_chip: PanelContainer
 var _clock_label: Label
 var _goal_label: Label
 var _rank_label: Label
 var _killfeed: VBoxContainer
-var _kill_label: Label
-var _announce_label: Label
+## Callout banners (show_kill, announce) under the score card.
+var _callouts: VBoxContainer
 var _pickup_label: Label
 var _protect_label: Label
-## Challenge / achievement toasts (feat_toast), stacked at the right edge.
+## The one toast column (toast: challenges, achievements, killstreak rewards) at the right edge,
+## under the kill feed.
 var _feat_box: VBoxContainer
 var _chat_log: VBoxContainer
 var _chat_input: LineEdit
@@ -181,8 +234,6 @@ var _results_left := 0.0
 ## Skip votes the server last reported for the results screen ("N of M ready" for everyone).
 var _skip_votes := 0
 var _vignette_alpha := 0.0
-var _kill_label_t := 0.0
-var _announce_t := 0.0
 var _pickup_t := 0.0
 var _scores_dirty := true
 const FEAT_TOAST_LIFE := 5.0
@@ -256,12 +307,15 @@ func _ready() -> void:
 	_flash_rect.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_flash_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_root.add_child(_flash_rect)
+	# One toast column under the kill feed (KILLFEED_MAX rows end above it), so toasts never
+	# overlap each other or the feed.
 	_feat_box = VBoxContainer.new()
-	_feat_box.set_anchors_and_offsets_preset(Control.PRESET_CENTER_RIGHT)
+	_feat_box.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
 	_feat_box.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	_feat_box.grow_vertical = Control.GROW_DIRECTION_BOTH
-	_feat_box.offset_right = -24
-	_feat_box.add_theme_constant_override("separation", 8)
+	_feat_box.offset_right = -16
+	_feat_box.offset_left = -16
+	_feat_box.offset_top = 214
+	_feat_box.add_theme_constant_override("separation", 6)
 	_feat_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_root.add_child(_feat_box)
 
@@ -269,7 +323,8 @@ func _ready() -> void:
 	_fps_label.position = Vector2(10, 8)
 	_root.add_child(_fps_label)
 
-	if int(Profile.stats.matches) < 3 and world.rules.shows_controls_hint():
+	# A one-line controls hint in the player's first match only (the tutorial teaches the rest).
+	if int(Profile.stats.matches) == 0 and world.rules.shows_controls_hint():
 		_show_controls_hint()
 	# Tactical opens on its planning banner and floor plan instead.
 	if not Tactical.is_active():
@@ -314,6 +369,7 @@ func _refresh_palette() -> void:
 		(_team_bars[t].get_theme_stylebox("fill") as StyleBoxFlat).bg_color = c
 		_team_counts[t].add_theme_color_override("font_color", c.lightened(0.2))
 	_shield_label.add_theme_color_override("font_color", Palette.color("shield"))
+	(_shield_bar.get_theme_stylebox("fill") as StyleBoxFlat).bg_color = Palette.color("shield")
 	_scores_dirty = true
 	if not first and Teams.is_team_mode():
 		Teams.refresh_tags(world)
@@ -321,27 +377,34 @@ func _refresh_palette() -> void:
 
 # ---------------------------------------------------------------- building
 
-func _label(text: String, size: int, color := Color.WHITE) -> Label:
+## A HUD label; `heavy` uses the bold display font (numbers, callouts).
+func _label(text: String, size: int, color := Color.WHITE, heavy := false) -> Label:
 	var l := Label.new()
 	l.text = text
 	l.add_theme_font_size_override("font_size", size)
 	l.add_theme_color_override("font_color", color)
-	l.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
-	l.add_theme_constant_override("outline_size", maxi(4, size / 5))
+	l.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
+	l.add_theme_constant_override("outline_size", maxi(3, size / 7))
+	if heavy:
+		l.add_theme_font_override("font", UITheme.heavy_font())
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return l
 
 
-func _panel(alpha := 0.55) -> PanelContainer:
+## A translucent rounded HUD card (UITheme.hud_card).
+func _panel(alpha := 0.5, pad := 10) -> PanelContainer:
 	var p := PanelContainer.new()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.06, 0.07, 0.1, alpha)
-	sb.set_corner_radius_all(4)
-	sb.set_content_margin_all(10)
-	sb.border_color = Color(1, 1, 1, 0.08)
-	sb.set_border_width_all(2)
-	p.add_theme_stylebox_override("panel", sb)
+	p.add_theme_stylebox_override("panel", UITheme.hud_card(alpha, pad))
 	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return p
+
+
+## A small rounded chip holding `content` (HUD key hints, slot pips, equipment).
+func _chip(content: Control, bg := Color(0, 0, 0, 0.35)) -> PanelContainer:
+	var p := PanelContainer.new()
+	p.add_theme_stylebox_override("panel", UITheme.chip_box(bg, Color(1, 1, 1, 0.06), 7, 2))
+	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	p.add_child(content)
 	return p
 
 
@@ -349,54 +412,54 @@ func _build_top() -> void:
 	var col := VBoxContainer.new()
 	col.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
 	col.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	col.position.y = 6
+	col.position.y = 8
 	col.alignment = BoxContainer.ALIGNMENT_BEGIN
-	col.add_theme_constant_override("separation", 4)
+	col.add_theme_constant_override("separation", 6)
 	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_root.add_child(col)
 	_top = col
 	_compass = Compass.new()
-	_compass.custom_minimum_size = Vector2(440, 30)
+	_compass.custom_minimum_size = Vector2(400, 28)
 	_compass.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	col.add_child(_compass)
-	var top := _panel()
+	var top := _panel(0.5, 8)
 	top.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	# Practice sessions (Firing Range, tutorial) have no clock or race.
 	top.visible = not world.rules.is_practice()
 	col.add_child(top)
 	var v := VBoxContainer.new()
 	v.alignment = BoxContainer.ALIGNMENT_CENTER
-	v.add_theme_constant_override("separation", 2)
+	v.add_theme_constant_override("separation", 3)
 	top.add_child(v)
-	_clock_label = _label("8:00", 34)
+	_clock_label = _label("8:00", 28, Color.WHITE, true)
 	_clock_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(_clock_label)
 	# Race to the kill limit: this player's bar against the leader's.
 	var race := GridContainer.new()
 	race.columns = 2
 	race.add_theme_constant_override("h_separation", 8)
-	race.add_theme_constant_override("v_separation", 3)
+	race.add_theme_constant_override("v_separation", 4)
 	v.add_child(race)
-	race.add_child(_label("YOU", 13, Color(1, 0.88, 0.45)))
-	_you_bar = _bar(Color(1, 0.8, 0.25), Vector2(200, 7))
+	race.add_child(_label("YOU", 11, Color(1, 0.88, 0.45), true))
+	_you_bar = UITheme.slim_bar(Color(1, 0.8, 0.25), Vector2(190, 6))
 	race.add_child(_you_bar)
-	race.add_child(_label("LEAD", 13, Color(1, 0.55, 0.5)))
-	_lead_bar = _bar(Color(1, 0.4, 0.35), Vector2(200, 7))
+	race.add_child(_label("LEAD", 11, Color(1, 0.55, 0.5), true))
+	_lead_bar = UITheme.slim_bar(Color(1, 0.4, 0.35), Vector2(190, 6))
 	race.add_child(_lead_bar)
 	# Team modes replace the race with one bar per team (what it measures is the mode's).
 	var teams := GridContainer.new()
 	teams.columns = 3
 	teams.add_theme_constant_override("h_separation", 8)
-	teams.add_theme_constant_override("v_separation", 2)
+	teams.add_theme_constant_override("v_separation", 3)
 	v.add_child(teams)
 	for t in 2:
-		var name_label := _label("", 15)
+		var name_label := _label("", 13, Color.WHITE, true)
 		teams.add_child(name_label)
 		_team_names.append(name_label)
-		var bar := _bar(Color.WHITE, Vector2(200, 9))
+		var bar := UITheme.slim_bar(Color.WHITE, Vector2(190, 8))
 		teams.add_child(bar)
 		_team_bars.append(bar)
-		var count := _label("0", 20)
+		var count := _label("0", 18, Color.WHITE, true)
 		count.custom_minimum_size.x = 30
 		count.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		teams.add_child(count)
@@ -404,45 +467,31 @@ func _build_top() -> void:
 	var team_mode := Teams.is_team_mode()
 	race.visible = not team_mode
 	teams.visible = team_mode
-	_goal_label = _label("", 15, Color(1, 0.85, 0.4))
+	_goal_label = _label("", 12, Color(0.8, 0.82, 0.88))
 	_goal_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(_goal_label)
-	_rank_label = _label("", 15, Color(0.75, 0.85, 1.0))
+	_rank_label = _label("", 14, Color(1, 0.88, 0.5))
 	_rank_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(_rank_label)
+	# Callouts stack right under the score card: clear of the crosshair, easy to catch.
+	_callouts = VBoxContainer.new()
+	_callouts.add_theme_constant_override("separation", 4)
+	_callouts.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_child(_callouts)
 
 	_killfeed = VBoxContainer.new()
 	_killfeed.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
 	_killfeed.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	_killfeed.position = Vector2(-16, 14)
+	_killfeed.position = Vector2(-16, 12)
 	_killfeed.alignment = BoxContainer.ALIGNMENT_BEGIN
+	_killfeed.add_theme_constant_override("separation", 4)
 	_killfeed.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_root.add_child(_killfeed)
 
 
-## Thin flat progress bar (0..1) used across the HUD.
-func _bar(color: Color, min_size: Vector2) -> ProgressBar:
-	var b := ProgressBar.new()
-	b.custom_minimum_size = min_size
-	b.max_value = 1.0
-	b.step = 0.0
-	b.show_percentage = false
-	b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	var bg := StyleBoxFlat.new()
-	bg.bg_color = Color(0, 0, 0, 0.5)
-	bg.set_corner_radius_all(2)
-	var fill := StyleBoxFlat.new()
-	fill.bg_color = color
-	fill.set_corner_radius_all(2)
-	b.add_theme_stylebox_override("background", bg)
-	b.add_theme_stylebox_override("fill", fill)
-	b.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	return b
-
-
 func _build_bottom() -> void:
-	# Health card, bottom left: big number, segmented bar and a movement status line.
-	var hp := _panel()
+	# Health card, bottom left: number, a slim rounded bar (+ Overshield bar) and a status line.
+	var hp := _panel(0.5, 10)
 	_health_card = hp
 	hp.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
 	hp.grow_vertical = Control.GROW_DIRECTION_BEGIN
@@ -454,125 +503,137 @@ func _build_bottom() -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
 	hv.add_child(row)
-	var cross := _label("+", 40, Color(1, 0.35, 0.35))
+	var cross := _label("+", 26, Color(1, 0.4, 0.4), true)
+	cross.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(cross)
-	_health_label = _label("100", 44)
+	_health_label = _label("100", 34, Color.WHITE, true)
 	row.add_child(_health_label)
-	_shield_label = _label("", 30)
+	_shield_label = _label("", 20, Color.WHITE, true)
 	_shield_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_shield_label.visible = false
 	row.add_child(_shield_label)
-	_status_label = _label("", 15, Color(0.6, 0.9, 1.0))
-	_status_label.size_flags_vertical = Control.SIZE_SHRINK_END
+	var gap := Control.new()
+	gap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	gap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(gap)
+	_status_label = _label("", 12, Color(0.6, 0.9, 1.0), true)
+	_status_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(_status_label)
-	var segs := HBoxContainer.new()
-	segs.add_theme_constant_override("separation", 3)
-	hv.add_child(segs)
-	for i in HEALTH_SEGMENTS:
-		var s := ColorRect.new()
-		s.custom_minimum_size = Vector2(24, 12)
-		s.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		segs.add_child(s)
-		_hp_segments.append(s)
-	for i in roundi(Streaks.SHIELD / 10.0):
-		var s := ColorRect.new()
-		s.custom_minimum_size = Vector2(24, 12)
-		s.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		s.visible = false
-		segs.add_child(s)
-		_shield_segments.append(s)
+	var bars := HBoxContainer.new()
+	bars.add_theme_constant_override("separation", 3)
+	hv.add_child(bars)
+	_hp_bar = UITheme.slim_bar(Color.WHITE, Vector2(220, 10))
+	bars.add_child(_hp_bar)
+	# The Overshield's bar is drawn to the same scale as health (Streaks.SHIELD of MAX_HEALTH).
+	_shield_bar = UITheme.slim_bar(Color.WHITE, Vector2(220.0 * Streaks.SHIELD / Data.MAX_HEALTH, 10))
+	_shield_bar.max_value = Streaks.SHIELD
+	_shield_bar.visible = false
+	bars.add_child(_shield_bar)
 
-	# Weapon card, bottom right: weapon and fire mode, ammo, magazine bar, the three slots and
-	# the equipment row (frags, tactical, grapple) with their keys.
-	var ammo := _panel()
+	# Weapon card, bottom right: gun name and fire mode, big ammo with the reserve, magazine bar,
+	# slot pips, then equipment chips (frags, tactical, grapple) with their keys.
+	var ammo := _panel(0.5, 10)
 	_weapon_card = ammo
 	ammo.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
 	ammo.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	ammo.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	ammo.position = Vector2(-18, -18)
-	ammo.custom_minimum_size.x = 330
+	ammo.custom_minimum_size.x = 250
 	_root.add_child(ammo)
 	var av := VBoxContainer.new()
 	av.alignment = BoxContainer.ALIGNMENT_END
-	av.add_theme_constant_override("separation", 3)
+	av.add_theme_constant_override("separation", 4)
 	ammo.add_child(av)
 	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 6)
 	av.add_child(head)
-	_weapon_label = _label("", 18, Color(0.85, 0.9, 1.0))
+	_weapon_label = _label("", 14, Color(0.88, 0.92, 1.0), true)
 	_weapon_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_weapon_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	head.add_child(_weapon_label)
-	_mode_label = _label("", 13, Color(0.6, 0.65, 0.75))
-	_mode_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	head.add_child(_mode_label)
+	_mode_label = _label("", 10, Color(0.75, 0.8, 0.9), true)
+	head.add_child(_chip(_mode_label))
 	var arow := HBoxContainer.new()
-	arow.alignment = BoxContainer.ALIGNMENT_END
+	arow.add_theme_constant_override("separation", 4)
 	av.add_child(arow)
-	_ammo_label = _label("30", 46)
+	var slots := HBoxContainer.new()
+	slots.add_theme_constant_override("separation", 4)
+	slots.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	slots.size_flags_vertical = Control.SIZE_SHRINK_END
+	arow.add_child(slots)
+	for i in 3:
+		var l := _label("", 11, Color.WHITE, true)
+		l.add_theme_constant_override("outline_size", 0)
+		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		l.custom_minimum_size.x = 10
+		var chip := _chip(l)
+		slots.add_child(chip)
+		_slot_chips.append(chip)
+		_slot_labels.append(l)
+	_ammo_label = _label("30", 40, Color.WHITE, true)
 	arow.add_child(_ammo_label)
-	_reserve_label = _label("/ 120", 24, Color(0.8, 0.8, 0.8))
-	_reserve_label.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+	_reserve_label = _label("/ 120", 16, Color(0.75, 0.78, 0.85), true)
 	_reserve_label.size_flags_vertical = Control.SIZE_SHRINK_END
 	arow.add_child(_reserve_label)
-	_mag_bar = _bar(Color(0.95, 0.95, 0.95), Vector2(0, 5))
+	_mag_bar = UITheme.slim_bar(Color(0.95, 0.95, 0.95), Vector2(0, 5))
 	av.add_child(_mag_bar)
-	var slots := HBoxContainer.new()
-	slots.add_theme_constant_override("separation", 6)
-	slots.alignment = BoxContainer.ALIGNMENT_END
-	av.add_child(slots)
-	for i in 3:
-		var l := _label("", 13)
-		slots.add_child(l)
-		_slot_labels.append(l)
 	var gear := HBoxContainer.new()
-	gear.add_theme_constant_override("separation", 12)
+	gear.add_theme_constant_override("separation", 6)
 	gear.alignment = BoxContainer.ALIGNMENT_END
 	av.add_child(gear)
-	_grenade_label = _label("", 15, Color(0.55, 0.95, 0.5))
-	gear.add_child(_grenade_label)
-	_tactical_label = _label("", 15, Color(0.7, 0.85, 1.0))
-	gear.add_child(_tactical_label)
-	var hook := HBoxContainer.new()
-	_hook_box = hook
-	hook.add_theme_constant_override("separation", 4)
-	gear.add_child(hook)
-	_grapple_label = _label("", 15, Color(1.0, 0.8, 0.5))
-	hook.add_child(_grapple_label)
-	_grapple_bar = _bar(Color(1.0, 0.75, 0.35), Vector2(44, 6))
-	hook.add_child(_grapple_bar)
+	var frag := _gear_chip("frag", Color(0.55, 0.95, 0.5))
+	gear.add_child(frag[0])
+	_grenade_key = frag[1]
+	_grenade_label = frag[2]
+	var tac := _gear_chip("tactical", Color(0.7, 0.85, 1.0))
+	gear.add_child(tac[0])
+	_tactical_key = tac[1]
+	_tactical_label = tac[2]
+	var hook := _gear_chip("hook", Color(1.0, 0.75, 0.4))
+	_hook_box = hook[0]
+	gear.add_child(hook[0])
+	_grapple_key = hook[1]
+	(hook[2] as Label).queue_free()
+	_grapple_bar = UITheme.slim_bar(Color(1.0, 0.75, 0.35), Vector2(28, 5))
+	(hook[3] as HBoxContainer).add_child(_grapple_bar)
 
-	_hint_label = _label("", 20, Color(1, 0.85, 0.3))
-	_hint_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
-	_hint_label.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	_hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_hint_label.position.y += 70
-	_root.add_child(_hint_label)
+	# Reload / ammo hints: a small chip below the crosshair, well clear of it.
+	_hint_label = _label("", 14, Color(1, 0.85, 0.3), true)
+	_hint_chip = _chip(_hint_label, Color(0.05, 0.06, 0.09, 0.55))
+	_hint_chip.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	_hint_chip.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_hint_chip.position.y += 86
+	_root.add_child(_hint_chip)
+
+
+## An equipment chip: [key] icon count. Returns [chip, key label, count label, row].
+func _gear_chip(kind: String, color: Color) -> Array:
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 5)
+	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var key := _label("", 10, Color(0.7, 0.74, 0.82), true)
+	key.add_theme_constant_override("outline_size", 0)
+	key.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	h.add_child(key)
+	h.add_child(HudIcon.new(kind, color, 14.0))
+	var count := _label("", 14, Color.WHITE, true)
+	count.add_theme_constant_override("outline_size", 0)
+	h.add_child(count)
+	return [_chip(h), key, count, h]
 
 
 func _build_center() -> void:
-	_kill_label = _label("", 22, Color(1, 0.4, 0.35))
-	_kill_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
-	_kill_label.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	_kill_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_kill_label.position.y += 110
-	_root.add_child(_kill_label)
-	_announce_label = _label("", 48, Color(1, 0.82, 0.25))
-	_announce_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
-	_announce_label.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	_announce_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_announce_label.position.y = 200
-	_announce_label.pivot_offset = Vector2(0, 30)
-	_root.add_child(_announce_label)
-	_pickup_label = _label("", 20, Color(0.6, 1.0, 0.6))
+	_pickup_label = _label("", 16, Color(0.6, 1.0, 0.6), true)
 	_pickup_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
 	_pickup_label.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	_pickup_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_pickup_label.position.y -= 130
+	_pickup_label.position.y -= 120
 	_root.add_child(_pickup_label)
-	_protect_label = _label("", 20, Color(0.45, 0.85, 1.0))
-	_protect_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	_protect_label = _label("", 14, Color(0.45, 0.85, 1.0), true)
+	_protect_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
 	_protect_label.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	_protect_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_protect_label.position.y -= 70
+	_protect_label.position.y -= 150
 	_protect_label.visible = false
 	_root.add_child(_protect_label)
 
@@ -603,57 +664,64 @@ func _build_death() -> void:
 	_death_panel.visible = false
 	_root.add_child(_death_panel)
 	var tint := ColorRect.new()
-	tint.color = Color(0.35, 0.0, 0.0, 0.25)
+	tint.color = Color(0.3, 0.0, 0.02, 0.18)
 	tint.set_anchors_preset(Control.PRESET_FULL_RECT)
 	tint.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_death_panel.add_child(tint)
-	# Below the middle of the screen, where the death cam frames the killer.
+	# A rounded card below the middle of the screen (where the death cam frames the killer), above
+	# the loadout preset picker.
+	var card := _panel(0.62, 14)
+	card.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+	card.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	card.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	card.offset_bottom = -132.0
+	_death_panel.add_child(card)
 	var v := VBoxContainer.new()
-	v.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
-	v.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	v.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	v.alignment = BoxContainer.ALIGNMENT_END
-	v.offset_bottom = -150.0
-	_death_panel.add_child(v)
-	_death_title = _label("ELIMINATED", 54, Color(1, 0.3, 0.3))
+	v.add_theme_constant_override("separation", 2)
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(v)
+	_death_title = _label("ELIMINATED", 34, Color(1, 0.38, 0.35), true)
 	_death_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(_death_title)
-	_death_sub = _label("", 24)
+	_death_sub = _label("", 18, Color.WHITE, true)
 	_death_sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(_death_sub)
-	_death_detail = _label("", 20, Color(1.0, 0.85, 0.55))
+	_death_detail = _label("", 14, Color(1.0, 0.85, 0.55))
 	_death_detail.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(_death_detail)
-	_death_timer_label = _label("", 20, Color(0.85, 0.85, 0.85))
+	_death_timer_label = _label("", 14, Color(0.8, 0.82, 0.88), true)
 	_death_timer_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(_death_timer_label)
 
 
 func _build_preset_picker() -> void:
 	_preset_bar = VBoxContainer.new()
-	# Under the clock panel: clear of the death screen's text, the health and weapon cards and the
-	# kill cam's banner and skip hint.
-	_preset_bar.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+	# Bottom centre between the health and weapon cards, under the death card; it stays over the
+	# kill cam too.
+	_preset_bar.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
 	_preset_bar.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	_preset_bar.offset_top = 196.0
-	_preset_bar.add_theme_constant_override("separation", 6)
+	_preset_bar.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	_preset_bar.offset_bottom = -18.0
+	_preset_bar.add_theme_constant_override("separation", 4)
 	_preset_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_preset_bar.visible = false
 	_root.add_child(_preset_bar)
-	_preset_hint = _label("", 16, Color(0.85, 0.87, 0.92))
+	_preset_hint = _label("", 12, Color(0.85, 0.87, 0.92), true)
 	_preset_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_preset_bar.add_child(_preset_hint)
 	var row := HBoxContainer.new()
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	row.add_theme_constant_override("separation", 10)
+	row.add_theme_constant_override("separation", 8)
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_preset_bar.add_child(row)
 	for i in Profile.LOADOUT_PRESET_COUNT:
-		var card := _panel(0.7)
-		card.custom_minimum_size.x = 230
+		var card := _panel(0.6, 6)
+		card.custom_minimum_size.x = 214
 		row.add_child(card)
-		var l := _label("", 15)
+		var l := _label("", 12)
 		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		l.custom_minimum_size.x = 186
 		card.add_child(l)
 		_preset_cards.append(card)
 		_preset_labels.append(l)
@@ -682,7 +750,8 @@ func _refresh_preset_bar() -> void:
 			"  ✓" if active else "", Profile.preset_summary(i)]
 		_preset_labels[i].add_theme_color_override("font_color", Color(1, 0.85, 0.4) if active else Color(0.8, 0.82, 0.88))
 		var sb := _preset_cards[i].get_theme_stylebox("panel") as StyleBoxFlat
-		sb.border_color = Color(1, 0.8, 0.3) if active else Color(1, 1, 1, 0.08)
+		sb.border_color = Color(1, 0.8, 0.3) if active else Color(1, 1, 1, 0.07)
+		sb.set_border_width_all(2 if active else 1)
 
 
 ## Makes loadout preset `index` active and tells the server (Net.update_my_info): the next spawn
@@ -695,9 +764,8 @@ func pick_preset(index: int) -> void:
 	Net.update_my_info()
 
 
-
 func _build_scoreboard() -> void:
-	_scoreboard = _panel(0.82)
+	_scoreboard = _panel(0.85, 16)
 	_scoreboard.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
 	_scoreboard.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	_scoreboard.grow_vertical = Control.GROW_DIRECTION_BOTH
@@ -705,11 +773,12 @@ func _build_scoreboard() -> void:
 	_scoreboard.visible = false
 	_root.add_child(_scoreboard)
 	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 4)
 	_scoreboard.add_child(v)
 	var mut: Dictionary = Data.MUTATORS[str(Net.config.mutator)]
 	var mode: Dictionary = Data.MODES.get(str(Net.config.mode), Data.MODES.ffa)
-	var title := _label("%s  -  %s  -  %s  -  %s" % [str(mode.name).to_upper(), Data.MAPS[Net.current_map].name.to_upper(),
-		str(mut.name).to_upper(), str(Net.config.time_of_day).to_upper()], 24, Color(1, 0.85, 0.4))
+	var title := _label("%s  ·  %s  ·  %s  ·  %s" % [str(mode.name).to_upper(), Data.MAPS[Net.current_map].name.to_upper(),
+		str(mut.name).to_upper(), str(Net.config.time_of_day).to_upper()], 18, Color(1, 0.85, 0.4), true)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(title)
 	v.add_child(_score_row(["#", "PLAYER"] + world.rules.score_columns(), Color(0.7, 0.75, 0.85), false))
@@ -733,18 +802,18 @@ func spectators_text() -> String:
 
 func _score_row(cells: Array, color: Color, highlight: bool) -> Control:
 	var panel := PanelContainer.new()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(1.0, 0.8, 0.25, 0.22) if highlight else Color(1, 1, 1, 0.04)
-	sb.set_content_margin_all(4)
-	sb.set_corner_radius_all(2)
+	var sb := UITheme.round_box(Color(1.0, 0.8, 0.25, 0.2) if highlight else Color(1, 1, 1, 0.04), Color(0, 0, 0, 0), 0, 8, 4)
+	sb.content_margin_left = 8
+	sb.content_margin_right = 8
 	panel.add_theme_stylebox_override("panel", sb)
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var h := HBoxContainer.new()
 	panel.add_child(h)
 	# #, PLAYER, then the mode's three stat columns (MatchMode.score_columns).
-	var widths := [40, 300, 80, 80, 80]
+	var widths := [36, 300, 80, 80, 80]
 	for i in cells.size():
-		var l := _label(str(cells[i]), 18, color)
+		var l := _label(str(cells[i]), 16, color, i != 1)
+		l.add_theme_constant_override("outline_size", 0)
 		l.custom_minimum_size.x = widths[i]
 		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT if i == 1 else HORIZONTAL_ALIGNMENT_CENTER
 		l.clip_text = true
@@ -761,7 +830,7 @@ func _build_results() -> void:
 	dim.color = Color(0.02, 0.03, 0.06, 0.72)
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_results.add_child(dim)
-	var panel := _panel(0.9)
+	var panel := _panel(0.9, 18)
 	panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
 	panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	panel.grow_vertical = Control.GROW_DIRECTION_BOTH
@@ -771,7 +840,7 @@ func _build_results() -> void:
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 10)
 	panel.add_child(v)
-	_results_title = _label("", 46, Color(1, 0.82, 0.25))
+	_results_title = _label("", 38, Color(1, 0.82, 0.25), true)
 	_results_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(_results_title)
 	v.add_child(_score_row(["#", "PLAYER"] + world.rules.score_columns(), Color(0.7, 0.75, 0.85), false))
@@ -812,13 +881,13 @@ func _build_results() -> void:
 	var next_head := HBoxContainer.new()
 	next_head.add_theme_constant_override("separation", 12)
 	next_box.add_child(next_head)
-	next_head.add_child(_label("NEXT UP", 16, Color(0.7, 0.75, 0.85)))
+	next_head.add_child(_label("NEXT UP", 13, Color(0.7, 0.75, 0.85), true))
 	_map_vote_hint = _label("", 14, Color(0.7, 0.75, 0.85))
 	_map_vote_hint.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	next_head.add_child(_map_vote_hint)
-	_results_next = _label("", 22, Color(0.6, 0.9, 1.0))
+	_results_next = _label("", 18, Color(0.6, 0.9, 1.0), true)
 	next_box.add_child(_results_next)
-	_results_next_desc = _label("", 16, Color(0.85, 0.85, 0.9))
+	_results_next_desc = _label("", 14, Color(0.85, 0.85, 0.9))
 	_results_next_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_results_next_desc.custom_minimum_size.x = 300
 	next_box.add_child(_results_next_desc)
@@ -829,7 +898,7 @@ func _build_results() -> void:
 	next_box.add_child(vote_row)
 	var vote_group := ButtonGroup.new()
 	for i in Net.MAP_VOTE_CHOICES:
-		var b := Button.new()
+		var b := UIKit.button("", &"ChipButton", false)
 		b.toggle_mode = true
 		b.button_group = vote_group
 		b.custom_minimum_size = Vector2(0, 36)
@@ -846,7 +915,7 @@ func _build_results() -> void:
 	loadout.add_theme_constant_override("v_separation", 6)
 	prep.add_child(loadout)
 	# The preset picks which loadout preset the next match starts with; the gun pickers edit it.
-	loadout.add_child(_label("LOADOUT", 16, Color(0.7, 0.75, 0.85)))
+	loadout.add_child(_label("LOADOUT", 13, Color(0.7, 0.75, 0.85), true))
 	_results_preset = OptionButton.new()
 	_results_preset.custom_minimum_size.x = 200
 	_results_preset.fit_to_longest_item = false
@@ -855,7 +924,7 @@ func _build_results() -> void:
 		_fill_results_loadout())
 	loadout.add_child(_results_preset)
 	for slot: String in ["primary", "secondary", "melee"]:
-		loadout.add_child(_label(slot.to_upper(), 16, Color(0.7, 0.75, 0.85)))
+		loadout.add_child(_label(slot.to_upper(), 13, Color(0.7, 0.75, 0.85), true))
 		var o := OptionButton.new()
 		o.custom_minimum_size.x = 200
 		o.fit_to_longest_item = false
@@ -866,10 +935,10 @@ func _build_results() -> void:
 	footer.add_theme_constant_override("separation", 24)
 	footer.alignment = BoxContainer.ALIGNMENT_CENTER
 	v.add_child(footer)
-	_results_timer = _label("", 18, Color(0.8, 0.8, 0.85))
+	_results_timer = _label("", 15, Color(0.8, 0.8, 0.85), true)
 	footer.add_child(_results_timer)
-	_results_skip = Button.new()
-	_results_skip.custom_minimum_size = Vector2(220, 44)
+	_results_skip = UIKit.button("", &"PrimaryButton", false)
+	_results_skip.custom_minimum_size = Vector2(220, 46)
 	footer.add_child(_results_skip)
 	_results_skip.pressed.connect(func() -> void:
 		Sfx.play(&"ui_click")
@@ -879,10 +948,9 @@ func _build_results() -> void:
 		else:
 			_results_skip.text = "Ready - Waiting"
 			world.vote_skip())
-	var leave := Button.new()
+	var leave := UIKit.button("Leave to Menu", &"", false)
 	_results_leave = leave
-	leave.text = "Leave to Menu"
-	leave.custom_minimum_size = Vector2(220, 44)
+	leave.custom_minimum_size = Vector2(200, 46)
 	footer.add_child(leave)
 	leave.pressed.connect(func() -> void:
 		Sfx.play(&"ui_click")
@@ -928,13 +996,10 @@ func _process(delta: float) -> void:
 	# self_modulate tints without the re-layout a theme override triggers.
 	_clock_label.self_modulate = Color(1, 0.4, 0.35) if t <= 30 else Color.WHITE
 
-	_kill_label_t -= delta
-	_kill_label.modulate.a = clampf(_kill_label_t, 0.0, 1.0)
-	_announce_t -= delta
-	_announce_label.modulate.a = clampf(_announce_t, 0.0, 1.0)
 	_pickup_t -= delta
 	_pickup_label.modulate.a = clampf(_pickup_t, 0.0, 1.0)
 	_age_list(_feat_box, delta, FEAT_TOAST_LIFE)
+	_age_list(_callouts, delta, CALLOUT_LIFE)
 	_age_list(_killfeed, delta, KILLFEED_LIFE)
 	if not _chat_input.visible:
 		_age_list(_chat_log, delta, CHAT_LIFE)
@@ -942,6 +1007,8 @@ func _process(delta: float) -> void:
 	_preset_bar.visible = _preset_pick_open()
 	if _preset_bar.visible:
 		_refresh_preset_bar()
+		# Above the kill cam's bottom bar (skip hint) while it plays.
+		_preset_bar.offset_bottom = -78.0 if _killcam else -18.0
 	if _death_left > 0.0:
 		_death_left = maxf(0.0, _death_left - delta)
 	if _death_panel.visible:
@@ -977,18 +1044,16 @@ func _process(delta: float) -> void:
 		return
 	var hp_frac := p.health / p.max_health()
 	_health_label.text = str(int(ceil(p.health)))
+	_hp_bar.value = hp_frac
+	var hp_fill := _hp_bar.get_theme_stylebox("fill") as StyleBoxFlat
 	var hp_color := Palette.health(hp_frac)
-	for i in _hp_segments.size():
-		# Each segment fills in proportion to its share of health.
-		var fill := clampf(hp_frac * HEALTH_SEGMENTS - i, 0.0, 1.0)
-		_hp_segments[i].color = Color(0, 0, 0, 0.45).lerp(hp_color, fill)
+	if hp_fill.bg_color != hp_color:
+		hp_fill.bg_color = hp_color
 	var overshield := p.shield if p.alive else 0.0
 	_shield_label.visible = overshield > 0.0
 	_shield_label.text = "+%d" % ceili(overshield)
-	for i in _shield_segments.size():
-		var fill := clampf(overshield / 10.0 - i, 0.0, 1.0)
-		_shield_segments[i].visible = overshield > 0.0
-		_shield_segments[i].color = Color(0, 0, 0, 0.45).lerp(Palette.color("shield"), fill)
+	_shield_bar.visible = overshield > 0.0
+	_shield_bar.value = overshield
 	var low := 0.0
 	if p.alive and hp_frac < 0.35:
 		low = (0.35 - hp_frac) * 1.6 * (0.75 + 0.25 * sin(Time.get_ticks_msec() * 0.008))
@@ -1030,25 +1095,22 @@ func _process(delta: float) -> void:
 		_reserve_label.text = ""
 		_mag_bar.value = 0.0
 		_hint_label.text = ""
-	_hint_label.visible = p.alive
+	_hint_chip.visible = p.alive and not _hint_label.text.is_empty()
 	var shield := p.protection_left() if p.alive else 0.0
 	_protect_label.visible = shield > 0.0
 	if shield > 0.0:
 		_protect_label.text = "SPAWN PROTECTED  %.1f s" % shield
 		_protect_label.modulate.a = 0.65 + 0.35 * sin(Time.get_ticks_msec() * 0.012)
-	for i in _slot_labels.size():
-		var key := Profile.key_text("weapon_%d" % (i + 1))
-		var label := _slot_labels[i]
-		var held := p.slots[i]
-		label.text = "%s %s" % [key, "EMPTY" if held.is_empty() else str(Data.WEAPONS[held].name).to_upper()]
-		label.self_modulate = Color(1, 0.85, 0.4) if i == p.current_slot else Color(0.65, 0.68, 0.75)
-	_grenade_label.text = "%s FRAG %s" % [Profile.key_text("grenade"),
-		"■".repeat(p.grenades) + "□".repeat(maxi(0, int(Data.GRENADE.per_life) - p.grenades))]
-	_tactical_label.text = "%s %s %s" % [Profile.key_text("tactical"), str(Data.TACTICALS[p.tactical_id()].name).to_upper(),
-		"■".repeat(p.tacticals) + "□".repeat(maxi(0, Data.TACTICAL_PER_LIFE - p.tacticals))]
+	_draw_slots(p)
+	_grenade_key.text = Profile.key_text("grenade")
+	_grenade_label.text = str(p.grenades)
+	_grenade_label.self_modulate = Color.WHITE if p.grenades > 0 else Color(1, 1, 1, 0.4)
+	_tactical_key.text = Profile.key_text("tactical")
+	_tactical_label.text = str(p.tacticals)
+	_tactical_label.self_modulate = Color.WHITE if p.tacticals > 0 else Color(1, 1, 1, 0.4)
 	var hook_ready := p.grapple_cooldown <= 0.0 and not p.grappling
-	_grapple_label.text = "%s HOOK" % Profile.key_text("grapple")
-	_grapple_label.self_modulate = Color.WHITE if hook_ready or p.grappling else Color(0.6, 0.6, 0.65)
+	_grapple_key.text = Profile.key_text("grapple")
+	_hook_box.modulate.a = 1.0 if hook_ready or p.grappling else 0.6
 	_grapple_bar.value = 1.0 if p.grappling else 1.0 - clampf(p.grapple_cooldown / p.grapple_cooldown_time(), 0.0, 1.0)
 	_hook_box.visible = world.tactical == null
 
@@ -1064,12 +1126,31 @@ func _process(delta: float) -> void:
 	_damage_ring.update_view(p)
 
 
+## Slot pips: the slot's key in a chip, gold for the held slot, faded when empty. Only restyled
+## when the slots, the held one or the keys change.
+func _draw_slots(p: Player) -> void:
+	var drawn := "%d %s %s" % [p.current_slot, p.slots, Profile.key_text("weapon_1")]
+	if drawn.hash() == _slot_drawn:
+		return
+	_slot_drawn = drawn.hash()
+	for i in _slot_chips.size():
+		var held := i == p.current_slot
+		var empty: bool = p.slots[i].is_empty()
+		_slot_labels[i].text = Profile.key_text("weapon_%d" % (i + 1))
+		_slot_labels[i].add_theme_color_override("font_color", Color("2a1c00") if held else Color(0.8, 0.83, 0.9))
+		var sb := _slot_chips[i].get_theme_stylebox("panel") as StyleBoxFlat
+		sb.bg_color = Color(1, 0.8, 0.25, 0.95) if held else Color(0, 0, 0, 0.35)
+		_slot_chips[i].modulate.a = 0.4 if empty else 1.0
+
+
+## Fades list rows in, then out at `life` seconds (a row's "life" meta overrides it) and frees them.
 func _age_list(list: Container, delta: float, life: float) -> void:
 	for child in list.get_children():
 		var age: float = child.get_meta("age", 0.0) + delta
+		var end: float = child.get_meta("life", life)
 		child.set_meta("age", age)
-		child.modulate.a = clampf((life - age) / 0.6, 0.0, 1.0)
-		if age > life:
+		child.modulate.a = clampf(minf(age / 0.15, (end - age) / 0.5), 0.0, 1.0)
+		if age > end:
 			child.queue_free()
 
 
@@ -1104,17 +1185,17 @@ func refresh_scores() -> void:
 		return
 	var top := rules.race_value(rows[0])
 	var runner_up := rules.race_value(rows[1]) if rows.size() > 1 else 0
-	_goal_label.text = "Leader: %s  %d / %d" % [rows[0].name, top, limit]
+	_goal_label.text = "Leader %s  ·  %d / %d" % [rows[0].name, top, limit]
 	_lead_bar.value = float(top) / maxf(1.0, limit)
 	if my_rank > 0:
 		var mine := rules.race_value(rows[my_rank - 1])
 		_you_bar.value = float(mine) / maxf(1.0, limit)
-		var gap := "  -  %d behind the leader" % (top - mine)
+		var gap := "  ·  %d behind" % (top - mine)
 		if top == 0:
 			gap = ""
 		elif mine == top:
-			gap = "  -  leading by %d" % (top - runner_up) if top > runner_up else "  -  tied for the lead"
-		_rank_label.text = "You: %s  -  #%d of %d%s" % [rules.race_text(mine), my_rank, rows.size(), gap]
+			gap = "  ·  +%d" % (top - runner_up) if top > runner_up else "  ·  tied"
+		_rank_label.text = "#%d of %d  ·  %s%s" % [my_rank, rows.size(), rules.race_text(mine), gap]
 	elif Net.is_spectator(me):
 		_you_bar.value = 0.0
 		_rank_label.text = "Spectating  ·  %d players" % rows.size()
@@ -1168,13 +1249,11 @@ func _fill_rows(container: VBoxContainer, rows: Array) -> void:
 ## A team's header line in the scoreboard and results table.
 func _group_row(text: String, color: Color) -> Control:
 	var panel := PanelContainer.new()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(color, 0.22)
-	sb.set_content_margin_all(4)
-	sb.set_corner_radius_all(2)
+	var sb := UITheme.round_box(Color(color, 0.22), Color(0, 0, 0, 0), 0, 8, 4)
+	sb.content_margin_left = 8
 	panel.add_theme_stylebox_override("panel", sb)
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	panel.add_child(_label(text, 18, color.lightened(0.25)))
+	panel.add_child(_label(text, 15, color.lightened(0.25), true))
 	return panel
 
 
@@ -1227,39 +1306,42 @@ func _update_damage_numbers(delta: float) -> void:
 		l.modulate.a = clampf((DAMAGE_NUMBER_LIFE - entry[2]) / 0.3, 0.0, 1.0)
 
 
-## Big centred card announcing the map, mutator and time of day; fades after a few seconds.
+## Rounded card announcing the map, mode, mutator and time of day; fades after a few seconds.
 func _show_match_intro() -> void:
 	var practice := world.rules.practice_intro()
 	var mut: Dictionary = Data.MUTATORS[str(Net.config.mutator)]
+	var card := _panel(0.55, 14)
+	card.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+	card.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	card.position.y = 214
+	_root.add_child(card)
 	var box := VBoxContainer.new()
-	box.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
-	box.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	box.position.y = 200
+	box.add_theme_constant_override("separation", 2)
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_root.add_child(box)
-	var map_label := _label(Data.MAPS[Net.current_map].name.to_upper() if practice.is_empty() else str(practice[0]), 46, Color(1, 0.85, 0.35))
+	card.add_child(box)
+	var map_label := _label(Data.MAPS[Net.current_map].name.to_upper() if practice.is_empty() else str(practice[0]), 30, Color(1, 0.85, 0.35), true)
 	map_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(map_label)
 	if not practice.is_empty():
-		var line := _label(str(practice[1]), 20, Color(0.85, 0.9, 1.0))
+		var line := _label(str(practice[1]), 15, Color(0.85, 0.9, 1.0))
 		line.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		box.add_child(line)
-		_fade_intro(box)
+		_fade_intro(card)
 		return
 	# Modes other than Deathmatch say which mode this is and its rule in one line.
 	if str(Net.config.mode) != "ffa" and Data.MODES.has(str(Net.config.mode)):
 		var mode: Dictionary = Data.MODES[str(Net.config.mode)]
-		var mode_label := _label("%s  ·  %s" % [str(mode.name).to_upper(), str(mode.desc)], 20, Color(0.75, 1.0, 0.7))
+		var mode_label := _label("%s  ·  %s" % [str(mode.name).to_upper(), str(mode.desc)], 14, Color(0.75, 1.0, 0.7))
 		mode_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		box.add_child(mode_label)
 	var sub := "%s  ·  %s" % [str(mut.name).to_upper(), str(Net.config.time_of_day).to_upper()]
-	var sub_label := _label(sub, 24, Color(0.6, 0.9, 1.0) if Net.config.mutator != "none" else Color.WHITE)
+	var sub_label := _label(sub, 15, Color(0.6, 0.9, 1.0) if Net.config.mutator != "none" else Color.WHITE, true)
 	sub_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(sub_label)
-	var desc := _label(str(mut.desc), 18, Color(0.85, 0.85, 0.9))
+	var desc := _label(str(mut.desc), 13, Color(0.8, 0.82, 0.88))
 	desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(desc)
-	_fade_intro(box)
+	_fade_intro(card)
 
 
 func _fade_intro(box: Control) -> void:
@@ -1326,37 +1408,26 @@ func flash(amount: float, seconds: float) -> void:
 	_flash_left = seconds
 
 
+## First match only: one line of the most needed keys at the bottom centre, fading after 8 s
+## (every key is in Settings > Controls; the tutorial teaches them).
 func _show_controls_hint() -> void:
-	var panel := _panel(0.6)
-	panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER_LEFT)
-	panel.grow_vertical = Control.GROW_DIRECTION_BOTH
-	panel.position.x = 18
-	_root.add_child(panel)
-	var v := VBoxContainer.new()
-	panel.add_child(v)
-	v.add_child(_label("CONTROLS", 18, Color(1, 0.85, 0.4)))
 	var k := func(action: String) -> String: return Profile.key_text(action)
-	var lines: Array[String] = [
-			"LEFT STICK  move   RIGHT STICK  look" if Profile.using_pad \
-				else "%s%s%s%s  move" % [k.call("move_forward"), k.call("move_left"), k.call("move_back"), k.call("move_right")],
-			"%s  sprint   %s  crouch (slide while sprinting)   %s  prone" % [k.call("sprint"), k.call("crouch"), k.call("prone")],
-			"%s / %s  peek left / right" % [k.call("lean_left"), k.call("lean_right")],
-			"%s  aim   %s  fire   %s  reload" % [k.call("aim"), k.call("fire"), k.call("reload")],
-			("%s  frag   %s  tactical   %s  swap weapon   %s  floor plan" % [k.call("grenade"), k.call("tactical"), k.call("interact"), k.call("tactical_map")]) if Tactical.is_active() \
-				else "%s  frag   %s  tactical   %s  grapple hook" % [k.call("grenade"), k.call("tactical"), k.call("grapple")],
-			("%s  quick melee   %s  next weapon" % [k.call("melee"), k.call("next_weapon")]) if Profile.using_pad \
-				else "%s  quick melee   %s/%s/%s  weapons" % [k.call("melee"), k.call("weapon_1"), k.call("weapon_2"), k.call("weapon_3")]]
-	if Streaks.enabled():
-		lines.append("%s  call in your Block Bomber (%d-kill streak)" % [k.call("streak_reward"), Streaks.BOMBER_AT])
-	if Pings.active():
-		lines.append("%s  ping an enemy or a spot for your team" % k.call("ping"))
-	lines.append("%s  scores   %s  chat   %s  menu (rebind in Settings > Controls)" % [k.call("scoreboard"), k.call("chat"), k.call("pause")])
-	for line: String in lines:
-		v.add_child(_label(line, 15))
+	var parts: Array[String] = [
+		"LEFT STICK move" if Profile.using_pad else "%s%s%s%s move" % [k.call("move_forward"), k.call("move_left"), k.call("move_back"), k.call("move_right")],
+		"%s jump" % k.call("jump"), "%s aim" % k.call("aim"), "%s reload" % k.call("reload"),
+		"%s menu and all controls" % k.call("pause")]
+	var line := _label("  ·  ".join(parts), 13, Color(0.9, 0.92, 0.96), true)
+	line.add_theme_constant_override("outline_size", 0)
+	var chip := _chip(line, Color(0.05, 0.06, 0.09, 0.6))
+	chip.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+	chip.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	chip.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	chip.position.y -= 22
+	_root.add_child(chip)
 	var tw := create_tween()
-	tw.tween_interval(10.0)
-	tw.tween_property(panel, "modulate:a", 0.0, 1.0)
-	tw.tween_callback(panel.queue_free)
+	tw.tween_interval(8.0)
+	tw.tween_property(chip, "modulate:a", 0.0, 1.0)
+	tw.tween_callback(chip.queue_free)
 
 
 func show_hitmarker(head: bool, killed: bool) -> void:
@@ -1366,22 +1437,27 @@ func show_hitmarker(head: bool, killed: bool) -> void:
 ## `killer_team` / `victim_team` (team modes, 0 or 1) colour the names by team instead. `wid` is
 ## the killing weapon id: a Block Bomber kill gets its icon.
 func add_killfeed(killer: String, weapon: String, victim: String, head: bool, suicide: bool, killer_team := -1, victim_team := -1, wid := "") -> void:
-	var panel := _panel(0.5)
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", UITheme.hud_card(0.45, 3, 10))
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 6)
 	panel.add_child(h)
 	var me := world.tagged_name(world.my_id())
 	var killer_color := Teams.color(killer_team) if killer_team >= 0 else Palette.color("feed_killer")
 	var victim_color := Teams.color(victim_team) if victim_team >= 0 else Palette.color("feed_victim")
 	# In team modes each name gets its side's shape too, so colour is never the only cue.
 	if suicide:
-		h.add_child(_label(Teams.tagged(victim_team, victim), 18, Color(1, 0.9, 0.6) if victim == me else (victim_color if victim_team >= 0 else Color.WHITE)))
-		h.add_child(_label(" [%s] " % weapon, 16, Color(0.7, 0.7, 0.75)))
+		h.add_child(_label(Teams.tagged(victim_team, victim), 15, Color(1, 0.9, 0.6) if victim == me else (victim_color if victim_team >= 0 else Color.WHITE), true))
+		h.add_child(_label(weapon, 12, Color(0.7, 0.72, 0.78)))
 	else:
-		h.add_child(_label(Teams.tagged(killer_team, killer), 18, Color(1, 0.9, 0.4) if killer == me else killer_color))
+		h.add_child(_label(Teams.tagged(killer_team, killer), 15, Color(1, 0.9, 0.4) if killer == me else killer_color, true))
 		if wid == Streaks.WEAPON:
 			h.add_child(BomberIcon.new())
-		h.add_child(_label(" [%s%s] " % [weapon, " HS" if head else ""], 16, Color(1, 0.7, 0.4) if wid == Streaks.WEAPON else Color(0.75, 0.75, 0.8)))
-		h.add_child(_label(Teams.tagged(victim_team, victim), 18, Color(1, 0.9, 0.4) if victim == me else victim_color))
+		var how := _label("%s%s" % [weapon, "  HS" if head else ""], 12, Color(1, 0.7, 0.4) if wid == Streaks.WEAPON else Color(0.72, 0.74, 0.8))
+		how.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		h.add_child(how)
+		h.add_child(_label(Teams.tagged(victim_team, victim), 15, Color(1, 0.9, 0.4) if victim == me else victim_color, true))
 	panel.set_meta("age", 0.0)
 	_killfeed.add_child(panel)
 	while _killfeed.get_child_count() > KILLFEED_MAX:
@@ -1390,42 +1466,81 @@ func add_killfeed(killer: String, weapon: String, victim: String, head: bool, su
 		old.queue_free()
 
 
+## Kill confirmation: a callout under the score card.
 func show_kill(victim: String, head: bool) -> void:
-	_kill_label.text = ("HEADSHOT  " if head else "") + "ELIMINATED %s" % victim.to_upper()
-	_kill_label_t = 2.0
+	callout(("HEADSHOT  ·  " if head else "") + victim.to_upper(), "head" if head else "kill")
 
 
-## Shows a big callout; one arriving while another is still fresh (a streak and a lead change
-## from the same kill) is stacked under it instead of replacing it.
+## A callout (multi-kills, streaks, lead changes, mode events) under the score card.
 func announce(text: String) -> void:
-	if _announce_t > 1.6 and not _announce_label.text.is_empty() and not _announce_label.text.contains(text):
-		text = _announce_label.text + "\n" + text
-	_announce_label.text = text
-	_announce_t = 2.4
-	_announce_label.scale = Vector2(1.4, 1.4)
-	create_tween().tween_property(_announce_label, "scale", Vector2.ONE, 0.25).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	callout(text, "streak" if text.ends_with("KILL") or text in ["KILLING SPREE", "RAMPAGE", "UNSTOPPABLE", "GODLIKE", "LEGENDARY"] else "info")
 
 
-## A challenge completed or an achievement unlocked mid-match: a gold-edged card at the right edge
-## for a few seconds, over the results screen too.
+## Adds a rounded banner (icon + bold short text) to the callout stack under the score card: it
+## pops in, fades after CALLOUT_LIFE seconds, at most CALLOUT_MAX at a time; the same text again
+## just restarts its timer.
+func callout(text: String, kind := "info") -> void:
+	for c in _callouts.get_children():
+		if c.get_meta("text", "") == text and not c.is_queued_for_deletion():
+			c.set_meta("age", 0.15)
+			return
+	var color: Color = {"kill": Color(1, 0.45, 0.4), "head": Color(1, 0.8, 0.3), "streak": Color(1, 0.8, 0.3)}.get(kind, Color(0.55, 0.85, 1.0))
+	var card := PanelContainer.new()
+	card.add_theme_stylebox_override("panel", UITheme.hud_card(0.62, 5, 12, Color(color, 0.55)))
+	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 8)
+	card.add_child(h)
+	h.add_child(HudIcon.new(kind, color, 18.0))
+	var l := _label(text, 18 if kind in ["kill", "head"] else 20, Color.WHITE if kind in ["kill", "head"] else color, true)
+	l.add_theme_constant_override("outline_size", 0)
+	h.add_child(l)
+	card.set_meta("text", text)
+	card.set_meta("age", 0.0)
+	card.modulate.a = 0.0
+	_callouts.add_child(card)
+	card.pivot_offset = Vector2(card.get_combined_minimum_size().x * 0.5, 0)
+	card.scale = Vector2(1.15, 1.15)
+	card.create_tween().tween_property(card, "scale", Vector2.ONE, 0.2).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	while _callouts.get_child_count() > CALLOUT_MAX:
+		var old := _callouts.get_child(0)
+		_callouts.remove_child(old)
+		old.queue_free()
+
+
+## A challenge completed or an achievement unlocked mid-match: a gold-edged toast, over the
+## results screen too.
 func feat_toast(title: String, text: String) -> void:
-	var p := _panel(0.82)
-	var sb := p.get_theme_stylebox("panel") as StyleBoxFlat
-	sb.border_color = Color(1, 0.82, 0.25, 0.9)
-	sb.set_content_margin_all(12)
+	toast(title, text, Color(1, 0.82, 0.25), FEAT_TOAST_LIFE)
+	Sfx.play(&"level_up", null, -4.0)
+
+
+## A card in the one toast column at the right edge (challenges, achievements, killstreak
+## rewards): a coloured title over a short line, gone after `life` seconds; at most 3 at a time.
+func toast(title: String, text: String, color: Color, life: float) -> void:
+	var p := PanelContainer.new()
+	p.add_theme_stylebox_override("panel", UITheme.hud_card(0.7, 8, 12, Color(color, 0.7)))
+	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	p.custom_minimum_size.x = 250
 	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 0)
 	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	v.add_child(_label(title, 15, Color(1, 0.82, 0.25)))
-	v.add_child(_label(text, 20))
+	v.add_child(_label(title, 15, color, true))
+	var line := _label(text, 13, Color(0.88, 0.9, 0.95))
+	line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	line.custom_minimum_size.x = 230
+	v.add_child(line)
 	p.add_child(v)
 	p.set_meta("age", 0.0)
+	p.set_meta("life", life)
+	p.modulate.a = 0.0
 	_feat_box.add_child(p)
 	_feat_box.move_to_front()
-	while _feat_box.get_child_count() > 4:
+	while _feat_box.get_child_count() > 3:
 		var old := _feat_box.get_child(0)
 		_feat_box.remove_child(old)
 		old.queue_free()
-	Sfx.play(&"level_up", null, -4.0)
 
 
 func _on_invite_changed() -> void:
@@ -1485,7 +1600,7 @@ func set_killcam(on: bool) -> void:
 	elif _death_under_killcam:
 		_death_panel.visible = true
 		_death_under_killcam = false
-	for c: Control in [_top, _health_card, _weapon_card, _hint_label, _damage_ring, _vignette]:
+	for c: Control in [_top, _health_card, _weapon_card, _hint_chip, _damage_ring, _vignette]:
 		c.visible = not on
 	if on:
 		_crosshair.visible = false
@@ -1653,9 +1768,9 @@ func _fill_highlights(rows: Array) -> void:
 		c.queue_free()
 	if rows.is_empty():
 		return
-	_results_highlights.add_child(_label("MATCH HIGHLIGHTS", 16, Color(0.7, 0.75, 0.85)))
+	_results_highlights.add_child(_label("MATCH HIGHLIGHTS", 12, Color(0.7, 0.75, 0.85), true))
 	for h: Array in world.rules.highlights(rows):
-		_results_highlights.add_child(_label(str(h[0]), 18, Color(1, 0.82, 0.25) if h[1] else Color.WHITE))
+		_results_highlights.add_child(_label(str(h[0]), 15, Color(1, 0.82, 0.25) if h[1] else Color.WHITE))
 
 
 ## The local player's match accuracy and most-used weapon (Profile.record_match), under the
@@ -1668,8 +1783,8 @@ func _fill_match_stats(rewards: Dictionary) -> void:
 		parts.append("Most used: %s" % Data.WEAPONS[rewards.most_used].name)
 	if parts.is_empty():
 		return
-	_results_highlights.add_child(_label("YOUR MATCH", 16, Color(0.7, 0.75, 0.85)))
-	_results_highlights.add_child(_label("  ·  ".join(parts), 18, Color(0.75, 0.92, 1.0)))
+	_results_highlights.add_child(_label("YOUR MATCH", 12, Color(0.7, 0.75, 0.85), true))
+	_results_highlights.add_child(_label("  ·  ".join(parts), 15, Color(0.75, 0.92, 1.0)))
 
 
 ## One row per reward source from Profile.record_match, then the total.
@@ -1680,15 +1795,15 @@ func _fill_rewards(rewards: Dictionary) -> void:
 		return
 	var head := Color(0.7, 0.75, 0.85)
 	for text: String in ["YOUR REWARDS", "COINS", "XP"]:
-		_results_rewards.add_child(_label(text, 16, head))
+		_results_rewards.add_child(_label(text, 12, head, true))
 	var green := Color(0.6, 1.0, 0.6)
 	for row: Array in rewards.get("breakdown", []):
-		_results_rewards.add_child(_label(str(row[0]), 18))
-		_results_rewards.add_child(_label("+%d" % int(row[1]) if int(row[1]) > 0 else "", 18, Color(1, 0.82, 0.25)))
-		_results_rewards.add_child(_label("+%d" % int(row[2]) if int(row[2]) > 0 else "", 18, green))
-	_results_rewards.add_child(_label("Total", 20, green))
-	_results_rewards.add_child(_label("+%d" % int(rewards.coins), 20, Color(1, 0.82, 0.25)))
-	_results_rewards.add_child(_label("+%d" % int(rewards.xp), 20, green))
+		_results_rewards.add_child(_label(str(row[0]), 15))
+		_results_rewards.add_child(_label("+%d" % int(row[1]) if int(row[1]) > 0 else "", 15, Color(1, 0.82, 0.25), true))
+		_results_rewards.add_child(_label("+%d" % int(row[2]) if int(row[2]) > 0 else "", 15, green, true))
+	_results_rewards.add_child(_label("Total", 17, green, true))
+	_results_rewards.add_child(_label("+%d" % int(rewards.coins), 17, Color(1, 0.82, 0.25), true))
+	_results_rewards.add_child(_label("+%d" % int(rewards.xp), 17, green, true))
 	if int(rewards.levels_gained) > 0:
 		Sfx.play(&"level_up")
 

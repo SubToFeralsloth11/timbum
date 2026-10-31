@@ -148,13 +148,7 @@ func _label(text: String, size: int, color := Color.WHITE) -> Label:
 
 func _panel() -> PanelContainer:
 	var p := PanelContainer.new()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.06, 0.07, 0.1, 0.62)
-	sb.set_corner_radius_all(4)
-	sb.set_content_margin_all(10)
-	sb.border_color = Color(1, 1, 1, 0.08)
-	sb.set_border_width_all(2)
-	p.add_theme_stylebox_override("panel", sb)
+	p.add_theme_stylebox_override("panel", UITheme.hud_card(0.55, 10))
 	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return p
 
