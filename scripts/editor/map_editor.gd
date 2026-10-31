@@ -129,13 +129,19 @@ func load_saved(map_name: String) -> bool:
 
 ## Saves to user://maps/<name>.json. Returns the validation problems (saved either way, so
 ## unfinished maps keep; only playable maps show up in match setup). After a rename the file
-## under the old name is removed, but only once the new one was written.
+## under the old name is removed, but only once the new one was written. A name that belongs to
+## another saved map is refused (nothing written or removed); the returned list then holds why.
 func save() -> PackedStringArray:
 	var problems := CustomMaps.validate(map)
-	var err := CustomMaps.save(map)
+	var err := CustomMaps.save(map, file_name)
+	if err == ERR_ALREADY_EXISTS:
+		var why := "Another map is already called %s. Pick a different name." % map.name
+		message.emit("Not saved: " + why, true)
+		return PackedStringArray([why])
 	if err != OK:
-		message.emit("Couldn't save: %s." % error_string(err), true)
-		return problems
+		var why := "Couldn't save: %s." % error_string(err)
+		message.emit(why, true)
+		return PackedStringArray([why])
 	if not file_name.is_empty() and file_name != map.name:
 		CustomMaps.renamed(file_name, map.name)
 	file_name = map.name

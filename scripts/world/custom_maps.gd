@@ -411,15 +411,33 @@ static func spot_problem(g: VoxelGrid, feet: Vector3) -> String:
 
 # ---------------------------------------------------------------- files
 
-static func save(map: Dictionary) -> Error:
+## Writes user://maps/<map.name>.json. `old_name` is the file the map was opened from or last
+## saved to ("" for a new map). ERR_ALREADY_EXISTS (nothing written) when that would overwrite a
+## different saved map: see name_taken().
+static func save(map: Dictionary, old_name := "") -> Error:
+	if name_taken(map.name, old_name):
+		return ERR_ALREADY_EXISTS
 	DirAccess.make_dir_recursive_absolute(DIR)
 	var f := FileAccess.open(path_for(map.name), FileAccess.WRITE)
 	if f == null:
 		return FileAccess.get_open_error()
-	f.store_string(to_json(map))
+	var written := f.store_string(to_json(map))
 	f.close()
+	if not written:
+		return ERR_FILE_CANT_WRITE
 	MapBuilder.forget_preview(id_for(map.name))
 	return OK
+
+
+## True when saving the map from file `old_name` ("" = never saved) as `new_name` would overwrite
+## another saved map. A case-only rename of the same map is not a clash: on a case-insensitive
+## disk the file under the new spelling is the map's own file (the listing still shows the old one).
+static func name_taken(new_name: String, old_name: String) -> bool:
+	if new_name == old_name or not FileAccess.file_exists(path_for(new_name)):
+		return false
+	if old_name.is_empty() or new_name.to_lower() != old_name.to_lower():
+		return true
+	return DirAccess.get_files_at(DIR).has(new_name + ".json")
 
 
 ## After the map saved as `old_name` was saved again as `new_name`: removes the old file. When
