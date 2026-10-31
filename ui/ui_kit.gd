@@ -133,14 +133,15 @@ static func format_int(n: int) -> String:
 	return ("-" if n < 0 else "") + s + out
 
 
-## Row of solid colour blocks, e.g. a skin or outfit palette.
+## Row of small rounded colour dots, e.g. a skin or outfit palette.
 static func swatch(colors: Array[Color], block := 14) -> HBoxContainer:
-	var h := hbox(2)
+	var h := hbox(3)
 	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	for c in colors:
-		var r := ColorRect.new()
-		r.color = c
+		var r := Panel.new()
+		r.add_theme_stylebox_override("panel", UITheme.bar_box(c, ceili(block * 0.35)))
 		r.custom_minimum_size = Vector2(block, block)
+		r.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		r.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		h.add_child(r)
 	return h

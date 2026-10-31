@@ -1,14 +1,20 @@
 class_name ShopScreen
 extends MenuScreen
-## Shop: tabs per catalog category (the weapons catalog split into GUNS and MELEE), a grid of item
-## cards with rendered icons, and a detail panel with a live 3D preview, stats (weapons), price and
-## Buy/Equip actions.
+## Shop: four groups (WEAPONS, STYLE, CHARACTER, EXTRAS) with a strip of sub-tabs per catalog
+## category (the weapons catalog split into GUNS and MELEE), a grid of rounded item cards with
+## rendered icons and their owned / equipped / price state, and a detail panel with a live 3D
+## preview, stats (weapons), price and Buy/Equip actions.
 ## The ATTACHMENTS tab sells upgrade levels instead of items (Data.ATTACHMENTS): one level at a
 ## time, each dearer than the last, applying to every gun.
 
-const TABS: Array = [["weapons", "GUNS"], ["melee", "MELEE"], ["skins", "SKINS"], ["hats", "HATS"], ["outfits", "OUTFITS"],
-	["charms", "CHARMS"], ["emotes", "WIN EMOTES"], ["draws", "DRAWS"], ["sprays", "SPRAYS"], ["attachments", "ATTACHMENTS"]]
-const CARD_WIDTH := 200.0
+## Group name -> its sub-tabs ([tab id, label]); a tab id is a Data catalog, or "melee".
+const GROUPS := {
+	"WEAPONS": [["weapons", "GUNS"], ["melee", "MELEE"], ["attachments", "ATTACHMENTS"]],
+	"STYLE": [["skins", "SKINS"], ["charms", "CHARMS"]],
+	"CHARACTER": [["outfits", "OUTFITS"], ["hats", "HATS"]],
+	"EXTRAS": [["emotes", "WIN EMOTES"], ["draws", "DRAWS"], ["sprays", "SPRAYS"]],
+}
+const CARD_WIDTH := 180.0
 ## Gun pointing right, angled a little towards the camera.
 const GUN_YAW := -PI * 0.5 - 0.3
 ## Characters and hats face -Z; turn them to face the camera, three-quarter view.
@@ -35,7 +41,11 @@ var _price_row: HBoxContainer
 var _buy: Button
 var _equip: Button
 var _state: Label
+## Sub-tab chips of the open group (tab id -> Button), and the group tabs (name -> Button).
 var _tab_buttons := {}
+var _group_buttons := {}
+var _sub_tabs: HBoxContainer
+var _group := ""
 var _shake: Tween
 var _flash: Tween
 
@@ -56,22 +66,21 @@ func _ready() -> void:
 	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	page.add_child(body)
 
-	var left := UIKit.vbox(12)
+	var left := UIKit.vbox(10)
 	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	body.add_child(left)
-	var tabs := HFlowContainer.new()
-	tabs.add_theme_constant_override("h_separation", 6)
-	tabs.add_theme_constant_override("v_separation", 6)
-	left.add_child(tabs)
+	var groups := UIKit.hbox(6)
+	left.add_child(groups)
 	var group := ButtonGroup.new()
-	for t: Array in TABS:
-		var b := UIKit.button(t[1], &"TabButton")
+	for g: String in GROUPS:
+		var b := UIKit.button(g, &"TabButton")
 		b.toggle_mode = true
 		b.button_group = group
-		var cat: String = t[0]
-		b.pressed.connect(func() -> void: _show_category(cat))
-		tabs.add_child(b)
-		_tab_buttons[cat] = b
+		b.pressed.connect(func() -> void: show_group(g))
+		groups.add_child(b)
+		_group_buttons[g] = b
+	_sub_tabs = UIKit.hbox(6)
+	left.add_child(_sub_tabs)
 	var list_panel := UIKit.panel(&"InsetPanel")
 	list_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	left.add_child(list_panel)
@@ -82,8 +91,8 @@ func _ready() -> void:
 	_grid = GridContainer.new()
 	_grid.columns = 3
 	_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_grid.add_theme_constant_override("h_separation", 10)
-	_grid.add_theme_constant_override("v_separation", 10)
+	_grid.add_theme_constant_override("h_separation", 12)
+	_grid.add_theme_constant_override("v_separation", 12)
 	_scroll.add_child(_grid)
 
 	body.add_child(_build_detail())
@@ -146,7 +155,7 @@ func _build_detail() -> Control:
 
 
 func _fit_columns() -> void:
-	_grid.columns = maxi(2, int((_scroll.size.x - 12.0) / (CARD_WIDTH + 10.0)))
+	_grid.columns = maxi(2, int((_scroll.size.x - 12.0) / (CARD_WIDTH + 12.0)))
 
 
 ## Items listed under `cat`: a Data catalog, or the attachment upgrades.
@@ -163,7 +172,42 @@ static func _tab_ids(tab: String) -> Array:
 
 # ------------------------------------------------------------------ list
 
+## Opens a group on its first sub-tab.
+func show_group(g: String) -> void:
+	_show_category(str(GROUPS[g][0][0]))
+
+
+## The group holding sub-tab `tab`.
+static func _group_of(tab: String) -> String:
+	for g: String in GROUPS:
+		for t: Array in GROUPS[g]:
+			if t[0] == tab:
+				return g
+	return ""
+
+
+## Rebuilds the sub-tab chips for group `g`.
+func _build_sub_tabs(g: String) -> void:
+	_group = g
+	_group_buttons[g].button_pressed = true
+	for c in _sub_tabs.get_children():
+		c.queue_free()
+	_tab_buttons.clear()
+	var chips := ButtonGroup.new()
+	for t: Array in GROUPS[g]:
+		var b := UIKit.button(t[1], &"ChipButton")
+		b.toggle_mode = true
+		b.button_group = chips
+		var tab: String = t[0]
+		b.pressed.connect(func() -> void: _show_category(tab))
+		_sub_tabs.add_child(b)
+		_tab_buttons[tab] = b
+
+
 func _show_category(tab: String) -> void:
+	var g := _group_of(tab)
+	if g != _group:
+		_build_sub_tabs(g)
 	_category = "weapons" if tab == "melee" else tab
 	_tab_buttons[tab].button_pressed = true
 	for c in _grid.get_children():
@@ -185,16 +229,16 @@ func _make_card(cat: String, id: String, group: ButtonGroup) -> Button:
 	var card := UIKit.button("", &"CardButton")
 	card.toggle_mode = true
 	card.button_group = group
-	card.custom_minimum_size = Vector2(CARD_WIDTH, 176)
+	card.custom_minimum_size = Vector2(CARD_WIDTH, 168)
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	card.pressed.connect(func() -> void: _select(id))
 	_cards[id] = card
 	var v := UIKit.vbox(4)
 	v.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	v.offset_left = 10
+	v.offset_left = 8
 	v.offset_top = 8
-	v.offset_right = -10
-	v.offset_bottom = -10
+	v.offset_right = -8
+	v.offset_bottom = -8
 	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(v)
 	var icon_frame := PanelContainer.new()
@@ -222,7 +266,7 @@ func _make_card(cat: String, id: String, group: ButtonGroup) -> Button:
 	var name_row := UIKit.hbox(6)
 	v.add_child(name_row)
 	var title := UIKit.label(String(item.name).to_upper(), &"ValueLabel")
-	title.add_theme_font_size_override("font_size", 15)
+	title.add_theme_font_size_override("font_size", 14)
 	title.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	title.clip_text = true
@@ -232,6 +276,7 @@ func _make_card(cat: String, id: String, group: ButtonGroup) -> Button:
 		if not colors.is_empty():
 			name_row.add_child(UIKit.swatch(colors, 10))
 	var foot := UIKit.hbox(6)
+	foot.custom_minimum_size.y = 20
 	foot.name = "Foot"
 	foot.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	v.add_child(foot)
@@ -279,7 +324,9 @@ func _refresh_cards() -> void:
 		elif _is_equipped(id):
 			foot.add_child(UIKit.badge("EQUIPPED", &"GoodBadgePanel"))
 		elif Profile.is_owned(_category, id):
-			foot.add_child(UIKit.badge("OWNED"))
+			var owned := UIKit.label("OWNED", &"SmallLabel")
+			owned.add_theme_font_size_override("font_size", 12)
+			foot.add_child(owned)
 		else:
 			var price := UIKit.coin_amount(Profile.price_of(_category, id), 16)
 			if Profile.coins < Profile.price_of(_category, id):
