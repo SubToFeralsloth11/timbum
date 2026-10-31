@@ -1094,9 +1094,11 @@ func _set_bus_volume(bus_name: String, linear: float) -> void:
 
 # ---------------------------------------------------------------- persistence
 
-## Writes profile.json.tmp, then renames it over profile.json, so a crash mid-write can't corrupt
-## the save. A failed write or rename is logged and reported through `save_failed`; after a failed
-## rename the new data stays in profile.json.tmp.
+## Writes profile.json.tmp, reads it back, then renames it over profile.json, so a crash or a
+## short write can't corrupt the save. A failed write (store_string false, a file error after the
+## flush, or a read-back that differs from what was written or doesn't parse) deletes the .tmp and
+## leaves profile.json as it was. Any failure is logged and reported through `save_failed`; after
+## a failed rename the new data stays in profile.json.tmp.
 func save() -> void:
 	if not persist:
 		return
@@ -1105,11 +1107,27 @@ func save() -> void:
 	if f == null:
 		_save_failed("could not write %s" % tmp, FileAccess.get_open_error())
 		return
-	f.store_string(JSON.stringify(_payload(), "\t"))
+	var text := JSON.stringify(_payload(), "\t")
+	var stored := f.store_string(text)
+	f.flush()
+	var err := f.get_error()
 	f.close()
-	var err := DirAccess.rename_absolute(ProjectSettings.globalize_path(tmp), ProjectSettings.globalize_path(SAVE_PATH))
+	if not stored or err != OK:
+		_discard_tmp(tmp, "could not write %s" % tmp, err if err != OK else ERR_FILE_CANT_WRITE)
+		return
+	var back := FileAccess.get_file_as_string(tmp)
+	if back != text or JSON.new().parse(back) != OK:
+		_discard_tmp(tmp, "%s did not read back as written" % tmp, ERR_FILE_CORRUPT)
+		return
+	err = DirAccess.rename_absolute(ProjectSettings.globalize_path(tmp), ProjectSettings.globalize_path(SAVE_PATH))
 	if err != OK:
 		_save_failed("could not rename %s over %s" % [tmp, SAVE_PATH], err)
+
+
+## A bad profile.json.tmp is deleted so it can never replace the good profile.json.
+func _discard_tmp(tmp: String, what: String, err: Error) -> void:
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(tmp))
+	_save_failed(what, err)
 
 
 func _save_failed(what: String, err: Error) -> void:
