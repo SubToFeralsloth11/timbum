@@ -708,9 +708,20 @@ func _convert(root: Node) -> void:
 					mi.set_surface_override_material(s, _converted_material(m))
 
 
+## The viewmodel copy of a material: StandardMaterial3D parameters (emission texture and operator
+## included) go into SHADER_CODE; an animated skin (Models.anim_skin_shader) gets the shader's
+## depth-squashing variant with every parameter copied. Other ShaderMaterials stay as they are.
 static func _converted_material(m: Material) -> Material:
 	if _converted.has(m):
 		return _converted[m]
+	if m is ShaderMaterial and (m as ShaderMaterial).shader == Models.anim_skin_shader():
+		var anim_src := m as ShaderMaterial
+		var vm := ShaderMaterial.new()
+		vm.shader = Models.anim_skin_shader(true)
+		for u: Dictionary in anim_src.shader.get_shader_uniform_list():
+			vm.set_shader_parameter(u.name, anim_src.get_shader_parameter(u.name))
+		_converted[m] = vm
+		return vm
 	if not (m is StandardMaterial3D):
 		return m
 	var src := m as StandardMaterial3D

@@ -198,8 +198,159 @@ static func _attachment_mesh(attachment_id: String) -> ArrayMesh:
 	return _meshes[key]
 
 
+## Animated weapon skins (Data.SKINS entries with pattern "anim"), all on one shader. `anim`:
+## 0 flow (molten veins from mask_tex scroll along the gun and throb), 1 pulse (waves of light
+## race along the mask's grid, shifting between the two colours), 2 aurora (curtains of light
+## ripple over the base; mask green = stars that twinkle), 3 glitch (rows tear sideways in time
+## steps, colour channels split, blocks flicker). Gun UVs are planar (MeshKit.UV_TILE metres per
+## unit), so the effects keep their scale on every gun. With VIEWMODEL defined (the variant
+## anim_skin_shader(true) builds) the vertex stage squashes depth like Viewmodel.SHADER_CODE.
+const ANIM_SKIN_SHADER := """
+shader_type spatial;
+render_mode cull_back, depth_draw_opaque;
+uniform sampler2D albedo_tex : source_color, filter_nearest_mipmap, repeat_enable;
+uniform sampler2D mask_tex : filter_nearest_mipmap, repeat_enable;
+uniform vec4 color_a : source_color = vec4(1.0);
+uniform vec4 color_b : source_color = vec4(1.0);
+uniform int anim = 0;
+uniform float emission_energy = 1.0;
+uniform float metallic = 0.2;
+uniform float roughness = 0.5;
+uniform float specular = 0.5;
+
+float hash21(vec2 p) {
+	return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+}
+
+#ifdef VIEWMODEL
+void vertex() {
+	POSITION = PROJECTION_MATRIX * MODELVIEW_MATRIX * vec4(VERTEX, 1.0);
+	POSITION.z = mix(POSITION.w, POSITION.z, 0.04);
+}
+#endif
+
+void fragment() {
+	vec2 uv = UV;
+	float t = TIME;
+	vec3 base = texture(albedo_tex, uv).rgb;
+	vec3 glow = vec3(0.0);
+	if (anim == 0) {
+		float m = texture(mask_tex, uv + vec2(t * 0.07, t * 0.22)).r;
+		float m2 = texture(mask_tex, uv * 0.75 - vec2(t * 0.04, t * 0.13)).r;
+		float heat = max(m, m2 * 0.6);
+		float throb = 0.7 + 0.3 * sin(t * 2.4 + (uv.x + uv.y) * 2.0);
+		glow = mix(color_a.rgb, vec3(1.0, 0.92, 0.45), heat * heat) * heat * throb;
+		base = mix(base, color_a.rgb * 0.55, heat);
+	} else if (anim == 1) {
+		float g = texture(mask_tex, uv).r;
+		float pulse = pow(1.0 - fract((uv.x + uv.y) * 0.35 - t * 0.6), 6.0);
+		vec3 col = mix(color_a.rgb, color_b.rgb, 0.5 + 0.5 * sin(t * 0.9 + uv.x * 0.8));
+		glow = col * g * (0.15 + 1.6 * pulse);
+	} else if (anim == 2) {
+		vec2 m = texture(mask_tex, uv).rg;
+		float wave = sin(uv.y * 6.0 + sin(uv.x * 3.5 + t * 0.8) * 2.2 + t * 0.6);
+		float band = (0.15 + 0.85 * smoothstep(0.0, 1.0, wave)) * (0.45 + 0.55 * m.r);
+		vec3 col = mix(color_a.rgb, color_b.rgb, 0.5 + 0.5 * sin(uv.x * 2.5 + uv.y * 1.5 + t * 0.5));
+		glow = col * band + vec3(m.g * (0.5 + 0.5 * sin(t * 3.0 + m.r * 40.0)));
+		base = mix(base, col * 0.35, band * 0.6);
+	} else {
+		float step_t = floor(t * 12.0);
+		float row = floor(uv.y * 8.0);
+		float r = hash21(vec2(row, step_t));
+		vec2 guv = uv;
+		if (r > 0.82) {
+			guv.x += (hash21(vec2(step_t, row)) - 0.5) * 0.5;
+		}
+		float split = r > 0.9 ? 0.06 : 0.0;
+		base = vec3(texture(albedo_tex, guv + vec2(split, 0.0)).r, texture(albedo_tex, guv).g,
+				texture(albedo_tex, guv - vec2(split, 0.0)).b);
+		float b = hash21(floor(guv * 8.0) + vec2(step_t * 1.7, 0.0));
+		float scan = 0.5 + 0.5 * sin(uv.y * 100.0 - t * 30.0);
+		vec3 col = b > 0.93 ? color_a.rgb : color_b.rgb;
+		glow = col * step(0.86, b) + color_a.rgb * texture(mask_tex, guv).r * 0.3 * scan;
+	}
+	ALBEDO = base;
+	METALLIC = metallic;
+	ROUGHNESS = roughness;
+	SPECULAR = specular;
+	EMISSION = glow * emission_energy;
+}
+"""
+const ANIM_KINDS: Array[String] = ["flow", "pulse", "aurora", "glitch"]
+static var _anim_shaders: Array[Shader] = [null, null]
+
+
+## The animated-skin shader; `viewmodel` = the depth-squashing first-person variant.
+static func anim_skin_shader(viewmodel := false) -> Shader:
+	var i := 1 if viewmodel else 0
+	if _anim_shaders[i] == null:
+		var sh := Shader.new()
+		sh.code = ANIM_SKIN_SHADER.replace("shader_type spatial;", "shader_type spatial;\n#define VIEWMODEL") \
+			if viewmodel else ANIM_SKIN_SHADER
+		_anim_shaders[i] = sh
+	return _anim_shaders[i]
+
+
+## Material of an animated skin: a 32x32 base texture and a 32x32 mask (red: veins, grid lines,
+## curtain variation or glitch glow; green: aurora stars) drawn for its effect.
+static func _anim_skin_material(skin: Dictionary, seed: int) -> ShaderMaterial:
+	const N := 32
+	var kind: String = skin.anim
+	var a: Color = skin.a
+	var b: Color = skin.b
+	var base := Image.create(N, N, false, Image.FORMAT_RGBA8)
+	var mask := Image.create(N, N, false, Image.FORMAT_RGBA8)
+	for y in N:
+		for x in N:
+			var h := _hash(x, y, seed)
+			var n := 0.65 * _value_noise(x, y, N, 4, seed) + 0.35 * _value_noise(x, y, N, 8, seed + 1)
+			var c: Color
+			var m := Color.BLACK
+			match kind:
+				"flow":
+					var ridge := 1.0 - absf(2.0 * n - 1.0)
+					c = b.lerp(b.lightened(0.18), _value_noise(x, y, N, 8, seed + 5))
+					if ridge > 0.88:
+						c = a.darkened(0.55)
+					m.r = clampf((ridge - 0.85) / 0.12, 0.0, 1.0)
+				"pulse":
+					c = Color(0.05, 0.05, 0.08).lerp(Color(0.09, 0.08, 0.13), h)
+					var line := x % 8 == 0 or y % 8 == 0
+					if line:
+						c = Color(0.16, 0.16, 0.22)
+					m.r = 1.0 if line else (0.5 if x % 8 == 4 and y % 8 == 4 else 0.0)
+				"aurora":
+					c = Color(0.02, 0.04, 0.11).lerp(Color(0.07, 0.03, 0.15), n)
+					m.r = n
+					if h > 0.975:
+						c = Color(0.85, 0.9, 1.0)
+						m.g = 1.0
+				_:
+					var block := _hash(x >> 2, y >> 2, seed + 9)
+					c = Color(0.07, 0.07, 0.09).lerp(Color(0.2, 0.2, 0.24), block)
+					if h > 0.95:
+						c = a if h > 0.975 else b
+					m.r = 1.0 if block > 0.7 else 0.0
+			base.set_pixel(x, y, _jitter(c, _hash(x, y, seed + 11)))
+			mask.set_pixel(x, y, m)
+	base.generate_mipmaps()
+	mask.generate_mipmaps()
+	var sm := ShaderMaterial.new()
+	sm.shader = anim_skin_shader()
+	sm.set_shader_parameter("albedo_tex", ImageTexture.create_from_image(base))
+	sm.set_shader_parameter("mask_tex", ImageTexture.create_from_image(mask))
+	sm.set_shader_parameter("color_a", a)
+	sm.set_shader_parameter("color_b", b)
+	sm.set_shader_parameter("anim", ANIM_KINDS.find(kind))
+	sm.set_shader_parameter("emission_energy", float(skin.glow))
+	sm.set_shader_parameter("metallic", 0.35 if kind == "glitch" else 0.2)
+	sm.set_shader_parameter("roughness", 0.6 if kind == "flow" else 0.4)
+	return sm
+
+
 ## Shared weapon-skin material: a 32x32 nearest-filtered pixel pattern generated from the
-## skin's colours. Cached per skin id. "mastery_<weapon id>" is that gun's mastery camo.
+## skin's colours. Cached per skin id. "mastery_<weapon id>" is that gun's mastery camo; skins
+## with pattern "anim" are a ShaderMaterial of ANIM_SKIN_SHADER (see _anim_skin_material).
 static func skin_material(skin_id: String) -> Material:
 	if _skin_materials.has(skin_id):
 		return _skin_materials[skin_id]
@@ -210,6 +361,9 @@ static func skin_material(skin_id: String) -> Material:
 		push_warning("Models: unknown skin '%s'" % skin_id)
 		return skin_material("default")
 	var skin: Dictionary = CATALOG.SKINS[skin_id]
+	if skin.pattern == "anim":
+		_skin_materials[skin_id] = _anim_skin_material(skin, skin_id.hash())
+		return _skin_materials[skin_id]
 	var tex := ImageTexture.create_from_image(_skin_image(skin, skin_id.hash()))
 	var m := StandardMaterial3D.new()
 	m.albedo_texture = tex

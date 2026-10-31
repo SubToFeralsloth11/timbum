@@ -299,6 +299,20 @@ const SKINS := {
 		"a": Color("f0f0f5"), "b": Color("3a3a4a"), "glow": 0.0},
 	"sunset": {"name": "Sunset Fade", "price": 800, "pattern": "gradient",
 		"a": Color("ff8a3a"), "b": Color("4a1a0a"), "glow": 0.2},
+	# Animated skins: "anim" picks the effect of Models.ANIM_SKIN_SHADER (flow, pulse, aurora, glitch);
+	# a is the glow colour, b the second colour, glow the emission energy.
+	"lava_flow": {"name": "Lava Flow", "price": 1800, "pattern": "anim", "anim": "flow",
+		"desc": "Molten veins crawl along the gun through cracked black basalt and throb with heat. Animated, glows.",
+		"a": Color("ff7a10"), "b": Color("1a1412"), "glow": 2.2},
+	"neon_pulse": {"name": "Neon Pulse", "price": 1800, "pattern": "anim", "anim": "pulse",
+		"desc": "A black grid where pulses of cyan and magenta light race down the gun. Animated, glows.",
+		"a": Color("29e8ff"), "b": Color("ff2fd0"), "glow": 2.6},
+	"aurora": {"name": "Aurora", "price": 2200, "pattern": "anim", "anim": "aurora",
+		"desc": "Northern lights ripple green and violet over a starry night sky, and the stars twinkle. Animated, glows.",
+		"a": Color("3dff9a"), "b": Color("9a4dff"), "glow": 1.8},
+	"glitch": {"name": "Glitch", "price": 2400, "pattern": "anim", "anim": "glitch",
+		"desc": "Corrupted pixels: rows tear sideways, colour channels split and bright blocks flicker. Animated, glows.",
+		"a": Color("00ffd0"), "b": Color("ff2a6a"), "glow": 2.4},
 }
 
 const HATS := {
@@ -347,20 +361,6 @@ const OUTFITS := {
 	"astronaut": {"name": "Astronaut", "price": 1100, "pattern": "suit",
 		"skin": Color("f2f2f2"), "shirt": Color("f2f2f2"), "pants": Color("e6e6e6"),
 		"shoes": Color("9a9a9a"), "accent": Color("ff7a1a")},
-}
-
-## Weapon charms dangle from a short chain on the left of every gun (except the knife) and
-## swing with its motion. shape: cube | die | skull | star | heart | duck | coin | ghost | gem |
-## crown | creeper. a: main colour, b: detail colour.
-const CHARMS := {
-	"none": {"name": "No Charm", "price": 0, "desc": "A clean gun.", "shape": "", "a": Color.WHITE, "b": Color.WHITE},
-	"cube": {"name": "Lucky Cube", "price": 150, "desc": "A little grass block for luck.", "shape": "cube",
-		"a": Color("5aa83a"), "b": Color("7a5232")},
-	"die": {"name": "Pixel Die", "price": 200, "desc": "Roll the dice on every peek.", "shape": "die",
-		"a": Color("f2f2f2"), "b": Color("15151a")},
-	"heart": {"name": "Block Heart", "price": 250, "desc": "Wear it on your sleeve. Or your gun.", "shape": "heart",
-		"a": Color("e8304a"), "b": Color("ff8a9c")},
-	"duck": {"name": "Rubber Duck", "price": 300, "desc": "Squeak. Squeak.", "shape": "duck",
 	"pirate": {"name": "Pirate", "price": 600, "pattern": "pirate",
 		"desc": "Polka-dot bandana, eyepatch, beard, striped sailor shirt, red sash and tall boots.",
 		"skin": Color("c98d5e"), "shirt": Color("f0e8d8"), "pants": Color("2a2a33"),
@@ -393,6 +393,20 @@ const CHARMS := {
 		"desc": "Wrapped head to toe in old bandages, with glowing green eyes.",
 		"skin": Color("d9cfae"), "shirt": Color("d9cfae"), "pants": Color("cfc4a0"),
 		"shoes": Color("b8ac88"), "accent": Color("6dff6a")},
+}
+
+## Weapon charms dangle from a short chain on the left of every gun (except the knife) and
+## swing with its motion. shape: cube | die | skull | star | heart | duck | coin | ghost | gem |
+## crown | creeper. a: main colour, b: detail colour.
+const CHARMS := {
+	"none": {"name": "No Charm", "price": 0, "desc": "A clean gun.", "shape": "", "a": Color.WHITE, "b": Color.WHITE},
+	"cube": {"name": "Lucky Cube", "price": 150, "desc": "A little grass block for luck.", "shape": "cube",
+		"a": Color("5aa83a"), "b": Color("7a5232")},
+	"die": {"name": "Pixel Die", "price": 200, "desc": "Roll the dice on every peek.", "shape": "die",
+		"a": Color("f2f2f2"), "b": Color("15151a")},
+	"heart": {"name": "Block Heart", "price": 250, "desc": "Wear it on your sleeve. Or your gun.", "shape": "heart",
+		"a": Color("e8304a"), "b": Color("ff8a9c")},
+	"duck": {"name": "Rubber Duck", "price": 300, "desc": "Squeak. Squeak.", "shape": "duck",
 		"a": Color("ffd23a"), "b": Color("ff8a1a")},
 	"star": {"name": "Gold Star", "price": 350, "desc": "For good behaviour.", "shape": "star",
 		"a": Color("ffcc33"), "b": Color("b8860b")},
