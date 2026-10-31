@@ -380,8 +380,9 @@ func claim_daily() -> int:
 	return Data.DAILY_REWARD
 
 
-## result: {kills, deaths, headshots, placement (1-based), players, won, best_streak, weapons,
-## mode, map, moves, best_multi} (MatchFacts.result). `weapons` is the match's per-weapon numbers
+## result: {kills, deaths, headshots, placement (1-based), players, won, draw, best_streak, weapons,
+## mode, map, moves, best_multi} (MatchFacts.result). A team draw pays `placement`'s coins under a
+## "Draw" row instead of "#N place". `weapons` is the match's per-weapon numbers
 ## (World.my_weapon_stats: id -> {kills, headshots, shots, hits, damage}); they are added to
 ## weapon_stats and pay any mastery tier reached. The whole result (MatchFacts.tally) advances the
 ## challenges.
@@ -414,7 +415,7 @@ func record_match(result: Dictionary) -> Dictionary:
 	if won:
 		breakdown.append(["Victory", place_coins, 200])
 	elif place_coins > 0:
-		breakdown.append(["#%d place" % placement, place_coins, 0])
+		breakdown.append(["Draw" if bool(result.get("draw", false)) else "#%d place" % placement, place_coins, 0])
 	var match_weapons := clean_weapon_stats(result.get("weapons", {}))
 	var summary := match_summary(match_weapons)
 	_add_weapon_stats(match_weapons)

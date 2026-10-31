@@ -29,7 +29,8 @@ const SAVE_DELAY := 0.35
 
 
 ## Accessibility preview: the colour mode's team colours with their shapes, a kill feed line,
-## the health and shield bar, the three hitmarkers and King of the Block / ping / radar colours.
+## the health and shield bar, the three hitmarkers, King of the Block's zone states and the
+## compass markers (pings, radar contacts, airstrike warnings).
 ## Redrawn every frame while shown, so it follows the option at once.
 class PalettePreview extends Control:
 	func _init() -> void:
@@ -70,15 +71,19 @@ class PalettePreview extends Control:
 				draw_line(Vector2(x, y) + d.normalized() * 6.0, Vector2(x, y) + d.normalized() * float(h[1]), c, h[2])
 			draw_string(font, Vector2(x + 28, y + 6), h[3], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, c)
 			x += 150.0
-		# King of the Block zone states, pings and radar contacts.
-		y = 200.0
-		x = 8.0
-		for z: Array in [["zone_free", "ZONE"], ["zone_mine", "YOURS"], ["zone_other", "TAKEN"], ["zone_contested", "CONTESTED"],
-				["ping_spot", "PING"], ["ping_enemy", "ENEMY"], ["radar", "RADAR"]]:
-			var c := Palette.color(z[0])
-			draw_colored_polygon(PackedVector2Array([Vector2(x + 8, y - 8), Vector2(x + 16, y), Vector2(x + 8, y + 8), Vector2(x, y)]), c)
-			draw_string(font, Vector2(x + 22, y + 5), z[1], HORIZONTAL_ALIGNMENT_LEFT, -1, 13, c.lightened(0.2))
-			x += 30.0 + font.get_string_size(z[1], HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x + 14.0
+		# King of the Block zone states, then the compass markers.
+		var rows: Array = [
+			[["zone_free", "ZONE"], ["zone_mine", "YOURS"], ["zone_other", "TAKEN"], ["zone_contested", "CONTESTED"]],
+			[["ping_spot", "PING"], ["ping_enemy", "ENEMY"], ["radar", "RADAR"], ["warning", "AIRSTRIKE"]]]
+		y = 190.0
+		for row: Array in rows:
+			x = 8.0
+			for z: Array in row:
+				var c := Palette.color(z[0])
+				draw_colored_polygon(PackedVector2Array([Vector2(x + 8, y - 8), Vector2(x + 16, y), Vector2(x + 8, y + 8), Vector2(x, y)]), c)
+				draw_string(font, Vector2(x + 22, y + 5), z[1], HORIZONTAL_ALIGNMENT_LEFT, -1, 13, c.lightened(0.2))
+				x += 30.0 + font.get_string_size(z[1], HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x + 14.0
+			y += 28.0
 
 
 ## Crosshair tab preview: the player's crosshair (a real `Crosshair`, re-reading Profile every

@@ -153,13 +153,14 @@ func radar_targets() -> Array[Player]:
 	return out
 
 
-## Compass pips: enemies under a Radar Sweep, and every strike still to land.
+## Compass pips: enemies under a Radar Sweep, and every strike still to land (the palette keeps
+## the two colours apart in every colour mode, see Palette.GROUPS).
 func compass_pips(cam: Camera3D) -> Array:
 	var out: Array = []
 	for p: Player in radar_targets():
 		out.append([_heading(cam, p.global_position), Palette.color("radar")])
 	for s: Dictionary in strikes:
-		out.append([_heading(cam, strike_center(s)), Palette.color("warning").lightened(0.3)])
+		out.append([_heading(cam, strike_center(s)), Palette.color("warning")])
 	return out
 
 

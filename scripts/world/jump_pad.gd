@@ -152,7 +152,10 @@ func _ready() -> void:
 	_burst.emission_shape = CPUParticles3D.EMISSION_SHAPE_SPHERE
 	_burst.emission_sphere_radius = 0.6
 	add_child(_burst)
-	_add_link("NavLink", Vector3.ZERO, target - position)
+	# The pad link costs the walking distance its flight time is worth (about 1 s = 5.4 m), not
+	# its straight length, so bots take a pad whenever it is the quicker way.
+	var flight_walk := flight_time(Player.GRAVITY) * Player.WALK_SPEED
+	_add_link("NavLink", Vector3.ZERO, target - position, flight_walk)
 	if drop.size() == 2:
 		_add_link("DropLink", (drop[0] as Vector3) - position, (drop[1] as Vector3) - position)
 	_build_arc()
@@ -220,12 +223,16 @@ func _place_arc_dots() -> void:
 		_arc_dots.set_instance_transform(k, Transform3D(basis, pos))
 
 
-func _add_link(link_name: String, from: Vector3, to: Vector3) -> void:
+## `walk_cost` (m): what the pathfinder charges for the whole link (< 0: its straight length).
+func _add_link(link_name: String, from: Vector3, to: Vector3, walk_cost := -1.0) -> void:
 	var link := NavigationLink3D.new()
 	link.name = link_name
 	link.bidirectional = false
 	link.start_position = _on_navmesh(from)
 	link.end_position = _on_navmesh(to)
+	var length := link.start_position.distance_to(link.end_position)
+	if walk_cost >= 0.0 and length > 0.01:
+		link.travel_cost = walk_cost / length
 	add_child(link)
 
 

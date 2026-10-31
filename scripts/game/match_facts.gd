@@ -65,12 +65,13 @@ func on_kill(p: Player, wid: String, dist: float, multi: int, t: float) -> void:
 
 ## The record_match dictionary for this match so far: `row` is the local player's scoreboard row
 ## (kills, deaths, headshots, best_streak), `weapons` World.my_weapon_stats, `medals` the
-## Data.MEDALS ids of the match highlights this player earned (only known at the end).
-func result(row: Dictionary, weapons: Dictionary, placement: int, players: int, won: bool, medals: Array = []) -> Dictionary:
+## Data.MEDALS ids of the match highlights this player earned (only known at the end), `draw` a
+## team result that nobody won (paid as `placement` 2, labelled "Draw").
+func result(row: Dictionary, weapons: Dictionary, placement: int, players: int, won: bool, medals: Array = [], draw := false) -> Dictionary:
 	return {
 		"kills": int(row.get("kills", 0)), "deaths": int(row.get("deaths", 0)), "headshots": int(row.get("headshots", 0)),
 		"best_streak": int(row.get("best_streak", 0)), "placement": placement, "players": players, "won": won,
-		"weapons": weapons, "mode": str(Net.config.mode), "map": Net.current_map,
+		"draw": draw, "weapons": weapons, "mode": str(Net.config.mode), "map": Net.current_map,
 		"moves": moves.duplicate(), "best_multi": best_multi, "medals": medals,
 	}
 

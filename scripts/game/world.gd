@@ -1592,11 +1592,12 @@ func _s_match_end(rows: Array, next: Dictionary, wait: float) -> void:
 			placement = i + 1
 			mine = rows[i]
 	# Team modes: the server marks each row `won` (a team win counts for every member; Infected:
-	# the side that won). A win pays like first place, a draw like second.
+	# the side that won). A win pays like first place, a draw like second (its row reads "Draw").
 	var won := bool(mine.get("won", placement == 1))
 	var reward_place := placement
+	var draw := next.has("winner") and int(next.winner) < 0
 	if next.has("winner"):
-		reward_place = 1 if won else (2 if int(next.winner) < 0 else 0)
+		reward_place = 1 if won else (2 if draw else 0)
 	rules.on_match_over()
 	streaks.on_match_over()
 	pings.on_match_over()
@@ -1607,7 +1608,7 @@ func _s_match_end(rows: Array, next: Dictionary, wait: float) -> void:
 		for h: Array in rules.highlights(rows):
 			if h[1]:
 				medals.append(h[2])
-		rewards = Profile.record_match(my_facts.result(mine, my_weapon_stats, reward_place, rows.size(), won, medals))
+		rewards = Profile.record_match(my_facts.result(mine, my_weapon_stats, reward_place, rows.size(), won, medals, draw))
 		_toast_feats(rewards.get("feats", []))
 	my_weapon_stats = {}
 	my_facts = MatchFacts.new()

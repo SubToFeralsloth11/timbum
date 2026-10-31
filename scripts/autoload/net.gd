@@ -195,9 +195,10 @@ func host(port: int, cfg: Dictionary, p_link := Link.DIRECT) -> Error:
 	match p_link:
 		Link.DIRECT:
 			var enet := ENetMultiplayerPeer.new()
-			# One spare slot past the 11 clients that fit, so a 12th joiner connects and is told
-			# "Server is full." by _rpc_register instead of timing out.
-			var err := enet.create_server(port, Data.MAX_PLAYERS)
+			# Remote slots = the 11 other players + MAX_SPECTATORS, so the spectator places stay open
+			# in a full match. A player past Data.MAX_PLAYERS still connects (while spectator places
+			# are free) and is told "Server is full." by _rpc_register instead of timing out.
+			var err := enet.create_server(port, (Data.MAX_PLAYERS - 1) + MAX_SPECTATORS)
 			if err != OK:
 				status.emit("Could not host on port %d (%s). Is it already in use?" % [port, error_string(err)])
 				return err
@@ -205,7 +206,8 @@ func host(port: int, cfg: Dictionary, p_link := Link.DIRECT) -> Error:
 			host_port = port
 		Link.STEAM:
 			status.emit("Creating a Steam lobby...")
-			var r: Dictionary = await steam.host(Data.MAX_PLAYERS, Profile.peer_info().name)
+			# Lobby members include the host: every player plus the spectator places.
+			var r: Dictionary = await steam.host(Data.MAX_PLAYERS + MAX_SPECTATORS, Profile.peer_info().name)
 			if attempt != _attempt:
 				return ERR_SKIP
 			if r.peer == null:

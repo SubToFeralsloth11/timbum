@@ -5,11 +5,21 @@ extends RefCounted
 ## colours (Teams.color), nametags, the kill feed, hitmarkers and damage numbers, the health and
 ## shield bar, compass pips, King of the Block's zone, pings, radar contacts and airstrike warnings
 ## all ask `Palette.color(role)`. Red-green modes (deuteranopia, protanopia) build on blue against
-## orange / yellow, with magenta for kills and contests; protanopia keeps its warm colours bright
-## because reds look dark to it. Tritanopia builds on teal against red / pink. Colour is never the
-## only cue: teams also carry shapes (Teams.shape), zone states and pings have their own labels.
+## orange / yellow, with magenta / violet for kills and contests and pink for radar contacts;
+## protanopia keeps its warm colours bright because reds look dark to it. Tritanopia builds on teal
+## against red / pink, with violet radar contacts and yellow warnings. The roles of each GROUPS
+## entry are on screen together, so each mode keeps them apart in hue or lightness (also under a
+## simulation of that colour blindness). Colour is never the only cue: teams also carry shapes
+## (Teams.shape), zone states and pings have their own labels.
 
 const MODE_NAMES: Array[String] = ["Off", "Deuteranopia", "Protanopia", "Tritanopia"]
+
+## Roles shown together (compass pips and world markers): no two in a group share a colour in any
+## mode. Team modes have pings, King of the Block the zone; radar and airstrike warnings are in both.
+const GROUPS := {
+	"team_markers": ["ping_spot", "ping_enemy", "radar", "warning"],
+	"zone_markers": ["zone_mine", "zone_other", "zone_contested", "radar", "warning"],
+}
 
 ## Per colour mode, role -> colour. Every set has every role.
 const SETS: Array[Dictionary] = [
@@ -22,7 +32,7 @@ const SETS: Array[Dictionary] = [
 		"zone_free": Color(1.0, 0.85, 0.3), "zone_mine": Color(0.35, 1.0, 0.45), "zone_other": Color(1.0, 0.4, 0.3),
 		"zone_contested": Color(1.0, 0.3, 0.9), "zone_next": Color(0.85, 0.92, 1.0),
 		"ping_spot": Color(1.0, 0.85, 0.3), "ping_enemy": Color(1.0, 0.3, 0.2),
-		"radar": Color(1.0, 0.25, 0.2), "warning": Color(1.0, 0.18, 0.1),
+		"radar": Color(1.0, 0.6, 0.1), "warning": Color(0.8, 0.05, 0.05),
 	},
 	{ # Deuteranopia (green-blind).
 		"team_a": Color(0.25, 0.55, 1.0), "team_b": Color(1.0, 0.62, 0.1),
@@ -31,9 +41,9 @@ const SETS: Array[Dictionary] = [
 		"hit": Color(1.0, 1.0, 1.0), "hit_head": Color(1.0, 0.9, 0.2), "hit_kill": Color(0.95, 0.35, 1.0),
 		"health_high": Color(0.3, 0.65, 1.0), "health_low": Color(1.0, 0.6, 0.05), "shield": Color(0.92, 0.94, 1.0),
 		"zone_free": Color(1.0, 0.95, 0.6), "zone_mine": Color(0.3, 0.65, 1.0), "zone_other": Color(1.0, 0.55, 0.0),
-		"zone_contested": Color(0.95, 0.35, 1.0), "zone_next": Color(0.85, 0.92, 1.0),
+		"zone_contested": Color(0.7, 0.2, 0.9), "zone_next": Color(0.85, 0.92, 1.0),
 		"ping_spot": Color(1.0, 0.9, 0.35), "ping_enemy": Color(1.0, 0.5, 0.0),
-		"radar": Color(1.0, 0.5, 0.0), "warning": Color(1.0, 0.5, 0.0),
+		"radar": Color(1.0, 0.6, 1.0), "warning": Color(0.8, 0.15, 0.0),
 	},
 	{ # Protanopia (red-blind): reds look dark, so the warm side is bright orange-yellow.
 		"team_a": Color(0.25, 0.55, 1.0), "team_b": Color(1.0, 0.8, 0.2),
@@ -42,9 +52,9 @@ const SETS: Array[Dictionary] = [
 		"hit": Color(1.0, 1.0, 1.0), "hit_head": Color(1.0, 0.92, 0.3), "hit_kill": Color(0.85, 0.45, 1.0),
 		"health_high": Color(0.3, 0.65, 1.0), "health_low": Color(1.0, 0.8, 0.1), "shield": Color(0.92, 0.94, 1.0),
 		"zone_free": Color(0.95, 0.95, 0.95), "zone_mine": Color(0.3, 0.65, 1.0), "zone_other": Color(1.0, 0.78, 0.1),
-		"zone_contested": Color(0.85, 0.45, 1.0), "zone_next": Color(0.8, 0.88, 1.0),
+		"zone_contested": Color(0.75, 0.3, 0.9), "zone_next": Color(0.8, 0.88, 1.0),
 		"ping_spot": Color(0.95, 0.95, 0.95), "ping_enemy": Color(1.0, 0.78, 0.1),
-		"radar": Color(1.0, 0.78, 0.1), "warning": Color(1.0, 0.75, 0.1),
+		"radar": Color(1.0, 0.45, 0.6), "warning": Color(1.0, 0.45, 0.0),
 	},
 	{ # Tritanopia (blue-yellow): teal against red and pink.
 		"team_a": Color(0.2, 0.85, 0.85), "team_b": Color(1.0, 0.35, 0.4),
@@ -55,7 +65,7 @@ const SETS: Array[Dictionary] = [
 		"zone_free": Color(0.95, 0.95, 0.95), "zone_mine": Color(0.3, 0.9, 0.9), "zone_other": Color(1.0, 0.3, 0.35),
 		"zone_contested": Color(1.0, 0.55, 0.85), "zone_next": Color(0.8, 0.95, 0.95),
 		"ping_spot": Color(0.85, 1.0, 1.0), "ping_enemy": Color(1.0, 0.25, 0.3),
-		"radar": Color(1.0, 0.25, 0.3), "warning": Color(1.0, 0.2, 0.2),
+		"radar": Color(0.75, 0.45, 1.0), "warning": Color(1.0, 0.9, 0.0),
 	},
 ]
 
