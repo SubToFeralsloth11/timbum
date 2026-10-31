@@ -30,8 +30,8 @@ const CAM_DISTANCE := 5.5
 const CAM_HEIGHT := 0.9
 const SWAY := 0.3
 const SWAY_SPEED := 0.08
-## Sideways camera shift (metres, negative = avatar right of centre, clear of the menu column).
-const FRAME_SHIFT := -1.0
+## Sideways camera shift (metres, negative = avatar right of centre); the menu keeps the middle clear.
+const FRAME_SHIFT := 0.0
 const EMOTE_EVERY := 16.0
 const EMOTE_LENGTH := 4.5
 
@@ -145,8 +145,8 @@ func _pick_spot(grid: VoxelGrid, info: MapInfo) -> void:
 				for h: float in [-0.6, 0.0, 0.6]:
 					if _solid(grid, info, chest.lerp(cam, i / 10.0) + Vector3.UP * h):
 						score -= 10.0
-			for k: float in [0.5, 1.5, 2.5]:
-				for side: float in [-1.5, 0.0, 1.5]:
+			for k: float in [0.5, 1.5, 2.5, 3.5]:
+				for side: float in [-2.5, -1.2, 0.0, 1.2, 2.5]:
 					for h: float in [-0.5, 0.5, 1.5]:
 						if _solid(grid, info, cam + fwd * k + right * side + Vector3.UP * h):
 							score -= 2.0
@@ -175,7 +175,7 @@ func _on_profile_changed() -> void:
 		_build_avatar()
 
 
-## (Re)builds the avatar in the equipped look, facing just left of the camera (towards the menu).
+## (Re)builds the avatar in the equipped look, turned a little to the camera's left.
 func _build_avatar() -> void:
 	if avatar != null:
 		avatar.queue_free()
@@ -185,7 +185,7 @@ func _build_avatar() -> void:
 	avatar.hold_weapon(Profile.loadout.primary, Profile.gun_skin(Profile.loadout.primary))
 	_scene.add_child(avatar)
 	avatar.position = _spot
-	var face := _out.rotated(Vector3.UP, -0.45)
+	var face := _out.rotated(Vector3.UP, -0.3)
 	avatar.rotation.y = atan2(-face.x, -face.z)
 	_emote_end = -1.0
 	_next_emote = _t + EMOTE_EVERY * 0.5

@@ -27,6 +27,8 @@ const BUTTON_RED := Color("c23b30")
 
 ## Size of one "pixel" of the bevelled pixel-art styleboxes, in UI pixels.
 const PX := 3
+## Corner radius of every button (flat rounded rectangles).
+const BUTTON_RADIUS := 12
 
 static var _theme: Theme
 static var _heavy: SystemFont
@@ -167,13 +169,34 @@ static func bevel_box(base: Color, outline := OUTLINE, pressed := false, pad_h :
 
 
 static func _focus_box() -> StyleBoxFlat:
-	var s := StyleBoxFlat.new()
+	var s := round_box(Color(0, 0, 0, 0), Color(ACCENT, 0.95), 2, BUTTON_RADIUS + 2, 0)
 	s.draw_center = false
-	s.border_color = Color(ACCENT, 0.9)
-	s.set_border_width_all(2)
-	s.set_expand_margin_all(3)
-	s.corner_detail = 1
-	s.set_corner_radius_all(3)
+	s.set_expand_margin_all(2)
+	return s
+
+
+## Flat rounded-rectangle button face for `state` ("normal", "hover", "pressed", "disabled"):
+## a solid fill in `base` with a thin lighter edge, brightening on hover. Every themed button and
+## the menu tiles use it.
+static func flat_button(base: Color, state: String, pad_h := 16, pad_v := 8, radius := BUTTON_RADIUS) -> StyleBoxFlat:
+	var fill := base
+	var edge := Color(base.lightened(0.25), 0.55)
+	match state:
+		"hover":
+			fill = base.lightened(0.1)
+			edge = Color(base.lightened(0.45), 0.8)
+		"pressed":
+			fill = base.darkened(0.14)
+			edge = Color(base.darkened(0.3), 0.6)
+		"disabled":
+			var l := base.get_luminance()
+			fill = Color(Color(l, l, l).darkened(0.45), 0.8)
+			edge = Color(1, 1, 1, 0.06)
+	var s := round_box(fill, edge, 1, radius, 0)
+	s.content_margin_left = pad_h
+	s.content_margin_right = pad_h
+	s.content_margin_top = pad_v
+	s.content_margin_bottom = pad_v
 	return s
 
 
@@ -243,8 +266,8 @@ static func _build() -> Theme:
 	# Toggle tab buttons: pressed = selected (gold).
 	t.set_type_variation("TabButton", "Button")
 	_button_type(t, "TabButton", Color("2b3142"), 17, TEXT_DIM, 14, 6)
-	t.set_stylebox("pressed", "TabButton", bevel_box(BUTTON_GOLD, OUTLINE, false, 14, 6))
-	t.set_stylebox("hover_pressed", "TabButton", bevel_box(BUTTON_GOLD.lightened(0.1), OUTLINE, false, 14, 6))
+	t.set_stylebox("pressed", "TabButton", flat_button(BUTTON_GOLD, "normal", 14, 6))
+	t.set_stylebox("hover_pressed", "TabButton", flat_button(BUTTON_GOLD, "hover", 14, 6))
 	t.set_color("font_pressed_color", "TabButton", Color("2a1c00"))
 	t.set_color("font_hover_pressed_color", "TabButton", Color("2a1c00"))
 	t.set_color("font_hover_color", "TabButton", TEXT)
@@ -399,9 +422,9 @@ static func _build() -> Theme:
 	t.set_constant("separation", "HSeparator", 12)
 
 	# Color picker button keeps the bevel look.
-	t.set_stylebox("normal", "ColorPickerButton", bevel_box(Color("2b3142"), OUTLINE, false, 6, 4))
-	t.set_stylebox("hover", "ColorPickerButton", bevel_box(Color("3b4256"), Color(ACCENT, 0.9), false, 6, 4))
-	t.set_stylebox("pressed", "ColorPickerButton", bevel_box(Color("2b3142"), OUTLINE, true, 6, 4))
+	t.set_stylebox("normal", "ColorPickerButton", flat_button(Color("2b3142"), "normal", 6, 4))
+	t.set_stylebox("hover", "ColorPickerButton", flat_button(Color("2b3142"), "hover", 6, 4))
+	t.set_stylebox("pressed", "ColorPickerButton", flat_button(Color("2b3142"), "pressed", 6, 4))
 	t.set_stylebox("focus", "ColorPickerButton", _focus_box())
 	t.set_stylebox("panel", "PopupPanel", pop)
 	return t
@@ -419,12 +442,11 @@ static func _label_variation(t: Theme, name: StringName, font: Font, size: int, 
 
 
 static func _button_type(t: Theme, type: StringName, base: Color, size: int, font_color: Color, pad_h := 18, pad_v := 8) -> void:
-	t.set_stylebox("normal", type, bevel_box(base, OUTLINE, false, pad_h, pad_v))
-	t.set_stylebox("hover", type, bevel_box(base.lightened(0.14), Color(0.95, 0.92, 0.82), false, pad_h, pad_v))
-	t.set_stylebox("pressed", type, bevel_box(base.darkened(0.1), OUTLINE, true, pad_h, pad_v))
-	t.set_stylebox("hover_pressed", type, bevel_box(base, OUTLINE, true, pad_h, pad_v))
-	var grey := Color(base.get_luminance(), base.get_luminance(), base.get_luminance()).darkened(0.35)
-	t.set_stylebox("disabled", type, bevel_box(Color(grey, 0.85), Color(OUTLINE, 0.7), false, pad_h, pad_v))
+	t.set_stylebox("normal", type, flat_button(base, "normal", pad_h, pad_v))
+	t.set_stylebox("hover", type, flat_button(base, "hover", pad_h, pad_v))
+	t.set_stylebox("pressed", type, flat_button(base, "pressed", pad_h, pad_v))
+	t.set_stylebox("hover_pressed", type, flat_button(base, "pressed", pad_h, pad_v))
+	t.set_stylebox("disabled", type, flat_button(base, "disabled", pad_h, pad_v))
 	t.set_font("font", type, heavy_font())
 	t.set_font_size("font_size", type, size)
 	t.set_color("font_color", type, font_color)
@@ -434,5 +456,5 @@ static func _button_type(t: Theme, type: StringName, base: Color, size: int, fon
 	t.set_color("font_focus_color", type, font_color)
 	t.set_color("font_disabled_color", type, Color(TEXT_DIM, 0.55))
 	t.set_color("font_outline_color", type, Color(0, 0, 0, 0.55) if font_color == TEXT else Color(1, 1, 1, 0.2))
-	t.set_constant("outline_size", type, 4 if font_color == TEXT else 0)
+	t.set_constant("outline_size", type, 2 if font_color == TEXT else 0)
 	t.set_constant("h_separation", type, 8)

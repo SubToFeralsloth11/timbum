@@ -40,12 +40,15 @@ const ICONS := {
 }
 const ICON_SCALE := 3
 const NUDGE := 8.0
-const GROW := 0.025
+const GROW := 0.02
 ## Face colour per theme variation (the theme's button colours).
 const BASES := {&"PrimaryButton": UITheme.BUTTON_GREEN, &"GoldButton": UITheme.BUTTON_GOLD,
 	&"DangerButton": UITheme.BUTTON_RED}
 
 ## Lit while the sub-panel this tile opens is showing.
+## Cards, chips and icon buttons: no accent pill or chevron, and they grow from the centre.
+var compact := false
+
 var selected := false:
 	set(value):
 		selected = value
@@ -64,12 +67,12 @@ static var _icons := {}
 
 ## `accent` colours the hover bar and glow; `icon_color` should match the variation's text.
 func _init(label: String, icon_id: String, variation: StringName = &"", height := 58.0, font_size := 22,
-		accent := UITheme.ACCENT, icon_color := UITheme.TEXT) -> void:
+		accent := UITheme.ACCENT, icon_color := UITheme.TEXT, icon_scale := ICON_SCALE) -> void:
 	text = label
 	name = "Tile_" + icon_id
 	if variation != &"":
 		theme_type_variation = variation
-	icon = icon_texture(icon_id)
+	icon = icon_texture(icon_id, icon_scale)
 	alignment = HORIZONTAL_ALIGNMENT_LEFT
 	custom_minimum_size.y = height
 	_accent = accent
@@ -78,7 +81,7 @@ func _init(label: String, icon_id: String, variation: StringName = &"", height :
 	for key: String in ["icon_normal_color", "icon_hover_color", "icon_pressed_color", "icon_focus_color",
 			"icon_hover_pressed_color"]:
 		add_theme_color_override(key, icon_color)
-	round_styles(self, BASES.get(variation, UITheme.BUTTON_SLATE), int(height * 0.32))
+	round_styles(self, BASES.get(variation, UITheme.BUTTON_SLATE))
 	_badge = UIKit.badge("", &"GoldBadgePanel")
 	_badge_label = _badge.get_child(0) as Label
 	var pill := UITheme.round_box(Color("d99a12"), Color(0, 0, 0, 0.45), 2, 12, 2)
@@ -103,22 +106,26 @@ func _init(label: String, icon_id: String, variation: StringName = &"", height :
 		_animate())
 	focus_exited.connect(_animate)
 	pressed.connect(func() -> void: Sfx.play(&"ui_click"))
-	resized.connect(func() -> void: pivot_offset = Vector2(0.0, size.y * 0.5))
+	resized.connect(func() -> void: pivot_offset = size * 0.5 if compact else Vector2(0.0, size.y * 0.5))
 
 
-## Gives button `b` smooth rounded faces in colour `base` instead of the theme's pixel bevel.
-static func round_styles(b: Button, base: Color, radius: int) -> void:
-	var pad := 16
-	var normal := UITheme.round_box(Color(base, 0.94), base.darkened(0.45), 2, radius, pad, 4)
-	normal.border_width_bottom = 4
-	var hover := UITheme.round_box(base.lightened(0.12), Color(1, 1, 1, 0.75), 2, radius, pad, 6)
-	hover.border_width_bottom = 4
-	var pressed := UITheme.round_box(base.darkened(0.12), base.darkened(0.5), 2, radius, pad, 2)
-	pressed.content_margin_top = pad + 2
-	var focus := UITheme.round_box(Color(0, 0, 0, 0), Color(UITheme.ACCENT, 0.95), 3, radius + 3, pad)
-	focus.draw_center = false
-	focus.set_expand_margin_all(3)
-	var off := UITheme.round_box(Color(base.darkened(0.5), 0.8), Color(0, 0, 0, 0.4), 2, radius, pad)
+## Card layout: the icon centred above the label.
+func stack_icon() -> void:
+	compact = true
+	alignment = HORIZONTAL_ALIGNMENT_CENTER
+	icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vertical_icon_alignment = VERTICAL_ALIGNMENT_TOP
+	add_theme_constant_override("h_separation", 8)
+
+
+## Gives button `b` the theme's flat rounded-rectangle faces (UITheme.flat_button) in colour
+## `base`, with padding `pad`.
+static func round_styles(b: Button, base: Color, pad := 16) -> void:
+	var normal := UITheme.flat_button(base, "normal", pad, 6)
+	var hover := UITheme.flat_button(base, "hover", pad, 6)
+	var pressed := UITheme.flat_button(base, "pressed", pad, 6)
+	var focus := UITheme._focus_box()
+	var off := UITheme.flat_button(base, "disabled", pad, 6)
 	b.add_theme_stylebox_override("normal", normal)
 	b.add_theme_stylebox_override("hover", hover)
 	b.add_theme_stylebox_override("pressed", pressed)
@@ -129,6 +136,13 @@ static func round_styles(b: Button, base: Color, radius: int) -> void:
 
 ## Shows `value` in a gold pill on the right edge ("" hides it).
 func set_badge(value: String) -> void:
+	if compact:
+		# A bubble on the top-right corner instead, clear of the label.
+		_badge.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+		_badge.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+		_badge.grow_vertical = Control.GROW_DIRECTION_END
+		_badge.offset_top = -10
+		_badge.offset_right = 12
 	_badge.visible = not value.is_empty()
 	_badge_label.text = value
 
@@ -137,11 +151,12 @@ func badge_text() -> String:
 	return _badge_label.text if _badge.visible else ""
 
 
-static func icon_texture(icon_id: String) -> Texture2D:
-	if not _icons.has(icon_id):
+static func icon_texture(icon_id: String, scale := ICON_SCALE) -> Texture2D:
+	var key := "%s@%d" % [icon_id, scale]
+	if not _icons.has(key):
 		var rows := PackedStringArray(ICONS.get(icon_id, ICONS.play))
-		_icons[icon_id] = UITheme._pixel_icon(rows, {"#": Color.WHITE}, ICON_SCALE)
-	return _icons[icon_id]
+		_icons[key] = UITheme._pixel_icon(rows, {"#": Color.WHITE}, scale)
+	return _icons[key]
 
 
 func _animate() -> void:
@@ -164,11 +179,13 @@ func _draw() -> void:
 		return
 	# Soft glow and a rounded accent pill sliding in from the left edge.
 	if _glow == null:
-		_glow = UITheme.round_box(Color(0, 0, 0, 0), Color.WHITE, 3, int(size.y * 0.32) + 4, 0)
+		_glow = UITheme.round_box(Color(0, 0, 0, 0), Color.WHITE, 2, UITheme.BUTTON_RADIUS + 3, 0)
 		_glow.draw_center = false
 		_pill = UITheme.round_box(Color.WHITE, Color(0, 0, 0, 0), 0, 4, 0)
 	_glow.border_color = Color(_accent, 0.18 * _hot)
-	draw_style_box(_glow, Rect2(Vector2.ZERO, size).grow(4.0))
+	draw_style_box(_glow, Rect2(Vector2.ZERO, size).grow(3.0))
+	if compact:
+		return
 	_pill.bg_color = Color(_accent, _hot)
 	draw_style_box(_pill, Rect2(Vector2(-NUDGE * _hot - 2.0, size.y * 0.2), Vector2(6.0 * _hot, size.y * 0.6)))
 	# Chevron on the right, unless a badge sits there.

@@ -1,12 +1,15 @@
 extends Control
 ## Main menu root: 3D backdrop (MenuBackdrop), persistent top bar (coins, level), home screen and
 ## the sub-screens (match setup, join, shop, locker, stats, challenges, achievements, settings)
-## with tweened transitions. Home is a short column of MenuTiles (PLAY, LOCKER, SHOP, PROGRESS,
-## SETTINGS, QUIT); PLAY and PROGRESS open sub-panels beside it (vs bots / host / join / Firing
-## Range / tutorial; stats / challenges / achievements). A new profile (Profile.tutorial_offered
-## false) is offered the tutorial once, over the home screen.
+## with tweened transitions. Home keeps the 3D scene clear in the middle: logo top left; STATS,
+## CHALLENGES, ACHIEVEMENTS chips and round SETTINGS / QUIT icons top right; the player card
+## bottom left; LOCKER and SHOP cards beside a big PLAY bottom right. PLAY pops up a panel (vs
+## bots / host / join / Firing Range / tutorial). A new profile (Profile.tutorial_offered false)
+## is offered the tutorial once, over the home screen.
 
 const TRANSITION := 0.22
+## Height of the bottom-right dock (LOCKER, SHOP, PLAY) and the other compact buttons.
+const DOCK_HEIGHT := 52.0
 const SLIDE := 36.0
 
 var _screens := {}
@@ -27,14 +30,11 @@ var _xp_label: Label
 var _name_edit: LineEdit
 var _daily_button: Button
 var _play_button: MenuTile
-var _progress_button: MenuTile
 var _challenges_button: MenuTile
-## Home: the primary tiles, the sub-panels by id ("play", "progress"), the open one ("" = none),
-## the control they sit in, and the tile to focus when home shows again.
-var _primary: Array[MenuTile] = []
-var _flyouts := {}
-var _open_flyout := ""
-var _flyout_slot: Control
+## Home: every focusable home control (they leave the focus chain while the PLAY panel is open),
+## the PLAY panel, and the control to focus when home shows again.
+var _home_controls: Array[Control] = []
+var _flyout: PanelContainer
 var _home_focus: Control
 ## The first-launch tutorial offer (null once answered).
 var tutorial_offer: Control
@@ -96,7 +96,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed(&"ui_cancel") and _current != _screens["home"]:
 		get_viewport().set_input_as_handled()
 		(_current as MenuScreen).back_requested.emit()
-	elif event.is_action_pressed(&"ui_cancel") and not _open_flyout.is_empty():
+	elif event.is_action_pressed(&"ui_cancel") and _flyout.visible:
 		get_viewport().set_input_as_handled()
 		_close_flyout(true)
 
@@ -140,14 +140,14 @@ func _add_tutorial_offer() -> void:
 	text.custom_minimum_size.x = 480
 	v.add_child(text)
 	var start := UIKit.button("START TUTORIAL", &"PrimaryButton")
-	start.custom_minimum_size.y = 54
-	MenuTile.round_styles(start, UITheme.BUTTON_GREEN, 17)
+	start.custom_minimum_size.y = 50
+	MenuTile.round_styles(start, UITheme.BUTTON_GREEN)
 	start.pressed.connect(start_tutorial)
 	v.add_child(start)
 	var later := UIKit.button("NOT NOW")
 	later.pressed.connect(decline_tutorial)
 	later.custom_minimum_size.y = 46
-	MenuTile.round_styles(later, UITheme.BUTTON_SLATE, 15)
+	MenuTile.round_styles(later, UITheme.BUTTON_SLATE)
 	v.add_child(later)
 	v.add_child(UIKit.label("You can take it any time from PLAY > TUTORIAL on the main menu.", &"DimLabel", HORIZONTAL_ALIGNMENT_CENTER))
 	start.grab_focus.call_deferred()
@@ -258,23 +258,24 @@ func _add_overlays() -> void:
 	_curtain.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_curtain.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_curtain)
-	# Left-side shade keeps text readable over a bright scene.
+	# Top and bottom shades keep the logo, chips, card and dock readable; the middle stays clear.
 	var shade := TextureRect.new()
 	var g := Gradient.new()
-	g.set_color(0, Color(0.02, 0.03, 0.06, 0.82))
-	g.set_color(1, Color(0.02, 0.03, 0.06, 0.0))
-	g.add_point(0.45, Color(0.02, 0.03, 0.06, 0.45))
+	var dark := Color(0.02, 0.03, 0.06)
+	g.set_color(0, Color(dark, 0.6))
+	g.set_color(1, Color(dark, 0.7))
+	g.add_point(0.28, Color(dark, 0.0))
+	g.add_point(0.6, Color(dark, 0.0))
 	var gt := GradientTexture2D.new()
 	gt.gradient = g
-	gt.width = 256
-	gt.height = 4
-	gt.fill_to = Vector2(1, 0)
+	gt.width = 4
+	gt.height = 256
+	gt.fill_to = Vector2(0, 1)
 	shade.texture = gt
 	shade.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	shade.stretch_mode = TextureRect.STRETCH_SCALE
 	shade.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	shade.anchor_right = 0.75
 	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(shade)
 	# Radial vignette.
@@ -365,70 +366,72 @@ func _on_net_status(text: String) -> void:
 
 func _build_home() -> MenuScreen:
 	var home := MenuScreen.new()
-	var m := MarginContainer.new()
-	m.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	m.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	m.add_theme_constant_override("margin_left", 64)
-	m.add_theme_constant_override("margin_right", 40)
-	m.add_theme_constant_override("margin_top", 30)
-	m.add_theme_constant_override("margin_bottom", 30)
-	home.add_child(m)
-	var row := UIKit.hbox(24)
-	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	m.add_child(row)
 
-	var left := UIKit.vbox(10)
-	left.alignment = BoxContainer.ALIGNMENT_CENTER
-	left.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.add_child(left)
-	var title := BlockTitle.new()
-	title.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	left.add_child(title)
+	# Top left: logo and tagline.
+	var head := UIKit.vbox(0)
+	head.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	head.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
+	head.offset_left = 40
+	head.offset_top = 22
+	home.add_child(head)
+	head.add_child(BlockTitle.new())
 	var tagline := UIKit.label("BLOCKY FREE-FOR-ALL SHOOTER", &"SubheaderLabel")
-	left.add_child(tagline)
+	tagline.add_theme_font_size_override("font_size", 15)
+	tagline.add_theme_color_override("font_color", Color(UITheme.TEXT, 0.85))
+	head.add_child(tagline)
+
+	# Top right, under the coins / level bar: progress chips, settings and quit.
+	var top := UIKit.hbox(8)
+	top.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	top.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	top.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	top.offset_right = -40
+	top.offset_top = 84
+	home.add_child(top)
+	_add_chip(top, "stats", "STATS", func() -> void: go("stats"))
+	_challenges_button = _add_chip(top, "challenges", "CHALLENGES", func() -> void: go("challenges"))
+	_add_chip(top, "achievements", "ACHIEVEMENTS", func() -> void: go("achievements"))
 	var gap := Control.new()
-	gap.custom_minimum_size.y = 18
-	left.add_child(gap)
+	gap.custom_minimum_size.x = 6
+	top.add_child(gap)
+	_add_round_icon(top, "settings", "Settings", &"", func() -> void: go("settings"))
+	_add_round_icon(top, "quit", "Quit", &"DangerButton", func() -> void: get_tree().quit())
 
-	var menu_row := UIKit.hbox(22)
-	menu_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	left.add_child(menu_row)
-	var column := UIKit.vbox(10)
-	column.custom_minimum_size.x = 300
-	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	menu_row.add_child(column)
-	_flyout_slot = Control.new()
-	_flyout_slot.custom_minimum_size.x = 300
-	_flyout_slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	menu_row.add_child(_flyout_slot)
+	# Bottom left: the player card.
+	var card := _build_profile_card()
+	card.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
+	card.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	card.offset_left = 40
+	card.offset_bottom = -40
+	home.add_child(card)
 
-	_play_button = _add_tile(column, "play", "PLAY", &"PrimaryButton", func() -> void: _toggle_flyout("play"))
-	_add_tile(column, "locker", "LOCKER", &"", func() -> void: go("locker"))
-	_add_tile(column, "shop", "SHOP", &"GoldButton", func() -> void: go("shop"))
-	_progress_button = _add_tile(column, "progress", "PROGRESS", &"", func() -> void: _toggle_flyout("progress"))
-	_add_tile(column, "settings", "SETTINGS", &"", func() -> void: go("settings"))
-	_add_tile(column, "quit", "QUIT", &"DangerButton", func() -> void: get_tree().quit())
+	# Bottom right: LOCKER and SHOP cards beside a big PLAY.
+	var dock := UIKit.hbox(12)
+	dock.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	dock.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
+	dock.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	dock.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	dock.offset_right = -40
+	dock.offset_bottom = -40
+	home.add_child(dock)
+	_add_card(dock, "locker", "LOCKER", &"", func() -> void: go("locker"))
+	_add_card(dock, "shop", "SHOP", &"GoldButton", func() -> void: go("shop"))
+	_play_button = MenuTile.new("PLAY", "play", &"PrimaryButton", DOCK_HEIGHT, 24, UITheme.ACCENT, UITheme.TEXT, 3)
+	_play_button.custom_minimum_size.x = 210
+	_play_button.add_theme_constant_override("h_separation", 22)
+	MenuTile.round_styles(_play_button, UITheme.BUTTON_GREEN, 26)
+	_play_button.pressed.connect(_toggle_flyout)
+	_home_controls.append(_play_button)
+	dock.add_child(_play_button)
 
-	_add_flyout("play", "PLAY", [
+	_flyout = _build_flyout([
 		["bots", "PLAY VS BOTS", &"PrimaryButton", func() -> void: go("play")],
 		["host", "HOST GAME", &"", func() -> void: go("host")],
 		["join", "JOIN GAME", &"", func() -> void: go("join")],
 		["range", "FIRING RANGE", &"", func() -> void: Net.play_range()],
 		["tutorial", "TUTORIAL", &"", start_tutorial],
 	])
-	var progress := _add_flyout("progress", "PROGRESS", [
-		["stats", "STATS", &"", func() -> void: go("stats")],
-		["challenges", "CHALLENGES", &"", func() -> void: go("challenges")],
-		["achievements", "ACHIEVEMENTS", &"", func() -> void: go("achievements")],
-	])
-	_challenges_button = progress[1]
-
-	row.add_child(UIKit.spacer())
-	var right := UIKit.vbox(0)
-	right.alignment = BoxContainer.ALIGNMENT_END
-	right.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.add_child(right)
-	right.add_child(_build_profile_card())
+	home.add_child(_flyout)
 
 	var version := UIKit.label("v%s" % ProjectSettings.get_setting("application/config/version", "1.0"), &"SmallLabel")
 	version.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
@@ -438,109 +441,127 @@ func _build_home() -> MenuScreen:
 	return home
 
 
-## A primary home tile (big, with icon): `action` runs on press. The PLAY and PROGRESS tiles'
-## ids are also their sub-panel ids.
-func _add_tile(parent: Container, icon_id: String, text: String, variation: StringName, action: Callable) -> MenuTile:
-	var dark := variation == &"GoldButton"
-	var t := MenuTile.new(text, icon_id, variation, 60.0, 24, UITheme.ACCENT,
-		Color("2a1c00") if dark else UITheme.TEXT)
+## Home action: closes the PLAY panel first when clicked with the mouse while it is open, and
+## remembers itself as the control to refocus on return.
+func _wire_home(t: MenuTile, action: Callable) -> void:
 	t.pressed.connect(func() -> void:
-		if not _flyouts.has(icon_id):
-			# Clicked with the mouse while a sub-panel is open: close it first.
-			_close_flyout(false)
-			_home_focus = t
+		_close_flyout(false)
+		_home_focus = t
 		action.call())
-	_primary.append(t)
+	_home_controls.append(t)
+
+
+## LOCKER / SHOP: a compact button with a small icon, beside PLAY.
+func _add_card(parent: Container, icon_id: String, text: String, variation: StringName, action: Callable) -> MenuTile:
+	var t := MenuTile.new(text, icon_id, variation, DOCK_HEIGHT, 17, UITheme.ACCENT,
+		Color("2a1c00") if variation == &"GoldButton" else UITheme.TEXT, 2)
+	t.compact = true
+	t.add_theme_constant_override("h_separation", 10)
+	_wire_home(t, action)
 	parent.add_child(t)
 	return t
 
 
-## A sub-panel beside the primary column, opened by tile `id`: a header, one tile per entry
-## (`[icon, text, variation, action]`) and BACK. Returns its tiles in entry order.
-func _add_flyout(id: String, header: String, entries: Array) -> Array[MenuTile]:
-	var panel := UIKit.panel()
-	_round_panel(panel, Color(0.04, 0.05, 0.08, 0.8), Color(UITheme.ACCENT, 0.35), 20, 14)
-	panel.custom_minimum_size.x = 300
+## STATS / CHALLENGES / ACHIEVEMENTS: a slim pill with a small icon.
+func _add_chip(parent: Container, icon_id: String, text: String, action: Callable) -> MenuTile:
+	var t := MenuTile.new(text, icon_id, &"", 44.0, 14, UITheme.ACCENT, UITheme.TEXT, 2)
+	t.compact = true
+	t.add_theme_constant_override("h_separation", 8)
+	MenuTile.round_styles(t, UITheme.BUTTON_SLATE, 14)
+	_wire_home(t, action)
+	parent.add_child(t)
+	return t
+
+
+## SETTINGS / QUIT: a round icon-only button (the name shows as a tooltip).
+func _add_round_icon(parent: Container, icon_id: String, tip: String, variation: StringName, action: Callable) -> MenuTile:
+	var t := MenuTile.new("", icon_id, variation, 44.0, 14, UITheme.ACCENT, UITheme.TEXT, 2)
+	t.stack_icon()
+	t.vertical_icon_alignment = VERTICAL_ALIGNMENT_CENTER
+	t.custom_minimum_size.x = 44.0
+	t.tooltip_text = tip
+	t.name = "Icon_" + icon_id
+	t.set_meta("label", tip.to_upper())
+	MenuTile.round_styles(t, MenuTile.BASES.get(variation, UITheme.BUTTON_SLATE), 8)
+	_wire_home(t, action)
+	parent.add_child(t)
+	return t
+
+
+## The PLAY panel, popping up above the dock: one tile per entry (`[icon, text, variation,
+## action]`) and BACK.
+func _build_flyout(entries: Array) -> PanelContainer:
+	var panel := _round_panel(UIKit.panel(), Color(0.04, 0.05, 0.08, 0.86), Color(UITheme.ACCENT, 0.35), 20, 12)
+	panel.custom_minimum_size.x = 280
+	panel.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
+	panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	panel.offset_right = -40
+	panel.offset_bottom = -40 - DOCK_HEIGHT - 14
 	panel.visible = false
-	_flyout_slot.add_child(panel)
-	var v := UIKit.vbox(8)
+	var v := UIKit.vbox(6)
 	panel.add_child(v)
-	v.add_child(UIKit.label(header, &"SubheaderLabel"))
 	var tiles: Array[MenuTile] = []
 	for e: Array in entries:
-		var t := MenuTile.new(e[1], e[0], e[2], 50.0, 19)
+		var t := MenuTile.new(e[1], e[0], e[2], 44.0, 16, UITheme.ACCENT, UITheme.TEXT, 2)
 		var action: Callable = e[3]
 		t.pressed.connect(func() -> void:
 			_home_focus = t
 			action.call())
 		v.add_child(t)
 		tiles.append(t)
-	var back := MenuTile.new("BACK", "back", &"", 42.0, 16, UITheme.TEXT_DIM, UITheme.TEXT_DIM)
+	var back := MenuTile.new("BACK", "back", &"", 40.0, 14, UITheme.TEXT_DIM, UITheme.TEXT_DIM, 2)
 	back.pressed.connect(func() -> void: _close_flyout(true))
 	v.add_child(back)
 	tiles.append(back)
-	# Left on the D-pad / arrow keys also steps back out to the primary column.
+	# Left on the D-pad / arrow keys, or down from BACK, also closes it.
 	for t in tiles:
 		t.gui_input.connect(func(event: InputEvent) -> void:
-			if event.is_action_pressed(&"ui_left"):
+			if event.is_action_pressed(&"ui_left") or (t == back and event.is_action_pressed(&"ui_down")):
 				t.accept_event()
 				_close_flyout(true))
-	_flyouts[id] = panel
-	return tiles
+	return panel
 
 
-func _toggle_flyout(id: String) -> void:
-	if _open_flyout == id:
+## PLAY: opens (or closes) the PLAY panel. While it is open the other home controls stay
+## clickable but leave the focus chain and dim, so the D-pad stays inside the panel.
+func _toggle_flyout() -> void:
+	if _flyout.visible:
 		_close_flyout(true)
 		return
-	if not _open_flyout.is_empty():
-		_close_flyout(false)
-	_open_flyout = id
-	var parent: MenuTile = _flyout_parent(id)
-	parent.selected = true
-	# While a sub-panel is open the primary tiles stay clickable but leave the focus chain, so the
-	# D-pad moves within the sub-panel; Esc / B / left / BACK return.
-	for t in _primary:
-		t.focus_mode = Control.FOCUS_NONE
-		if t != parent:
-			t.modulate = Color(1, 1, 1, 0.55)
-	var panel: Control = _flyouts[id]
-	panel.visible = true
-	panel.reset_size()
-	# Beside its tile, but never past the bottom of the window.
-	var lowest := get_viewport_rect().size.y - 24.0 - _flyout_slot.global_position.y - panel.size.y
-	panel.position = Vector2(-16.0, minf(maxf(parent.position.y - 44.0, 0.0), lowest))
-	panel.modulate.a = 0.0
-	var tw := panel.create_tween().set_parallel().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	tw.tween_property(panel, "modulate:a", 1.0, TRANSITION)
-	tw.tween_property(panel, "position:x", 0.0, TRANSITION)
-	var first := _first_focusable(panel)
+	_play_button.selected = true
+	for c in _home_controls:
+		c.focus_mode = Control.FOCUS_NONE
+		if c != _play_button:
+			c.modulate = Color(1, 1, 1, 0.5)
+	_flyout.visible = true
+	_flyout.modulate.a = 0.0
+	var y := _flyout.position.y
+	_flyout.position.y = y + 16.0
+	var tw := _flyout.create_tween().set_parallel().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	tw.tween_property(_flyout, "modulate:a", 1.0, TRANSITION)
+	tw.tween_property(_flyout, "position:y", y, TRANSITION)
+	var first := _first_focusable(_flyout)
 	_home_focus = first
 	first.grab_focus.call_deferred()
 
 
-## Closes the open sub-panel; `refocus` moves the focus back to the tile that opened it.
+## Closes the PLAY panel; `refocus` moves the focus back to PLAY.
 func _close_flyout(refocus: bool) -> void:
-	if _open_flyout.is_empty():
+	if _flyout == null or not _flyout.visible:
 		return
-	var parent: MenuTile = _flyout_parent(_open_flyout)
-	(_flyouts[_open_flyout] as Control).visible = false
-	_open_flyout = ""
-	parent.selected = false
-	for t in _primary:
-		t.focus_mode = Control.FOCUS_ALL
-		t.modulate = Color.WHITE
-	_home_focus = parent
+	_flyout.visible = false
+	_play_button.selected = false
+	for c in _home_controls:
+		c.focus_mode = Control.FOCUS_ALL
+		c.modulate = Color.WHITE
+	_home_focus = _play_button
 	if refocus:
 		Sfx.play(&"ui_click")
-		parent.grab_focus()
+		_play_button.grab_focus()
 
 
-func _flyout_parent(id: String) -> MenuTile:
-	return _play_button if id == "play" else _progress_button
-
-
-## Focus for the home screen: the tile used last (inside an open sub-panel too), else PLAY.
+## Focus for the home screen: the control used last (inside the PLAY panel too), else PLAY.
 func _focus_home() -> void:
 	if _home_focus != null and _home_focus.is_visible_in_tree() and _home_focus.focus_mode == Control.FOCUS_ALL:
 		_home_focus.grab_focus()
@@ -550,13 +571,13 @@ func _focus_home() -> void:
 
 ## Gives `p` a smooth rounded panel style (radius `radius`, content padding `pad`).
 func _round_panel(p: PanelContainer, bg: Color, border: Color, radius: int, pad := 16) -> PanelContainer:
-	p.add_theme_stylebox_override("panel", UITheme.round_box(bg, border, 2, radius, pad, 8))
+	p.add_theme_stylebox_override("panel", UITheme.round_box(bg, border, 1, radius, pad))
 	return p
 
 
 func _build_profile_card() -> Control:
 	var card := _round_panel(UIKit.panel(), UITheme.PANEL, Color(1, 1, 1, 0.08), 20)
-	card.custom_minimum_size.x = 360
+	card.custom_minimum_size.x = 330
 	var v := UIKit.vbox(10)
 	card.add_child(v)
 	v.add_child(UIKit.label("PLAYER", &"SubheaderLabel"))
@@ -571,6 +592,7 @@ func _build_profile_card() -> Control:
 	name_focus.draw_center = false
 	_name_edit.add_theme_stylebox_override("focus", name_focus)
 	v.add_child(_name_edit)
+	_home_controls.append(_name_edit)
 
 	var lvl_row := UIKit.hbox(8)
 	v.add_child(lvl_row)
@@ -590,9 +612,10 @@ func _build_profile_card() -> Control:
 
 	v.add_child(HSeparator.new())
 	_daily_button = UIKit.button("", &"GoldButton", false)
-	_daily_button.custom_minimum_size.y = 50
-	MenuTile.round_styles(_daily_button, UITheme.BUTTON_GOLD, 16)
+	_daily_button.custom_minimum_size.y = 46
+	MenuTile.round_styles(_daily_button, UITheme.BUTTON_GOLD)
 	_daily_button.pressed.connect(_claim_daily)
+	_home_controls.append(_daily_button)
 	v.add_child(_daily_button)
 	return card
 
@@ -619,7 +642,6 @@ func _refresh_profile() -> void:
 	var to_claim := Profile.claimable_challenges()
 	var badge := str(to_claim) if to_claim > 0 else ""
 	_challenges_button.set_badge(badge)
-	_progress_button.set_badge(badge)
 	_refresh_daily()
 
 
