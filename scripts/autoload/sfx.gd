@@ -36,13 +36,18 @@ const NAMES: Array[StringName] = [
 	&"shot_shotgun", &"shot_sniper", &"shot_lmg", &"shot_rocket", &"explosion",
 	&"shot_suppressed", &"shot_dmr", &"slide", &"grapple_fire", &"smoke_pop", &"flashbang",
 	&"streak_reward", &"radar_sweep", &"shield_hit", &"shield_break", &"bomber_warning",
-	&"ping", &"ping_enemy", &"spray", &"jump_pad",
+	&"ping", &"ping_enemy", &"spray", &"jump_pad", &"pickup_grenade",
 	&"shot_crossbow", &"shot_drum_shotgun", &"shot_carbine", &"shot_burst_smg", &"shot_minigun",
 	&"swing_blunt", &"swing_heavy", &"swing_blade",
 ]
 
 ## Sounds with several takes; one is picked at random per play.
 const VARIANTS := {&"footstep": 4, &"bullet_impact": 3, &"knife_hit": 2, &"grenade_bounce": 2}
+
+## Sounds without a file of their own: they play another sound's takes at a fixed pitch factor.
+## `pickup_grenade` = the frag's metal clink (`grenade_bounce`) a major third higher (x1.25), so a
+## grenade pickup is told apart from the ammo-box `pickup_ammo`.
+const ALIASES := {&"pickup_grenade": {"sound": &"grenade_bounce", "pitch": 1.25}}
 
 ## Default playback gain (dB) that keeps the files at sensible relative levels. Each file was
 ## loudness-matched against the earlier synthesised sound (see sfx_pack/README.md).
@@ -59,6 +64,7 @@ const GAIN_DB := {
 	&"slide": -10.0, &"grapple_fire": -10.0, &"smoke_pop": -4.5, &"flashbang": 0.0,
 	&"streak_reward": -4.5, &"radar_sweep": -5.0, &"shield_hit": -4.5, &"shield_break": -1.5,
 	&"bomber_warning": -5.5, &"ping": -7.5, &"ping_enemy": -8.0, &"spray": -13.0, &"jump_pad": -4.5,
+	&"pickup_grenade": -6.0,
 	&"shot_crossbow": 0.0, &"shot_drum_shotgun": 0.0, &"shot_carbine": -1.0, &"shot_burst_smg": -4.0,
 	&"shot_minigun": 0.0, &"swing_blunt": -10.0, &"swing_heavy": -11.0, &"swing_blade": -8.0,
 }
@@ -158,6 +164,8 @@ func _init() -> void:
 ## Loads every take of every effect into `_streams`.
 func _load_effects() -> void:
 	for sound in NAMES:
+		if ALIASES.has(sound):
+			continue
 		var takes: Array[AudioStream] = []
 		var count := int(VARIANTS.get(sound, 1))
 		for v in count:
@@ -168,6 +176,8 @@ func _load_effects() -> void:
 			else:
 				push_warning("Sfx: missing sound file '%s'" % path)
 		_streams[sound] = takes
+	for sound: StringName in ALIASES:
+		_streams[sound] = _streams.get(ALIASES[sound].sound, [])
 
 
 ## Cancels the fanfare render. It is only waited on if it already started (it stops within one
@@ -209,6 +219,8 @@ func play(sound: StringName, pos: Variant = null, volume_db := 0.0, pitch := 1.0
 		return
 	var stream: AudioStream = takes[randi() % takes.size()]
 	var vol := volume_db + float(GAIN_DB.get(sound, 0.0))
+	if ALIASES.has(sound):
+		pitch *= float(ALIASES[sound].pitch)
 	if JITTER.has(sound):
 		pitch *= randf_range(1.0 - PITCH_JITTER, 1.0 + PITCH_JITTER)
 	if pos is Vector3:

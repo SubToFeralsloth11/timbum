@@ -1550,7 +1550,7 @@ func _s_pickup_taken(index: int, eid: int) -> void:
 				p.add_ammo_pickup()
 			"grenade":
 				p.grenades = mini(p.grenades + 1, int(Data.GRENADE.per_life))
-	var sound := &"pickup_health" if node.kind == "health" else &"pickup_ammo"
+	var sound: StringName = {"health": &"pickup_health", "grenade": &"pickup_grenade"}.get(node.kind, &"pickup_ammo")
 	if p == local_player:
 		Sfx.play(sound, null, -2.0)
 		hud.pickup_message(node.kind)

@@ -34,7 +34,9 @@ so Godot reimports the changed files.
 ## Files ↔ sound names
 
 Every name in `Sfx.NAMES` has exactly one file, `audio/sfx/<name>.wav`, except the sounds with
-several takes. Those use `audio/sfx/<name>_<take>.wav`, matching `Sfx.VARIANTS`:
+several takes and the aliases. `pickup_grenade` (in `Sfx.ALIASES`) has no file of its own: it
+plays the `grenade_bounce` takes at 1.25x pitch. The sounds with several takes use
+`audio/sfx/<name>_<take>.wav`, matching `Sfx.VARIANTS`:
 
 | Sound | Takes |
 |---|---|
