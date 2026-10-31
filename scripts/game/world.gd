@@ -127,6 +127,8 @@ var _bot_names_used := {}
 ## still swapping scenes.
 var _welcomed := false
 var _ready_retry := 1.0
+## my_id()'s last value (kept for the frames where the peer is inactive).
+var _my_id := 0
 
 
 func _ready() -> void:
@@ -248,8 +250,19 @@ func is_frozen() -> bool:
 	return _frozen_at_ms >= 0
 
 
+## This peer's id. While the peer is inactive (net_live false) the last id it had.
 func my_id() -> int:
-	return multiplayer.get_unique_id()
+	if net_live():
+		_my_id = multiplayer.get_unique_id()
+	return _my_id
+
+
+## False while the multiplayer peer is missing or closed but still assigned (a connection that
+## just dropped, or a teardown, before Net swaps in an OfflineMultiplayerPeer): get_unique_id and
+## is_server would print "multiplayer instance isn't active" errors then, so the frame skips them.
+func net_live() -> bool:
+	var peer := multiplayer.multiplayer_peer
+	return peer != null and peer.get_connection_status() == MultiplayerPeer.CONNECTION_CONNECTED
 
 
 func input_blocked() -> bool:
@@ -290,6 +303,8 @@ func tagged_name(entity_id: int) -> String:
 
 
 func _process(delta: float) -> void:
+	if not net_live():
+		return
 	if not multiplayer.is_server():
 		if not match_over and rules.clock_running():
 			time_left = maxf(0.0, time_left - delta)
@@ -325,7 +340,7 @@ func _broadcast(method: StringName, args: Array) -> void:
 # ================================================================ server: frame
 
 func _physics_process(delta: float) -> void:
-	if not multiplayer.is_server():
+	if not net_live() or not multiplayer.is_server():
 		return
 	var t := now()
 	if not match_over and rules.clock_running():
@@ -972,7 +987,7 @@ func _server_chat_system(text: String) -> void:
 
 ## Called by the local player's controller at the network send rate.
 func submit_local_state(p: Player) -> void:
-	if not multiplayer.is_server():
+	if net_live() and not multiplayer.is_server():
 		_c_state.rpc_id(1, p.global_position, p.yaw, p.pitch, p.state_flags())
 
 
