@@ -45,6 +45,8 @@ func _init() -> void:
 	_dot.material_override = _dot_mat
 	_dot.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(_dot)
+	# Hidden until the first aim() places it; otherwise it would draw at the world origin.
+	visible = false
 
 
 ## `from`: where the beam leaves the gun; the beam ends where the ray from `eye` along `dir`
