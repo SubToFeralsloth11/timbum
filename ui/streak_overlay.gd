@@ -3,15 +3,15 @@ extends CanvasLayer
 ## Killstreak HUD layer (above the Hud), owned by Streaks: a toast in the Hud's toast column for
 ## each reward this player earns (and a teammate's Radar Sweep), a rounded status card above the
 ## health card (current streak and the next reward, radar time left, an enemy radar warning, the
-## bomber-ready prompt with its key), the bomber targeting help under the crosshair, markers on
-## enemies a Radar Sweep shows, an AIRSTRIKE label with a countdown over every called strike, and
-## a warning chip when the local player stands in one. The ground warnings themselves are 3D marks
-## (Streaks). Compass pips come from Streaks.compass_pips.
+## bomber-ready prompt with its key), the bomber targeting help under the crosshair, an AIRSTRIKE
+## label with a countdown over every called strike, and a warning chip when the local player
+## stands in one. The ground warnings themselves are 3D marks (Streaks). Radar Sweep contacts only
+## show as compass pips (Streaks.compass_pips), never as markers over enemies on screen.
 
 const TOAST_LIFE := 3.5
 
 
-## Radar markers on enemies and the AIRSTRIKE labels, drawn where they are in the world.
+## The AIRSTRIKE labels, drawn where the strikes are in the world.
 class MarkerLayer extends Control:
 	var streaks: Streaks
 
@@ -24,14 +24,6 @@ class MarkerLayer extends Control:
 		if cam == null or streaks.world.match_over:
 			return
 		var font := get_theme_default_font()
-		for p: Player in streaks.radar_targets():
-			var pos := p.global_position + Vector3.UP * 2.1
-			if cam.is_position_behind(pos):
-				continue
-			var at := cam.unproject_position(pos)
-			var d := 7.0
-			draw_colored_polygon(PackedVector2Array([at + Vector2(0, -d), at + Vector2(d, 0), at + Vector2(0, d), at + Vector2(-d, 0)]), Color(Palette.color("radar"), 0.85))
-			draw_polyline(PackedVector2Array([at + Vector2(0, -d), at + Vector2(d, 0), at + Vector2(0, d), at + Vector2(-d, 0), at + Vector2(0, -d)]), Color(0, 0, 0, 0.8), 1.5)
 		var t := World.now()
 		for s: Dictionary in streaks.strikes:
 			var pos := Streaks.strike_center(s) + Vector3.UP * 3.0
