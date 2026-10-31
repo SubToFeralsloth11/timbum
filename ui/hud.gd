@@ -860,9 +860,27 @@ func _score_row(cells: Array, color: Color, highlight: bool) -> Control:
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var h := HBoxContainer.new()
 	panel.add_child(h)
-	# #, PLAYER, then the mode's three stat columns (MatchMode.score_columns).
+	# #, PLAYER, then the mode's three stat columns (MatchMode.score_columns). A PLAYER cell given
+	# as [name, suffix] trims only the name (with an ellipsis): the suffix (level, [BOT], mode tag)
+	# always shows in full.
 	var widths := [36, 300, 80, 80, 80]
 	for i in cells.size():
+		if cells[i] is Array:
+			var box := HBoxContainer.new()
+			box.custom_minimum_size.x = widths[i]
+			box.add_theme_constant_override("separation", 0)
+			box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			var n := _label(str(cells[i][0]), 16, color)
+			n.add_theme_constant_override("outline_size", 0)
+			n.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			n.clip_text = true
+			n.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+			box.add_child(n)
+			var suffix := _label(str(cells[i][1]), 16, color)
+			suffix.add_theme_constant_override("outline_size", 0)
+			box.add_child(suffix)
+			h.add_child(box)
+			continue
 		var l := _label(str(cells[i]), 16, color, i != 1)
 		l.add_theme_constant_override("outline_size", 0)
 		l.custom_minimum_size.x = widths[i]
@@ -1300,18 +1318,20 @@ func _fill_rows(container: VBoxContainer, rows: Array) -> Control:
 		if team >= 0 and team != group:
 			group = team
 			container.add_child(_group_row(world.rules.group_header(team, rows), Teams.color(team)))
-		# The team's shape before the name: the side shows without its colour too.
-		var player_name := Teams.tagged(team, "%s  Lv %d%s" % [Data.badged_name(str(r.name), int(r.get("prestige", 0))), int(r.get("level", 1)), "  [BOT]" if r.bot else ""])
+		# The team's shape before the name: the side shows without its colour too. The name is
+		# trimmed if it's too wide; level, [BOT] and the mode's tag never are.
+		var player_name := Teams.tagged(team, Data.badged_name(str(r.name), int(r.get("prestige", 0))))
+		var suffix := "  Lv %d%s" % [int(r.get("level", 1)), "  [BOT]" if r.bot else ""]
 		var tag := world.rules.row_tag(r)
 		if not tag.is_empty():
-			player_name += "  " + tag
+			suffix += "  " + tag
 		var mine := int(r.id) == me
 		var color := Color(1, 0.95, 0.8) if mine else Color.WHITE
 		if team >= 0:
 			color = Teams.color(team).lightened(0.35 if mine else 0.15)
 			if world.rules.row_dimmed(r):
 				color = color.darkened(0.45)
-		var row := _score_row([i + 1, player_name] + world.rules.row_cells(r), color, mine)
+		var row := _score_row([i + 1, [player_name, suffix]] + world.rules.row_cells(r), color, mine)
 		container.add_child(row)
 		if mine:
 			my_row = row

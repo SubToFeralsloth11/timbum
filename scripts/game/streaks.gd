@@ -12,7 +12,10 @@ extends Node
 ##     strike line previewed on the ground), fire or the key again calls it on the aim point (aim
 ##     cancels). Every peer sees a BOMBER_DELAY ground warning, then BOMBER_BLASTS explosions
 ##     walk along the line, credited to the caller with WEAPON (World.server_blast; the caller is
-##     never hurt by their own strike).
+##     never hurt by their own strike). Blasts overlap (BOMBER_SPACING < BOMBER_RADIUS), but each
+##     victim takes at most one blast's damage per strike, the strongest: a later blast only adds
+##     what it deals beyond the most an earlier blast of the same strike dealt them (the strike's
+##     `hit` Dictionary, server only), so nobody takes more than BOMBER_DAMAGE from one strike.
 ## Death clears a player's radar, shield and unused bomber; the end of the match clears all.
 ## Naming as in World: `server_*` / `_server_*` on the server, `_s_*` server -> peers, `_c_*`
 ## client -> server.
@@ -297,7 +300,7 @@ func _physics_process(_delta: float) -> void:
 		while int(s.next) < pts.size() and t >= float(s.land_at) + int(s.next) * BOMBER_INTERVAL:
 			var i := int(s.next)
 			_broadcast(&"_s_blast", [int(s.id), i, pts[i]])
-			world.server_blast(pts[i], BOMBER_RADIUS, BOMBER_DAMAGE, int(s.caller), WEAPON, 0.0)
+			world.server_blast(pts[i], BOMBER_RADIUS, BOMBER_DAMAGE, int(s.caller), WEAPON, 0.0, s.hit)
 			if world.match_over:
 				return
 
@@ -510,7 +513,7 @@ func _s_strike(id: int, caller: int, points: PackedVector3Array, land_in: float,
 		n.visible = i >= done
 		marks.append(n)
 	strikes.append({"id": id, "caller": caller, "points": points, "land_at": World.now() + land_in,
-		"next": done, "marks": marks, "mat": mat})
+		"next": done, "marks": marks, "mat": mat, "hit": {}})
 	if done == 0:
 		Sfx.play(&"bomber_warning", points[points.size() / 2], 0.0)
 		if caller == world.my_id():

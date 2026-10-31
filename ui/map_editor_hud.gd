@@ -99,6 +99,14 @@ func toggle_panel() -> void:
 		open_panel()
 
 
+## Esc in the focused NAME box closes the panel like anywhere else in it (read in _input: the
+## LineEdit would eat the key; losing focus keeps the typed name).
+func _input(event: InputEvent) -> void:
+	if _panel.visible and _name_edit.has_focus() and (event.is_action_pressed(&"ui_cancel") or event.is_action_pressed(&"pause")):
+		get_viewport().set_input_as_handled()
+		close_panel()
+
+
 ## The save found an unreadable file under the map's name: offer to replace it. NO is the
 ## default (focused); REPLACE saves over the broken file.
 func ask_replace_broken(map_name: String) -> void:

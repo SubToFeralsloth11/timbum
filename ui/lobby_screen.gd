@@ -348,12 +348,16 @@ func _on_chat(sender: String, text: String) -> void:
 		old.queue_free()
 
 
+## Esc in the focused chat box only leaves the box (read in _input: the LineEdit would eat it).
+func _input(event: InputEvent) -> void:
+	if _chat_input.has_focus() and event.is_action_pressed(&"ui_cancel"):
+		get_viewport().set_input_as_handled()
+		_chat_input.release_focus()
+		_ready_button.grab_focus()
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	if _chat_input.has_focus():
-		if event.is_action_pressed(&"ui_cancel"):
-			get_viewport().set_input_as_handled()
-			_chat_input.release_focus()
-			_ready_button.grab_focus()
 		return
 	if event.is_action_pressed(&"chat"):
 		get_viewport().set_input_as_handled()

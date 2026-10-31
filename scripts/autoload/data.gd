@@ -138,7 +138,7 @@ const WEAPONS := {
 	},
 	"dmr": {
 		"name": "Block Marksman", "slot": "primary", "price": 850,
-		"desc": "Semi-auto marksman rifle. Three to the chest or one to the head.",
+		"desc": "Semi-auto marksman rifle. Three to the chest, or one to the head within 50 m.",
 		"damage": 48.0, "head_mult": 2.1, "rpm": 280.0, "auto": false,
 		"mag": 12, "reserve": 60, "reload": 2.3, "pellets": 1,
 		"spread_hip": 3.5, "spread_ads": 0.1, "recoil": 2.6,

@@ -709,9 +709,23 @@ func _server_shot(shooter_id: int, wid: String, ends: PackedVector3Array, normal
 		if target == null or not target.alive or tid == shooter_id:
 			continue
 		var dist := shooter.global_position.distance_to(target.global_position)
-		if Data.is_melee(wid) and dist > float(w.range) + Data.MELEE_SERVER_SLACK:
+		if Data.is_melee(wid) and (dist > float(w.range) + Data.MELEE_SERVER_SLACK or not _melee_in_sight(shooter, target)):
 			continue
 		_server_damage(target, per_target[tid], shooter_id, wid, head_hit[tid], shooter.global_position)
+
+
+## Server: a melee hit lands only if the world (MASK_WORLD) leaves a clear line from the
+## attacker's eye to the victim's head or body centre, so no swing reaches through a wall
+## (players and bots alike; the ray stops short of a wall face the victim stands against).
+func _melee_in_sight(attacker: Player, target: Player) -> bool:
+	var space := get_world_3d().direct_space_state
+	var eye := attacker.head.global_position
+	var head := target.head.global_position
+	for point: Vector3 in [head, (target.global_position + head) * 0.5]:
+		var r := space.intersect_ray(PhysicsRayQueryParameters3D.create(eye, point, Player.MASK_WORLD))
+		if r.is_empty() or (r.position as Vector3).distance_to(point) < 0.3:
+			return true
+	return false
 
 
 ## Fire-rate check, mirroring the client's single `fire_cooldown`: every shot puts its weapon's
@@ -845,7 +859,11 @@ func server_explode(proj: Projectile, pos: Vector3) -> void:
 ## Server: an explosion at `pos` (a rocket, a frag, a Block Bomber blast) hurts every living player
 ## within `radius` that a wall doesn't shield, `max_dmg` falling off with distance, credited to
 ## `owner_id` with weapon `wid`. The owner takes `self_scale` of it (rockets and frags: half).
-func server_blast(pos: Vector3, radius: float, max_dmg: float, owner_id: int, wid: String, self_scale := 0.5) -> void:
+## `dealt` (optional, eid -> damage): a multi-blast attack (the Block Bomber's strike) passes the
+## same Dictionary to each of its blasts; a victim then only takes what this blast deals beyond
+## the most an earlier blast of that attack dealt them, so overlapping blasts never stack: their
+## total is the strongest single blast.
+func server_blast(pos: Vector3, radius: float, max_dmg: float, owner_id: int, wid: String, self_scale := 0.5, dealt: Variant = null) -> void:
 	if match_over:
 		return
 	var space := get_world_3d().direct_space_state
@@ -864,6 +882,12 @@ func server_blast(pos: Vector3, radius: float, max_dmg: float, owner_id: int, wi
 		var dmg := max_dmg * pow(1.0 - clampf((d - 0.5) / radius, 0.0, 1.0), 0.8)
 		if eid == owner_id:
 			dmg *= self_scale
+		if dealt is Dictionary:
+			var before := float(dealt.get(eid, 0.0))
+			if dmg <= before:
+				continue
+			dealt[eid] = dmg
+			dmg -= before
 		_server_damage(p, dmg, owner_id, wid, false, pos)
 	# Demolition: blocks go after the damage, so they still shielded players from this blast.
 	demolition.server_blast(pos, wid)

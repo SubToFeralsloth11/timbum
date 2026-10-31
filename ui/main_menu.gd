@@ -89,6 +89,19 @@ func _ready() -> void:
 		Net.last_error = ""
 
 
+## A focused text field (Join's room code and address, match setup's preset name and port, the
+## locker's preset name, the home name box) eats the Esc key before _unhandled_input sees it, so
+## Esc there is read here: the field lets go of focus and Esc does what it does anywhere else.
+func _input(event: InputEvent) -> void:
+	if not event.is_action_pressed(&"ui_cancel"):
+		return
+	var focus := get_viewport().gui_get_focus_owner()
+	if focus is LineEdit and is_ancestor_of(focus):
+		focus.release_focus()
+		get_viewport().set_input_as_handled()
+		_unhandled_input(event)
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed(&"ui_cancel") and tutorial_offer != null:
 		get_viewport().set_input_as_handled()
