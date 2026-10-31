@@ -88,13 +88,33 @@ static func build_gun(weapon_id: String, skin_id: String, charm_id := "none") ->
 ## off hand is out on the handguard), ahead of it on pistols (the off hand wraps the grip).
 static func charm_anchor(weapon_id: String) -> Vector3:
 	var info := _gun_info(weapon_id)
-	var box: AABB = (info.mesh as ArrayMesh).get_aabb()
+	var mesh := info.mesh as ArrayMesh
+	var box: AABB = mesh.get_aabb()
 	var muzzle: Vector3 = info.muzzle
 	var support: Variant = info.support
 	var two_handed := support != null and (support as Vector3).z < -0.12
 	var z := 0.07 if two_handed else muzzle.z * 0.6
 	z = clampf(z, box.position.z + 0.02, box.end.z - 0.02)
-	return Vector3(box.position.x - 0.003, muzzle.y - 0.015, z)
+	var y := muzzle.y - 0.015
+	# Hang it on the left face of the gun at that point, not on the left edge of the whole
+	# model: wide parts elsewhere (crossbow limbs, drums) would leave it floating in the air.
+	# The face is the leftmost triangle whose z and y spans cover the anchor point.
+	var x := INF
+	for s in mesh.get_surface_count():
+		var arrays := mesh.surface_get_arrays(s)
+		var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		var idx: Variant = arrays[Mesh.ARRAY_INDEX]
+		var n: int = (idx as PackedInt32Array).size() if idx != null else verts.size()
+		for t in range(0, n - 2, 3):
+			var a := verts[idx[t] if idx != null else t]
+			var b := verts[idx[t + 1] if idx != null else t + 1]
+			var c := verts[idx[t + 2] if idx != null else t + 2]
+			if minf(a.z, minf(b.z, c.z)) <= z and maxf(a.z, maxf(b.z, c.z)) >= z \
+					and minf(a.y, minf(b.y, c.y)) <= y + 0.02 and maxf(a.y, maxf(b.y, c.y)) >= y - 0.02:
+				x = minf(x, minf(a.x, minf(b.x, c.x)))
+	if x == INF:
+		x = box.position.x
+	return Vector3(x - 0.003, y, z)
 
 
 ## A charm on its own (shop icon/preview): the trinket and chain, hanging still.
