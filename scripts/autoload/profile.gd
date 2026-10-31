@@ -1094,15 +1094,17 @@ func _set_bus_volume(bus_name: String, linear: float) -> void:
 
 # ---------------------------------------------------------------- persistence
 
-## Writes profile.json.tmp, reads it back, then renames it over profile.json, so a crash or a
-## short write can't corrupt the save. A failed write (store_string false, a file error after the
-## flush, or a read-back that differs from what was written or doesn't parse) deletes the .tmp and
-## leaves profile.json as it was. Any failure is logged and reported through `save_failed`; after
-## a failed rename the new data stays in profile.json.tmp.
+## Writes profile.json.<pid>.tmp, reads it back, then renames it over profile.json, so a crash
+## or a short write can't corrupt the save. The tmp name carries this process's id, so two game
+## instances sharing one save folder never read back, rename or delete each other's tmp. A failed
+## write (store_string false, a file error after the flush, or a read-back that is shorter than
+## what was written, differs from it or doesn't parse) deletes this process's .tmp and leaves
+## profile.json as it was. Any failure is logged and reported through `save_failed`; after a
+## failed rename the new data stays in the .tmp.
 func save() -> void:
 	if not persist:
 		return
-	var tmp := SAVE_PATH + ".tmp"
+	var tmp := "%s.%d.tmp" % [SAVE_PATH, OS.get_process_id()]
 	var f := FileAccess.open(tmp, FileAccess.WRITE)
 	if f == null:
 		_save_failed("could not write %s" % tmp, FileAccess.get_open_error())
@@ -1115,24 +1117,34 @@ func save() -> void:
 	if not stored or err != OK:
 		_discard_tmp(tmp, "could not write %s" % tmp, err if err != OK else ERR_FILE_CANT_WRITE)
 		return
-	var back := FileAccess.get_file_as_string(tmp)
-	if back != text or JSON.new().parse(back) != OK:
-		_discard_tmp(tmp, "%s did not read back as written" % tmp, ERR_FILE_CORRUPT)
+	var expected := text.to_utf8_buffer()
+	var back := FileAccess.get_file_as_bytes(tmp)
+	if back.is_empty() and FileAccess.get_open_error() != OK:
+		_discard_tmp(tmp, "could not read back %s" % tmp, FileAccess.get_open_error())
+		return
+	if back.size() < expected.size():
+		_discard_tmp(tmp, "%s: wrote %d of %d bytes — disk full?" % [tmp, back.size(), expected.size()],
+			ERR_FILE_CANT_WRITE, "disk full?")
+		return
+	if back != expected or JSON.new().parse(back.get_string_from_utf8()) != OK:
+		_discard_tmp(tmp, "%s did not read back as written (%d bytes, content differs)" % [tmp, back.size()],
+			ERR_FILE_CORRUPT)
 		return
 	err = DirAccess.rename_absolute(ProjectSettings.globalize_path(tmp), ProjectSettings.globalize_path(SAVE_PATH))
 	if err != OK:
 		_save_failed("could not rename %s over %s" % [tmp, SAVE_PATH], err)
 
 
-## A bad profile.json.tmp is deleted so it can never replace the good profile.json.
-func _discard_tmp(tmp: String, what: String, err: Error) -> void:
+## A bad .tmp (always this process's own) is deleted so it can never replace the good profile.json.
+func _discard_tmp(tmp: String, what: String, err: Error, reason := "") -> void:
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(tmp))
-	_save_failed(what, err)
+	_save_failed(what, err, reason)
 
 
-func _save_failed(what: String, err: Error) -> void:
+## `reason` is the player-facing cause in the toast; empty = the error's own text.
+func _save_failed(what: String, err: Error, reason := "") -> void:
 	push_warning("Profile save failed: %s: %s" % [what, error_string(err)])
-	save_failed.emit("COULDN'T SAVE YOUR PROGRESS (%s)" % error_string(err))
+	save_failed.emit("COULDN'T SAVE YOUR PROGRESS (%s)" % (reason if not reason.is_empty() else error_string(err)))
 
 
 func _payload() -> Dictionary:
