@@ -8,6 +8,13 @@ extends FiringRange
 ## menu, no reward). Reaching the end (skipped steps included) calls Profile.finish_tutorial: the
 ## first time it pays Data.TUTORIAL_REWARD with a toast, a replay pays nothing. Everything else is
 ## the Firing Range (dummies, console, nothing counts), without its readout card.
+##
+## The grapple step puts the player on a glowing floor ring GRAPPLE_START metres in front of the
+## tower, facing a glowing target on the gold ledge's face. A hook that lands on the marked ledge
+## area (the ledge's box grown by LEDGE_HOOK_MARGIN) ends in a short auto-mantle onto the top once
+## the pull has brought the player up beside the edge (MANTLE_REACH below the top, MANTLE_SIDE
+## out from the tower); a missed attempt (the player back on the ground) puts them back on the
+## ring with a "try again" line.
 
 ## [id, title]; the prompt for each is `prompt()`.
 const STEPS: Array = [
@@ -22,6 +29,16 @@ const MOVE_DISTANCE := 4.0
 const LOOK_ANGLE := 1.6
 const SPRINT_TIME := 1.0
 const CROUCH_TIME := 0.5
+## Grapple step: start spot distance in front of the ledge face, the hook area around the ledge,
+## how far below the top / out from the tower the auto-mantle reaches, its length, and how long a
+## failed attempt stands on the ground before the player goes back to the ring.
+const GRAPPLE_START := 6.0
+const LEDGE_HOOK_MARGIN := 0.6
+const MANTLE_REACH := 2.6
+const MANTLE_SIDE := 1.6
+const MANTLE_TIME := 0.35
+const RETRY_DELAY := 0.6
+const RETRY_NOTE_TIME := 3.0
 
 ## Index into STEPS (STEPS.size() once finished).
 var step := 0
@@ -45,6 +62,15 @@ var _grappled := false
 ## Shot / throw kinds and dummy hits seen since the step began.
 var _shot_kinds := {}
 var _hit := false
+## Grapple step: the hook landed on the marked ledge, the mantle in progress ([from, edge, to],
+## seconds into it; empty when none), time on the ground after a failed try, the retry note's
+## countdown, and the ring / ledge target meshes (shown during the step only).
+var _hooked_ledge := false
+var _mantle: Array = []
+var _mantle_t := 0.0
+var _fail_t := 0.0
+var _retry_note := 0.0
+var _grapple_marks: Array[Node3D] = []
 
 
 func _init() -> void:
@@ -59,6 +85,7 @@ func _ready() -> void:
 	card.name = "TutorialCard"
 	card.setup(self)
 	add_child(card)
+	_build_grapple_marks()
 
 
 func practice_intro() -> Array:
@@ -137,7 +164,9 @@ func prompt() -> String:
 		"tactical":
 			text = "Press [%s] to throw your tactical grenade" % key("tactical")
 		"grapple":
-			text = "Aim at the gold ledge on the tower and press [%s] to grapple up onto it" % key("grapple")
+			text = "Stand on the glowing ring, put your crosshair on the glowing target on the gold ledge and press [%s]: the hook pulls you up and you climb onto it" % key("grapple")
+			if _retry_note > 0.0:
+				text = "Missed: back on the ring, try again. " + text
 	return get_up + text
 
 
@@ -209,9 +238,7 @@ func _check(p: Player, delta: float) -> bool:
 		"tactical":
 			done = _shot_kinds.has("smoke") or _shot_kinds.has("flash")
 		"grapple":
-			_grappled = _grappled or p.grappling
-			var ledge: AABB = world.map_info.marks.ledge
-			done = _grappled and on_floor and not p.grappling and ledge.has_point(p.global_position + Vector3.UP * 0.1)
+			done = _grapple_check(p, delta, on_floor)
 	_last_pos = p.global_position
 	_last_yaw = p.yaw
 	_last_pitch = p.pitch
@@ -242,8 +269,142 @@ func _begin_step(p: Player) -> void:
 		"frag", "tactical":
 			world.refill_equipment(p.id)
 		"grapple":
-			p.grapple_cooldown = 0.0
+			_reset_grapple(p)
+			_retry_note = 0.0
+	for m: Node3D in _grapple_marks:
+		m.visible = step_id() == "grapple"
 	_start_slot = p.current_slot
+
+
+# ================================================================ grapple step
+
+func _ledge() -> AABB:
+	return world.map_info.marks.ledge
+
+
+## Where the grapple step starts (the floor ring): GRAPPLE_START in front of the ledge's south face.
+func grapple_start() -> Vector3:
+	var l := _ledge()
+	return Vector3(l.get_center().x, (world.map_info.marks.line as Vector3).y, l.end.z + GRAPPLE_START)
+
+
+## The glowing target on the ledge face (the gold edge, mid-face).
+func grapple_target() -> Vector3:
+	var l := _ledge()
+	return Vector3(l.get_center().x, l.position.y, l.end.z)
+
+
+## The ledge's walkable top height (ray down onto the tower; the box bottom + 0.5 if none).
+func _ledge_top(at: Vector3) -> float:
+	var l := _ledge()
+	var q := PhysicsRayQueryParameters3D.create(Vector3(at.x, l.end.y, at.z), Vector3(at.x, l.position.y - 1.0, at.z), Player.MASK_WORLD)
+	var r := world.get_world_3d().direct_space_state.intersect_ray(q)
+	return (r.position as Vector3).y if not r.is_empty() else l.position.y + 0.5
+
+
+## Puts the player on the ring facing the target with a ready hook.
+func _reset_grapple(p: Player) -> void:
+	p.release_grapple()
+	p.grapple_cooldown = 0.0
+	p.global_position = grapple_start()
+	p.velocity = Vector3.ZERO
+	var d := grapple_target() - p.head.global_position
+	p.yaw = atan2(-d.x, -d.z)
+	p.pitch = atan2(d.y, Vector2(d.x, d.z).length())
+	_grappled = false
+	_hooked_ledge = false
+	_mantle = []
+	_fail_t = 0.0
+
+
+## The grapple step's check: a hook on the marked ledge area ends in an auto-mantle onto the top
+## once the pull has the player up beside the edge; done when they stand on the ledge. A failed try
+## (back on the ground below) returns them to the ring after RETRY_DELAY.
+func _grapple_check(p: Player, delta: float, on_floor: bool) -> bool:
+	var l := _ledge()
+	_retry_note = maxf(0.0, _retry_note - delta)
+	if p.grappling:
+		_grappled = true
+		if l.grow(LEDGE_HOOK_MARGIN).has_point(p.grapple_point):
+			_hooked_ledge = true
+	if not _mantle.is_empty():
+		_mantle_t += delta
+		var k := clampf(_mantle_t / MANTLE_TIME, 0.0, 1.0)
+		# Up the face first (first half), then in over the edge.
+		var pos: Vector3 = (_mantle[0] as Vector3).lerp(_mantle[1], minf(1.0, k * 2.0)) if k < 0.5 \
+			else (_mantle[1] as Vector3).lerp(_mantle[2], k * 2.0 - 1.0)
+		p.global_position = pos
+		p.velocity = Vector3.ZERO
+		if k >= 1.0:
+			_mantle = []
+		return false
+	var pos := p.global_position
+	var inside := Vector3(clampf(pos.x, l.position.x, l.end.x), pos.y, clampf(pos.z, l.position.z, l.end.z))
+	var side := Vector2(pos.x - inside.x, pos.z - inside.z).length()
+	if _hooked_ledge and side <= MANTLE_SIDE and not l.has_point(pos + Vector3.UP * 0.1):
+		var to := Vector3(clampf(pos.x, l.position.x + 0.8, l.end.x - 0.8), 0.0, clampf(pos.z, l.position.z + 0.8, l.end.z - 0.8))
+		var top := _ledge_top(to)
+		if pos.y >= top - MANTLE_REACH:
+			p.release_grapple()
+			to.y = top + 0.05
+			_mantle = [pos, Vector3(pos.x, top + 0.15, pos.z), to]
+			_mantle_t = 0.0
+			return false
+	if on_floor and not p.grappling and l.has_point(pos + Vector3.UP * 0.1):
+		return _grappled
+	if _grappled and on_floor and not p.grappling:
+		_fail_t += delta
+		if _fail_t >= RETRY_DELAY:
+			_reset_grapple(p)
+			_retry_note = RETRY_NOTE_TIME
+	else:
+		_fail_t = 0.0
+	return false
+
+
+## The floor ring at the start spot and the target on the ledge face (glowing, gold; hidden
+## outside the grapple step).
+func _build_grapple_marks() -> void:
+	if not world.map_info.marks.has("ledge"):
+		return
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mat.albedo_color = Color(1.0, 0.82, 0.25, 0.85)
+	mat.emission_enabled = true
+	mat.emission = Color(1.0, 0.82, 0.25)
+	# The ring on the floor.
+	var ring := MeshInstance3D.new()
+	var torus := TorusMesh.new()
+	torus.inner_radius = 0.75
+	torus.outer_radius = 0.95
+	torus.rings = 32
+	torus.ring_segments = 4
+	ring.mesh = torus
+	ring.scale = Vector3(1.0, 0.15, 1.0)
+	ring.position = grapple_start() + Vector3.UP * 0.04
+	# The target on the face: two rings (bull's-eye) standing on the face, just in front of it.
+	var target := Node3D.new()
+	target.position = grapple_target() + Vector3(0.0, 0.0, 0.03)
+	for r: Vector2 in [Vector2(0.55, 0.75), Vector2(0.12, 0.26)]:
+		var m := MeshInstance3D.new()
+		var t := TorusMesh.new()
+		t.inner_radius = r.x
+		t.outer_radius = r.y
+		t.rings = 32
+		t.ring_segments = 4
+		m.mesh = t
+		m.rotation.x = PI * 0.5
+		m.scale = Vector3(1.0, 0.1, 1.0)
+		target.add_child(m)
+	for n: Node3D in [ring, target]:
+		n.visible = false
+		world.add_child(n)
+		_grapple_marks.append(n)
+	for n: Node in [ring] + target.get_children():
+		(n as MeshInstance3D).material_override = mat
+		(n as MeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
 
 func _complete(how: String) -> void:
@@ -281,6 +442,8 @@ func skip_tutorial() -> void:
 func _finish() -> void:
 	finished = true
 	step = STEPS.size()
+	for m: Node3D in _grapple_marks:
+		m.visible = false
 	reward = Profile.finish_tutorial()
 	if reward > 0:
 		world.hud.feat_toast("TUTORIAL COMPLETE", "+%d COINS" % reward)
