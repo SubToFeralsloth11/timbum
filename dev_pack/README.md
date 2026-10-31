@@ -13,7 +13,7 @@ everywhere it appears.
 
 | Piece | Category / id | Look |
 |---|---|---|
-| **Dev Suit** | `outfits` / `dev_suit` | Matte black bodysuit. Neon jagged grin on the face (ring eye with a beating pupil, X eye, zigzag teeth) in **half-size pixels**. Neon collar, belt, cuffs, knee pads and soles, circuit traces down the outer arms and legs, a circuit on the back and a "spine" up the back of the head. **The only animated outfit in the game**: bands crawl slowly along every line, light pulses run head to toe down the traces, the eye and chest core beat like a heart, and a faint scan line rises through the body. |
+| **Dev Suit** | `outfits` / `dev_suit` | Matte black bodysuit. A subtle face drawn with smooth, thin, dimmer neon lines: two small X eyes and a wide, closed, always-on creepy smile curling up at the corners, with stitches across it. Neon collar, belt, cuffs, knee pads and soles, circuit traces down the outer arms and legs, a circuit on the back and a "spine" up the back of the head. **The only animated outfit in the game**: bands crawl slowly along every line, light pulses run head to toe down the traces, the chest core beats like a heart, and a faint scan line rises through the body. |
 | **Dev Circuit** | `skins` / `dev_circuit` | Carbon-weave black gun with neon circuit traces and pads. The whole circuit **slides slowly** along the gun while bright pulses race towards the muzzle. |
 | **Dev Halo** | `hats` / `dev_halo` | Black circlet with a neon inlay and a front node, a floating neon diamond halo and a floating pixel `</>` glyph above it. Shimmer climbs the neon. |
 | **Dev Core** | `charms` / `dev_core` | Black cube in a neon wireframe cage, with a lit pip, on a gunmetal chain. |
@@ -39,11 +39,10 @@ Previews are in `preview/`: `turntable.mp4` / `turntable.gif` (a kill flash ever
   Each shader has `instance uniform float kill_flash`. The flash sets it **per GeometryInstance3D**,
   so the materials stay shared and cached and only the killer lights up. Don't duplicate the materials.
 - Instance uniforms need Forward+ or Mobile; the project uses Forward+. The Compatibility renderer would break the flash.
-- The suit atlas is **128x128** (`SUIT_SCALE` 2 × `Models.ATLAS_SIZE`), not 64. UVs are normalised,
-  so the existing avatar meshes map it unchanged. Body texels are drawn as 2x2 blocks; the head's
-  front face uses the 16x16 `_FACE` map (the half-size pixels).
+- The face isn't in the atlas: `OUTFIT_SHADER` draws it as smooth anti-aliased lines (signed
+  distances, `face_sdf`) inside the head's front-face UV rect (`face_rect`), so it never looks pixelly.
 - Mask channels (suit): r static neon, g circuit trace, b pulse phase (0 top of head .. 1 soles),
-  a beating core (chest and pupil). Gun: r trace, g pad.
+  a beating core (chest). Gun: r trace, g pad.
 - First person: `DevPack.viewmodel_material(m)` returns the depth-squashing copy of a pack material
   (`m` unchanged if it isn't from the pack).
 
@@ -87,7 +86,7 @@ Do every step. Each one is needed.
    leave `dev: true` items out of bot picks for outfits, hats, skins and charms.
 10. **Network:** `Net` already accepts any catalog id for cosmetics (`net.gd` sanitise). Nothing to add.
 11. **Docs:** document `DevPack` in `docs/ARCHITECTURE.md` (Models section: the pack, its
-    shaders, the instance-uniform flash, and the 128 px suit atlas) and add a README changelog line.
+    shaders, the instance-uniform flash, and the shader-drawn face) and add a README changelog line.
 12. **Verify:** load the game (through `~/.agents/bin/heavy`) with a fresh profile. Check: the pack
     shows CODE ONLY and can't be bought; a wrong code fails; `lastminuteplaysonyt` (any case)
     unlocks all four; equip them and check the shop preview, the third-person avatar and the

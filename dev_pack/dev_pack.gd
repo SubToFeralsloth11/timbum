@@ -2,10 +2,10 @@ class_name DevPack
 extends RefCounted
 ## THE DEV PACK: a code-only, four-piece cosmetic set. Matte black everywhere, neon green
 ## everywhere else, and the only animated outfit in the game. Every piece shares one look:
-##   - Dev Suit     (outfit)  matte black bodysuit with a neon jagged grin (round eye, X eye) in
-##                            half-size pixels, neon seams and circuit traces; bands crawl slowly
-##                            along the lines, pulses run down the traces, the eye and chest core
-##                            beat, a faint scan line rises through the body. ANIMATED.
+##   - Dev Suit     (outfit)  matte black bodysuit with a subtle smooth-line face (two
+##                            small X eyes, a wide closed stitched smile), neon seams and circuit
+##                            traces; bands crawl slowly along the lines, pulses run down the
+##                            traces, the chest core beats, a faint scan line rises. ANIMATED.
 ##   - Dev Circuit  (skin)    carbon-black gun with neon circuit traces that slowly slide along
 ##                            the gun; pulses race to the muzzle.
 ##   - Dev Halo     (hat)     black circlet with a neon inlay, a floating neon diamond halo and a
@@ -32,7 +32,7 @@ const IDS := {"outfits": "dev_suit", "skins": "dev_circuit", "hats": "dev_halo",
 ## `dev: true` marks pack items for the shop's CODE ONLY card and the bot filter.
 const ENTRIES := {
 	"outfits": {"name": "Dev Suit", "price": -1, "pattern": "dev", "dev": true,
-		"desc": "Matte black with a neon jagged grin and neon green seams. The lines crawl, the eye and core beat. The only animated outfit. Flashes on every kill.",
+		"desc": "Matte black with X eyes, a wide stitched smile and neon green seams. The lines crawl and the core beats. The only animated outfit. Flashes on every kill.",
 		"skin": Color("07080a"), "shirt": Color("39ff14"), "pants": Color("07080a"),
 		"shoes": Color("07080a"), "accent": Color("39ff14")},
 	"skins": {"name": "Dev Circuit", "price": -1, "pattern": "dev", "dev": true,
@@ -61,6 +61,9 @@ const FLASH_TIME := 0.7
 
 ## Outfit: 64x64 atlas (Models.AVATAR_PARTS layout). mask_tex: r static neon (breathes), g circuit
 ## trace (pulses travel down it), b pulse phase (0 head top .. 1 soles), a chest core (heartbeat).
+## The face is drawn here, not in the atlas: smooth anti-aliased lines (signed distances) on the
+## head's front face (`face_rect`, its atlas UV rect), so it stays clean at any distance: two
+## small X eyes and a wide, closed, always-on smile curling up at the corners, stitched across.
 const OUTFIT_SHADER := """
 shader_type spatial;
 render_mode cull_back, depth_draw_opaque;
@@ -71,6 +74,42 @@ uniform vec4 hot : source_color;
 uniform vec4 flash_color : source_color;
 uniform float energy = 1.8;
 instance uniform float kill_flash = 0.0;
+uniform vec4 face_rect;
+
+float sd_seg(vec2 p, vec2 a, vec2 b) {
+	vec2 pa = p - a;
+	vec2 ba = b - a;
+	return length(pa - ba * clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0));
+}
+
+// The smile's centre line (face space: 0..1, y down): deepest mid-face, corners high and wide.
+float smile_y(float x) {
+	return 0.7 - 1.5 * (x - 0.5) * (x - 0.5);
+}
+
+float face_sdf(vec2 p) {
+	float d = 1e3;
+	for (int i = 0; i < 2; i++) {
+		vec2 c = vec2(i == 0 ? 0.3 : 0.7, 0.32);
+		const float S = 0.06;
+		d = min(d, sd_seg(p, c - vec2(S), c + vec2(S)));
+		d = min(d, sd_seg(p, c + vec2(-S, S), c + vec2(S, -S)));
+	}
+	float x = clamp(p.x, 0.1, 0.9);
+	float slope = -3.0 * (x - 0.5);
+	float ds = abs(p.y - smile_y(x)) / sqrt(1.0 + slope * slope);
+	if (p.x != x) {
+		ds = length(p - vec2(x, smile_y(x)));
+	}
+	d = min(d, ds);
+	for (int i = 0; i < 4; i++) {
+		float sx = 0.29 + float(i) * 0.14;
+		vec2 c = vec2(sx, smile_y(sx));
+		vec2 n = normalize(vec2(3.0 * (sx - 0.5), 1.0));
+		d = min(d, sd_seg(p, c - n * 0.045, c + n * 0.045));
+	}
+	return d;
+}
 
 void vertex() {
 #ifdef VIEWMODEL
@@ -87,7 +126,12 @@ void fragment() {
 	float beat = 0.55 + 0.45 * pow(0.5 + 0.5 * sin(t * 4.2), 6.0);
 	float wy = (INV_VIEW_MATRIX * vec4(VERTEX, 1.0)).y;
 	float scan = smoothstep(0.95, 1.0, fract(wy * 0.4 - t * 0.3)) * 0.07;
-	float lines = max(m.r, max(m.g, m.a));
+	vec2 fp = (UV - face_rect.xy) / face_rect.zw;
+	float fd = face_sdf(fp);
+	float aa = max(fwidth(fd), 1e-4);
+	float on_face = step(0.0, fp.x) * step(fp.x, 1.0) * step(0.0, fp.y) * step(fp.y, 1.0);
+	float face_line = on_face * (1.0 - smoothstep(0.014 - aa, 0.014 + aa, fd));
+	float lines = max(max(m.r, max(m.g, m.a)), face_line * 0.5);
 	// Bright bands crawl slowly along every neon line (diagonally in atlas texels, so they travel
 	// along vertical traces and round the horizontal rings alike): about 1.2 texels a second.
 	float crawl = 0.55 + 0.45 * smoothstep(0.35, 0.5, abs(fract(((UV.x + UV.y) * 64.0 - t * 1.2) / 6.0) - 0.5) * 2.0);
@@ -95,10 +139,11 @@ void fragment() {
 	g += mix(neon.rgb, hot.rgb, pulse * 0.75) * m.g * (0.2 * crawl + 1.9 * pulse);
 	g += mix(neon.rgb, hot.rgb, 0.35) * m.a * beat * 1.6;
 	g += neon.rgb * scan;
+	g += neon.rgb * face_line * 0.6 * breathe;
 	float f = clamp(kill_flash, 0.0, 1.0);
 	g = mix(g, hot.rgb * lines * 1.6, f);
 	g += flash_color.rgb * f * f * 0.3;
-	ALBEDO = texture(albedo_tex, UV).rgb;
+	ALBEDO = mix(texture(albedo_tex, UV).rgb, neon.rgb * 0.35, face_line);
 	ROUGHNESS = 0.62;
 	METALLIC = 0.1;
 	SPECULAR = 0.35;
@@ -338,31 +383,6 @@ const _HEAD_BACK := [
 	"...gg...",
 	"...gg...",
 ]
-## The grin on the head's front face, at half-size pixels (16x16 on the 8x8 face; the suit atlas
-## is drawn at SUIT_SCALE x the normal resolution). One-pixel strokes: a ring eye on the left with a
-## beating hot pupil ('C'), an X eye on the right, and a wide open grin: thin lips with sharp
-## one-pixel teeth hanging from the top lip and rising from the bottom, spikes off the corners.
-const _FACE := [
-	"................",
-	"................",
-	"..RRR....R...R..",
-	".R...R....R.R...",
-	".R.C.R.....R....",
-	".R...R....R.R...",
-	"..RRR....R...R..",
-	"................",
-	"R..............R",
-	".RRRRRRRRRRRRRR.",
-	".R.R..R..R..R.R.",
-	".R............R.",
-	"..R.R..RR..R.R..",
-	"...RRRRRRRRRR...",
-	"....R......R....",
-	"................",
-]
-## The suit atlas is this many times Models.ATLAS_SIZE. UVs are normalised, so the avatar meshes
-## map it unchanged; every normal texel is a SUIT_SCALE x SUIT_SCALE block except on the face.
-const SUIT_SCALE := 2
 ## Atlas row where each part starts on the 32-row body (head top = 0): the pulse phase.
 const _PART_ROW := {"head": 0, "torso": 8, "arm_r": 8, "arm_l": 8, "thigh_r": 20, "thigh_l": 20,
 	"shin_r": 26, "shin_l": 26}
@@ -373,7 +393,7 @@ const _PART_ROW := {"head": 0, "torso": 8, "arm_r": 8, "arm_l": 8, "thigh_r": 20
 static func outfit_material() -> ShaderMaterial:
 	if _outfit_mat != null:
 		return _outfit_mat
-	var n := Models.ATLAS_SIZE * SUIT_SCALE
+	var n := Models.ATLAS_SIZE
 	var albedo := Image.create(n, n, false, Image.FORMAT_RGBA8)
 	var mask := Image.create(n, n, false, Image.FORMAT_RGBA8)
 	albedo.fill(BLACK)
@@ -383,24 +403,21 @@ static func outfit_material() -> ShaderMaterial:
 		var dims: Vector3i = Models.AVATAR_PARTS[part][1]
 		for face in 6:
 			var r := _face_rect(origin, dims, face)
-			var is_face := part == "head" and face == 0
 			for y in r.size.y:
 				for x in r.size.x:
+					var ch := _suit_char(part, face, x, y, r.size.x, r.size.y)
 					var row: float = _PART_ROW[part] + (0 if face == 4 else (dims.y if face == 5 else y))
 					var px := r.position + Vector2i(x, y)
-					var ch := _suit_char(part, face, x, y, r.size.x, r.size.y)
-					for sy in SUIT_SCALE:
-						for sx in SUIT_SCALE:
-							if is_face:
-								ch = _FACE[y * SUIT_SCALE + sy][x * SUIT_SCALE + sx]
-							var sp := px * SUIT_SCALE + Vector2i(sx, sy)
-							albedo.set_pixel(sp.x, sp.y, _suit_albedo(ch, px))
-							mask.set_pixel(sp.x, sp.y, _suit_mask(ch, row / 32.0))
+					albedo.set_pixel(px.x, px.y, _suit_albedo(ch, px))
+					mask.set_pixel(px.x, px.y, _suit_mask(ch, row / 32.0))
+	var head: Array = Models.AVATAR_PARTS.head
+	var fr := Rect2(_face_rect(head[0], head[1], 0))
 	var sm := ShaderMaterial.new()
 	sm.shader = shader("outfit")
 	_base_params(sm)
 	sm.set_shader_parameter("albedo_tex", ImageTexture.create_from_image(albedo))
 	sm.set_shader_parameter("mask_tex", ImageTexture.create_from_image(mask))
+	sm.set_shader_parameter("face_rect", Vector4(fr.position.x / n, fr.position.y / n, fr.size.x / n, fr.size.y / n))
 	_outfit_mat = sm
 	return sm
 
@@ -420,7 +437,7 @@ static func _suit_char(part: String, face: int, x: int, y: int, w: int, h: int) 
 	var side := face == 2 or face == 3
 	match part:
 		"head":
-			# Front: the _FACE grin (painted in outfit_material). Neon ring round the crown, spine down the back.
+			# Front: plain black; OUTFIT_SHADER draws the face. Neon ring round the crown, spine down the back.
 			if face == 4 and (x == 0 or y == 0 or x == w - 1 or y == h - 1):
 				return "R"
 			if face == 1:
