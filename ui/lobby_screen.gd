@@ -172,7 +172,7 @@ func _build_vote() -> Control:
 		card.pressed.connect(func() -> void: Net.lobby_vote(i))
 		_vote_grid.add_child(card)
 		_vote_cards.append(card)
-	var keep := "the rotation's first map" if str(Net.config.map) == "rotation" else str(Data.MAPS[str(Net.config.map)].name)
+	var keep := "the rotation's first map" if str(Net.config.map) == "rotation" else MapBuilder.map_name(str(Net.config.map))
 	var note := UIKit.label("The most votes picks the first map; no votes or a tie plays %s." % keep, &"SmallLabel")
 	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(note)
@@ -217,7 +217,7 @@ func _map_card(map_id: String, vote: bool) -> Button:
 	var row := UIKit.hbox(6)
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	v.add_child(row)
-	var title := UIKit.label("RANDOM" if map_id == Net.RANDOM_MAP else str(Data.MAPS[map_id].name).to_upper(), &"ValueLabel")
+	var title := UIKit.label("RANDOM" if map_id == Net.RANDOM_MAP else MapBuilder.map_name(map_id).to_upper(), &"ValueLabel")
 	title.add_theme_font_size_override("font_size", 16)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(title)

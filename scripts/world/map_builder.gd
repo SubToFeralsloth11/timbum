@@ -8,6 +8,8 @@ extends RefCounted
 ## `static func generate(g: VoxelGrid, info: MapInfo)`, which fills the grid
 ## and appends spawns/pickups in grid space; this builder moves them to world
 ## space (the grid is centred on the origin in X/Z, y = 0 is the grid floor).
+## Custom maps (ids CustomMaps.PREFIX + name, from the Map Editor) come from CustomMaps.generate
+## and use CustomMaps.ATMOSPHERE.
 
 const GENERATORS := {
 	"village": preload("res://scripts/world/maps/village_map.gd"),
@@ -42,7 +44,7 @@ static func build(map_id: String, root: Node3D, quality: int, editable := false)
 	var source := NavigationMeshSourceGeometryData3D.new()
 	var mesher := VoxelMesher.build(grid, map_root, info.bounds.position, source, xform, Callable(), editable)
 	_add_bounds(map_root, info.bounds)
-	_add_environment(map_root, GENERATORS[info.id].ATMOSPHERE, quality)
+	add_environment(map_root, atmosphere(info.id), quality)
 	info.nav_map = _add_navigation(map_root, source, info.bounds)
 	_add_jump_pads(map_root, info)
 	if editable:
@@ -55,15 +57,17 @@ static func build(map_id: String, root: Node3D, quality: int, editable := false)
 ## Runs map `map_id`'s generator: fills `info` (id, name, kill height, world-space spawns, pickups,
 ## marks and bounds) and returns the block grid, whose cell (0,0,0) sits at `info.bounds.position`.
 static func generate(map_id: String, info: MapInfo) -> VoxelGrid:
-	if not GENERATORS.has(map_id):
-		push_error("MapBuilder: unknown map '%s', using village" % map_id)
-		map_id = "village"
-	var gen: GDScript = GENERATORS[map_id]
-	info.id = map_id
-	info.display_name = Data.MAPS[map_id].name
-	info.kill_y = gen.KILL_Y
-	var grid := VoxelGrid.new(gen.SIZE)
-	gen.generate(grid, info)
+	var grid: VoxelGrid = CustomMaps.generate(map_id, info) if CustomMaps.is_custom(map_id) else null
+	if grid == null:
+		if not GENERATORS.has(map_id):
+			push_error("MapBuilder: unknown map '%s', using village" % map_id)
+			map_id = "village"
+		var gen: GDScript = GENERATORS[map_id]
+		info.id = map_id
+		info.display_name = Data.MAPS[map_id].name
+		info.kill_y = gen.KILL_Y
+		grid = VoxelGrid.new(gen.SIZE)
+		gen.generate(grid, info)
 
 	var origin := Vector3(-grid.size.x / 2, 0, -grid.size.z / 2)
 	for i in info.spawns.size():
@@ -86,9 +90,9 @@ static func build_scenery(grid: VoxelGrid, info: MapInfo, root: Node3D, quality:
 	map_root.name = "Map"
 	root.add_child(map_root)
 	VoxelMesher.build(grid, map_root, info.bounds.position, null, Transform3D.IDENTITY, keep_chunk)
-	var atm: Dictionary = GENERATORS[info.id].ATMOSPHERE.duplicate()
+	var atm: Dictionary = MapBuilder.atmosphere(info.id).duplicate()
 	atm.merge(atmosphere, true)
-	_add_environment(map_root, atm, quality)
+	add_environment(map_root, atm, quality)
 
 
 ## One JumpPad per entry of the generator's `jump_pads` mark (MapKit.jump_pads: feet on the pad
@@ -118,16 +122,46 @@ static func _offset_mark(mark: Variant, origin: Vector3) -> Variant:
 	return mark
 
 
-## Top-down colour map of the top blocks, scaled up with nearest filtering.
+## On-screen name of a map id: its Data.MAPS name, or a custom map's own name.
+static func map_name(map_id: String) -> String:
+	if Data.MAPS.has(map_id):
+		return str(Data.MAPS[map_id].name)
+	return CustomMaps.name_of(map_id) if CustomMaps.is_custom(map_id) else map_id
+
+
+## The sky, sun and fog settings of map `map_id` (before its time of day).
+static func atmosphere(map_id: String) -> Dictionary:
+	return GENERATORS[map_id].ATMOSPHERE if GENERATORS.has(map_id) else CustomMaps.ATMOSPHERE
+
+
+## Top-down colour map of the top blocks, scaled up with nearest filtering (null for an unknown
+## map or a custom map this peer doesn't have).
 static func preview(map_id: String) -> ImageTexture:
 	if _previews.has(map_id):
 		return _previews[map_id]
-	if not GENERATORS.has(map_id):
-		push_error("MapBuilder: unknown map '%s'" % map_id)
+	var grid: VoxelGrid
+	if CustomMaps.is_custom(map_id):
+		grid = CustomMaps.generate(map_id, MapInfo.new())
+	elif GENERATORS.has(map_id):
+		var gen: GDScript = GENERATORS[map_id]
+		grid = VoxelGrid.new(gen.SIZE)
+		gen.generate(grid, MapInfo.new())
+	if grid == null:
+		if not CustomMaps.is_custom(map_id):
+			push_error("MapBuilder: unknown map '%s'" % map_id)
 		return null
-	var gen: GDScript = GENERATORS[map_id]
-	var grid := VoxelGrid.new(gen.SIZE)
-	gen.generate(grid, MapInfo.new())
+	var tex := render_preview(grid)
+	_previews[map_id] = tex
+	return tex
+
+
+## Drops a cached preview (a custom map saved again).
+static func forget_preview(map_id: String) -> void:
+	_previews.erase(map_id)
+
+
+## The preview() picture of `grid`.
+static func render_preview(grid: VoxelGrid) -> ImageTexture:
 	var s := grid.size
 	var img := Image.create(s.x, s.z, false, Image.FORMAT_RGBA8)
 	var heights := PackedInt32Array()
@@ -157,9 +191,7 @@ static func preview(map_id: String) -> ImageTexture:
 			c.a = 1.0
 			img.set_pixel(x, z, c)
 	img.resize(s.x * PREVIEW_SCALE, s.z * PREVIEW_SCALE, Image.INTERPOLATE_NEAREST)
-	var tex := ImageTexture.create_from_image(img)
-	_previews[map_id] = tex
-	return tex
+	return ImageTexture.create_from_image(img)
 
 
 ## Invisible walls around the grid so nobody can leave the play area.
@@ -193,7 +225,9 @@ static func _add_bounds(parent: Node3D, bounds: AABB) -> void:
 	parent.add_child(body)
 
 
-static func _add_environment(parent: Node3D, atm: Dictionary, quality: int) -> void:
+## Sky, WorldEnvironment and sun under `parent` from atmosphere settings `atm` (also the Map
+## Editor's, which rebuilds them when the time of day changes).
+static func add_environment(parent: Node3D, atm: Dictionary, quality: int) -> void:
 	var sky_mat := ProceduralSkyMaterial.new()
 	sky_mat.sky_top_color = atm.sky_top
 	sky_mat.sky_horizon_color = atm.sky_horizon

@@ -95,6 +95,9 @@ var _start: Button
 var _players_slider: HSlider
 var _map_group: ButtonGroup
 var _map_grid: GridContainer
+## The CUSTOM heading and cards (saved playable Map Editor maps, _refresh_custom_maps).
+var _custom_head: Label
+var _custom_grid: GridContainer
 var _difficulty_row: HBoxContainer
 ## Port and address rows, only shown for the DIRECT connection.
 var _direct_rows: Array[Control] = []
@@ -153,7 +156,7 @@ static func sanitize_choice(raw: Variant) -> Dictionary:
 	if MODE_IDS.has(mode):
 		out.mode = mode
 	var map_id := str(d.get("map", ""))
-	if map_id == ROTATION or Data.MAP_ROTATION.has(map_id):
+	if map_id == ROTATION or Data.MAP_ROTATION.has(map_id) or (CustomMaps.is_custom(map_id) and FileAccess.file_exists(CustomMaps.path_for(CustomMaps.name_of(map_id)))):
 		out.map = map_id
 	out.bots_fill = clampi(_int(d.get("bots_fill"), out.bots_fill), 2, Data.MAX_PLAYERS)
 	out.difficulty = clampi(_int(d.get("difficulty"), out.difficulty), 0, Data.DIFFICULTY_NAMES.size() - 1)
@@ -218,12 +221,22 @@ func _ready() -> void:
 	_map_desc.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	_map_desc.add_theme_font_size_override("font_size", 14)
 	map_head.add_child(_map_desc)
+	# Built-in maps, then the playable custom maps (Map Editor) under CUSTOM; they scroll once
+	# custom maps don't fit.
+	var map_scroll := UIKit.pad_friendly(ScrollContainer.new())
+	map_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	map_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	mv.add_child(map_scroll)
+	var map_list := UIKit.vbox(10)
+	map_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	map_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	map_scroll.add_child(map_list)
 	var grid := GridContainer.new()
 	grid.columns = 3
 	grid.add_theme_constant_override("h_separation", 10)
 	grid.add_theme_constant_override("v_separation", 10)
 	grid.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	mv.add_child(grid)
+	map_list.add_child(grid)
 	_map_grid = grid
 	var group := ButtonGroup.new()
 	_map_group = group
@@ -232,6 +245,14 @@ func _ready() -> void:
 		_add_map_card(grid, group, id, Data.MAPS[id].name, Data.MAPS[id].desc)
 	# Tactical's map; the only card shown in that mode.
 	_add_map_card(grid, group, Data.TACTICAL_MAP, Data.MAPS[Data.TACTICAL_MAP].name, Data.MAPS[Data.TACTICAL_MAP].desc)
+	_custom_head = UIKit.label("CUSTOM", &"SubheaderLabel")
+	map_list.add_child(_custom_head)
+	_custom_grid = GridContainer.new()
+	_custom_grid.columns = 3
+	_custom_grid.add_theme_constant_override("h_separation", 10)
+	_custom_grid.add_theme_constant_override("v_separation", 10)
+	map_list.add_child(_custom_grid)
+	_refresh_custom_maps()
 
 	# Right: presets strip, the rules that apply to the mode, START.
 	var rules_panel := UIKit.panel()
@@ -395,9 +416,35 @@ func on_shown() -> void:
 	_status.remove_theme_color_override("font_color")
 	_status.text = LINK_HINTS[_choice.link] if hosting else ""
 	_start.disabled = false
+	_refresh_custom_maps()
 	# Choices are shared with the other mode's screen, which may have changed them.
 	_show_choice()
 	_refresh_presets(_preset_pick.selected)
+
+
+## (Re)builds the CUSTOM cards from the saved playable maps (CustomMaps.playable), each with its
+## preview; hidden when there are none or in Tactical. A picked custom map that is gone falls
+## back to the rotation.
+func _refresh_custom_maps() -> void:
+	var names := CustomMaps.playable()
+	var ids: Array[String] = []
+	for n in names:
+		ids.append(CustomMaps.id_for(n))
+	var have: Array[String] = []
+	for b: Node in _custom_grid.get_children():
+		have.append(str(b.get_meta(&"map_id")))
+	if have != ids:
+		for b: Node in _custom_grid.get_children():
+			_preview_queue.erase(b.get_meta(&"preview"))
+			b.free()
+		for i in ids.size():
+			MapBuilder.forget_preview(ids[i])
+			var m := CustomMaps.load_map(names[i])
+			var g: VoxelGrid = m.grid
+			_add_map_card(_custom_grid, _map_group, ids[i], names[i], "Custom map · %d x %d · %d spawns · %s" % [g.size.x, g.size.z, m.spawns.size(), str(m.time_of_day)])
+	if CustomMaps.is_custom(_choice.map) and not ids.has(_choice.map):
+		_choice.map = ROTATION
+	_custom_head.visible = not ids.is_empty() and _choice.mode != "tactical"
 
 
 ## Sets every control to `_choice`.
@@ -429,12 +476,13 @@ func _apply_mode() -> void:
 	_rules_hint.text = MODE_HINTS[_choice.mode]
 	_pick_segment(_streak_row, 0 if _streaks_on() else 1)
 	for b in _map_group.get_buttons():
-		b.visible = (b.name == Data.TACTICAL_MAP) == tactical
+		b.visible = (b.get_meta(&"map_id") == Data.TACTICAL_MAP) == tactical
+	_custom_head.visible = _custom_grid.get_child_count() > 0 and not tactical
 	# Tactical's single card keeps a card's size instead of filling the whole column.
 	_map_grid.size_flags_vertical = Control.SIZE_SHRINK_BEGIN if tactical else Control.SIZE_EXPAND_FILL
 	if tactical:
 		for b in _map_group.get_buttons():
-			b.set_pressed_no_signal(b.name == Data.TACTICAL_MAP)
+			b.set_pressed_no_signal(b.get_meta(&"map_id") == Data.TACTICAL_MAP)
 		_map_desc.text = Data.MAPS[Data.TACTICAL_MAP].desc
 	else:
 		_select_map(_choice.map)
@@ -491,7 +539,9 @@ func _add_map_card(grid: GridContainer, group: ButtonGroup, id: String, title: S
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	card.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	card.custom_minimum_size = Vector2(150, 120)
-	card.name = id
+	# Custom map ids hold characters a node name can't, so cards are found by their meta.
+	card.name = id.validate_node_name()
+	card.set_meta(&"map_id", id)
 	card.set_meta(&"desc", desc)
 	card.pressed.connect(func() -> void: _select_map(id))
 	if id == Data.TACTICAL_MAP:
@@ -519,7 +569,9 @@ func _add_map_card(grid: GridContainer, group: ButtonGroup, id: String, title: S
 		for map_id: String in Data.MAP_ROTATION:
 			strip.add_child(_preview_rect(map_id))
 	else:
-		pic_frame.add_child(_preview_rect(id))
+		var pic := _preview_rect(id)
+		card.set_meta(&"preview", pic)
+		pic_frame.add_child(pic)
 	var name_label := UIKit.label(title.to_upper(), &"ValueLabel")
 	name_label.add_theme_font_size_override("font_size", 14)
 	name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
@@ -554,8 +606,9 @@ func _select_map(id: String) -> void:
 		_choice.map = id
 	# set_pressed_no_signal skips the ButtonGroup, so release the other cards here.
 	for b in _map_group.get_buttons():
-		b.set_pressed_no_signal(b.name == id)
-		if b.name == id:
+		var on: bool = b.get_meta(&"map_id") == id
+		b.set_pressed_no_signal(on)
+		if on:
 			_map_desc.text = b.get_meta(&"desc")
 
 
@@ -810,7 +863,7 @@ static func describe_config(cfg: Dictionary) -> Array:
 		rows.append(["MAP", str(Data.MAPS[Data.TACTICAL_MAP].name)])
 		rows.append(["PLAYERS", "%d v %d" % [Tactical.PLAYERS / 2, Tactical.PLAYERS / 2]])
 	else:
-		rows.append(["MAP", "Rotation" if cfg.map == ROTATION else str(Data.MAPS[cfg.map].name)])
+		rows.append(["MAP", "Rotation" if cfg.map == ROTATION else MapBuilder.map_name(str(cfg.map))])
 		rows.append(["PLAYERS", "%d players" % int(cfg.bots_fill)])
 	rows.append(["BOTS", "%s bots" % Data.DIFFICULTY_NAMES[int(cfg.difficulty)]])
 	match mode:

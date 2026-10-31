@@ -46,7 +46,9 @@ const GAME_ID := "timbum"
 ##     World._s_loadout, new weapon ids in shots and weapon indices).
 ## 21: snapshots in chunks of World.SNAPSHOT_CHUNK entities (several _s_snapshot RPCs per tick).
 ## 22: the Demolition mutator ("demolition" in config.mutator, Demolition._s_remove).
-const PROTOCOL_VERSION := 22
+## 23: custom maps (config.map "custom:<name>", the map hash on _rpc_load_match, the
+##     _rpc_request_map / _rpc_map_chunk download).
+const PROTOCOL_VERSION := 23
 const CONNECT_TIMEOUT := 8.0
 ## A room-code join first tries a direct (NAT punch-through) link this long, then the relay.
 const NAT_CONNECT_TIMEOUT := 6.0
@@ -62,6 +64,8 @@ const MAP_VOTE_CHOICES := 3
 const RANDOM_MAP := "random"
 ## Spectators allowed on top of Data.MAX_PLAYERS players.
 const MAX_SPECTATORS := 4
+## Bytes per _rpc_map_chunk, so each packet of a custom map download stays under the MTU.
+const MAP_CHUNK := 1000
 
 const DEFAULT_CONFIG := {
 	## A Data.MODES id: "ffa" (deathmatch), "tdm", "gungame", "koth", "infected" or "tactical"
@@ -132,6 +136,13 @@ var in_lobby := false
 var lobby := {}
 ## Server: Time.get_ticks_msec() when the lobby countdown starts the match (-1: none).
 var _lobby_start_ms := -1
+## Client: the custom map being downloaded before its match loads: {id, cfg, hash, parts (one
+## PackedByteArray or null per chunk), got}; empty when none.
+var _map_download := {}
+## Server: peer id -> the custom map hash already sent to it (one download per map and peer).
+var _map_sent := {}
+## Client: size in bytes of the last custom map downloaded (shown by checks).
+var map_bytes_received := 0
 
 
 func _ready() -> void:
@@ -355,6 +366,8 @@ func _close_peer() -> void:
 	room_code_error = ""
 	_joined_by_address = false
 	_leave_lobby()
+	_map_download = {}
+	_map_sent.clear()
 	if not room_code.is_empty():
 		room_code = ""
 		invite_changed.emit()
@@ -683,7 +696,7 @@ static func sanitize_config(cfg: Dictionary) -> Dictionary:
 	var mode := str(cfg.get("mode", out.mode))
 	out.mode = mode if Data.MODES.has(mode) else "ffa"
 	var map_id := str(cfg.get("map", out.map))
-	out.map = map_id if (map_id == "rotation" or Data.MAP_ROTATION.has(map_id) or map_id == Data.RANGE_MAP) else "rotation"
+	out.map = map_id if (map_id == "rotation" or Data.MAP_ROTATION.has(map_id) or map_id == Data.RANGE_MAP or CustomMaps.is_custom(map_id)) else "rotation"
 	out.bots_fill = clampi(int(cfg.get("bots_fill", out.bots_fill)), 1, Data.MAX_PLAYERS)
 	out.difficulty = clampi(int(cfg.get("difficulty", out.difficulty)), 0, 2)
 	# `kill_limit` is each mode's limit: kills (Deathmatch), the team score (Team Deathmatch), the
@@ -758,19 +771,41 @@ func _roll_match_variety(previous: String) -> Dictionary:
 # ---------------------------------------------------------------- server: map flow
 
 ## Server only: send every peer (including us) into a fresh match on map_id. `variety` is the
-## {mutator, time_of_day} already announced for it; empty rolls a fresh one.
+## {mutator, time_of_day} already announced for it; empty rolls a fresh one. A custom map
+## (CustomMaps) is read from its file and always plays its own time of day; clients missing it
+## download it first (_rpc_load_match).
 func load_map(map_id: String, variety := {}) -> void:
 	assert(multiplayer.is_server())
+	if CustomMaps.is_custom(map_id) and not CustomMaps.activate_file(map_id):
+		last_error = "The custom map %s is missing or can't be played; playing Village." % CustomMaps.name_of(map_id)
+		status.emit(last_error)
+		map_id = "village"
 	current_map = map_id
 	if variety.is_empty():
 		variety = _roll_match_variety(config.mutator)
 	config.mutator = variety.mutator
-	config.time_of_day = variety.time_of_day
+	config.time_of_day = _time_of_day_for(map_id, variety.time_of_day)
 	_next_match = {}
+	var map_hash := _map_hash(map_id)
 	for id: int in players:
 		if id != 1:
-			_rpc_load_match.rpc_id(id, map_id, config)
+			_rpc_load_match.rpc_id(id, map_id, config, map_hash)
 	get_tree().change_scene_to_file.call_deferred(WORLD_SCENE)
+
+
+## The time of day a match on `map_id` plays: a custom map's own, else `rolled`.
+func _time_of_day_for(map_id: String, rolled: String) -> String:
+	if not CustomMaps.is_custom(map_id):
+		return rolled
+	var map := CustomMaps.map_for(map_id)
+	return str(map.time_of_day) if not map.is_empty() else rolled
+
+
+## The hash clients check their copy of a custom map against ("" for a built-in map).
+func _map_hash(map_id: String) -> String:
+	if CustomMaps.is_custom(map_id) and not CustomMaps.active.is_empty() and CustomMaps.active.id == map_id:
+		return CustomMaps.active.hash
+	return ""
 
 
 ## Server only: decides (once per match) which map, mutator and lighting come next, so the
@@ -779,6 +814,7 @@ func plan_next_match() -> Dictionary:
 	if _next_match.is_empty():
 		var variety := _roll_match_variety(config.mutator)
 		_next_match = {"map": _pick_next_map(), "mutator": variety.mutator, "time_of_day": variety.time_of_day}
+		_next_match.time_of_day = _time_of_day_for(_next_match.map, variety.time_of_day)
 	return _next_match
 
 
@@ -839,15 +875,72 @@ func _apply_info(id: int, info: Dictionary) -> void:
 	players_changed.emit()
 
 
+## `map_hash`: a custom map's CustomMaps.active hash. A client that has it (in memory or in
+## CustomMaps.CACHE_DIR) loads at once; otherwise it asks the server for the bytes first.
 @rpc("authority", "call_remote", "reliable")
-func _rpc_load_match(map_id: String, cfg: Dictionary) -> void:
-	if not Data.MAPS.has(map_id):
+func _rpc_load_match(map_id: String, cfg: Dictionary, map_hash: String) -> void:
+	if CustomMaps.is_custom(map_id):
+		if not CustomMaps.activate_cached(map_id, map_hash):
+			_map_download = {"id": map_id, "cfg": cfg, "hash": map_hash, "parts": [], "got": 0}
+			status.emit("Downloading the map %s..." % CustomMaps.name_of(map_id))
+			_rpc_request_map.rpc_id(1, map_hash)
+			return
+	elif not Data.MAPS.has(map_id):
 		return
+	_enter_match(map_id, cfg)
+
+
+func _enter_match(map_id: String, cfg: Dictionary) -> void:
+	_map_download = {}
 	_leave_lobby()
 	current_map = map_id
 	config = sanitize_config(cfg)
-	status.emit("Loading %s..." % Data.MAPS[map_id].name)
+	status.emit("Loading %s..." % MapBuilder.map_name(map_id))
 	get_tree().change_scene_to_file.call_deferred(WORLD_SCENE)
+
+
+## Server: a client asks for the custom map it is about to play: its deflated file
+## (CustomMaps.active.payload) goes out in MAP_CHUNK pieces, once per peer and map.
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_request_map(map_hash: String) -> void:
+	if not multiplayer.is_server() or CustomMaps.active.is_empty() or CustomMaps.active.hash != map_hash:
+		return
+	var id := multiplayer.get_remote_sender_id()
+	if not players.has(id) or _map_sent.get(id, "") == map_hash:
+		return
+	_map_sent[id] = map_hash
+	var payload: PackedByteArray = CustomMaps.active.payload
+	var count := ceili(payload.size() / float(MAP_CHUNK))
+	for i in count:
+		_rpc_map_chunk.rpc_id(id, map_hash, i, count, payload.slice(i * MAP_CHUNK, (i + 1) * MAP_CHUNK))
+
+
+## Client: one piece of the custom map being downloaded. With the last one in, the map is
+## checked against its hash, cached and played.
+@rpc("authority", "call_remote", "reliable")
+func _rpc_map_chunk(map_hash: String, index: int, count: int, bytes: PackedByteArray) -> void:
+	var d := _map_download
+	if d.is_empty() or d.hash != map_hash or count <= 0 or count > CustomMaps.MAX_PAYLOAD / MAP_CHUNK + 1 \
+			or index < 0 or index >= count or bytes.size() > MAP_CHUNK:
+		return
+	var parts: Array = d.parts
+	if parts.size() != count:
+		parts.resize(count)
+		d.got = 0
+	if parts[index] == null:
+		parts[index] = bytes
+		d.got += 1
+	if d.got < count:
+		return
+	var payload := PackedByteArray()
+	for p: PackedByteArray in parts:
+		payload.append_array(p)
+	_map_download = {}
+	map_bytes_received = payload.size()
+	if not CustomMaps.activate_payload(d.id, payload, map_hash):
+		_rpc_kicked("The host's map %s didn't arrive intact." % CustomMaps.name_of(d.id))
+		return
+	_enter_match(d.id, d.cfg)
 
 
 # ---------------------------------------------------------------- registration
@@ -888,7 +981,7 @@ func _rpc_register(info: Dictionary, version: int) -> void:
 		_server_lobby_said("", "%s joined the lobby" % clean.name)
 		_server_lobby_update()
 		return
-	_rpc_load_match.rpc_id(id, current_map, config)
+	_rpc_load_match.rpc_id(id, current_map, config, _map_hash(current_map))
 
 
 ## Accepts only known ids and a clean name from untrusted peers.
@@ -985,6 +1078,7 @@ func _on_peer_disconnected(id: int) -> void:
 		return
 	var who: String = str(players[id].name) if players.has(id) else ""
 	if players.erase(id):
+		_map_sent.erase(id)
 		_rpc_sync_players.rpc(players)
 		players_changed.emit()
 		if in_lobby:

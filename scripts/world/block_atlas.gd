@@ -204,6 +204,7 @@ static var _top_colors := PackedColorArray()
 static var _opaque_material: ShaderMaterial
 static var _glass_material: ShaderMaterial
 static var _detail := 1.0
+static var _icons := {}
 
 
 ## Tile layer for `block`'s face: 0 top, 1 side, 2 bottom.
@@ -229,6 +230,24 @@ static func top_color(block: int) -> Color:
 static func texture() -> Texture2DArray:
 	_ensure()
 	return _texture
+
+
+## A block's side tile (top tile for flat blocks without one) as a UI icon, `scale` x 16 px with
+## nearest filtering (the Map Editor's palette). Painted like the atlas tile, cached.
+static func icon(block: int, scale := 3) -> ImageTexture:
+	var key := block * 16 + scale
+	if _icons.has(key):
+		return _icons[key]
+	var faces: Array = _FACES[block]
+	var n: String = faces[1] if faces[1] != "" else faces[0]
+	var img := Image.create(TILE, TILE, false, Image.FORMAT_RGBA8)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash(n)
+	_paint(n, img, rng)
+	img.resize(TILE * scale, TILE * scale, Image.INTERPOLATE_NEAREST)
+	var tex := ImageTexture.create_from_image(img)
+	_icons[key] = tex
+	return tex
 
 
 static func material(transparent: bool) -> ShaderMaterial:

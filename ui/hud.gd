@@ -777,7 +777,7 @@ func _build_scoreboard() -> void:
 	_scoreboard.add_child(v)
 	var mut: Dictionary = Data.MUTATORS[str(Net.config.mutator)]
 	var mode: Dictionary = Data.MODES.get(str(Net.config.mode), Data.MODES.ffa)
-	var title := _label("%s  ·  %s  ·  %s  ·  %s" % [str(mode.name).to_upper(), Data.MAPS[Net.current_map].name.to_upper(),
+	var title := _label("%s  ·  %s  ·  %s  ·  %s" % [str(mode.name).to_upper(), MapBuilder.map_name(Net.current_map).to_upper(),
 		str(mut.name).to_upper(), str(Net.config.time_of_day).to_upper()], 18, Color(1, 0.85, 0.4), true)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(title)
@@ -1319,7 +1319,7 @@ func _show_match_intro() -> void:
 	box.add_theme_constant_override("separation", 2)
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(box)
-	var map_label := _label(Data.MAPS[Net.current_map].name.to_upper() if practice.is_empty() else str(practice[0]), 30, Color(1, 0.85, 0.35), true)
+	var map_label := _label(MapBuilder.map_name(Net.current_map).to_upper() if practice.is_empty() else str(practice[0]), 30, Color(1, 0.85, 0.35), true)
 	map_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(map_label)
 	if not practice.is_empty():
@@ -1696,7 +1696,7 @@ func _fill_next(next: Dictionary) -> void:
 		_results_next_desc.text = ""
 		return
 	var mut: Dictionary = Data.MUTATORS.get(str(next.mutator), Data.MUTATORS.none)
-	_results_next.text = "%s  ·  %s  ·  %s" % [str(Data.MAPS[next.map].name).to_upper(),
+	_results_next.text = "%s  ·  %s  ·  %s" % [MapBuilder.map_name(str(next.map)).to_upper(),
 		str(mut.name).to_upper(), str(next.time_of_day).to_upper()]
 	_results_next_desc.text = str(mut.desc)
 
@@ -1740,7 +1740,7 @@ func set_map_votes(counts: Array) -> void:
 		if not b.has_meta(&"map"):
 			continue
 		var n := int(counts[i]) if i < counts.size() else 0
-		b.text = "%s  ·  %d" % [str(Data.MAPS[b.get_meta(&"map")].name).to_upper(), n]
+		b.text = "%s  ·  %d" % [MapBuilder.map_name(str(b.get_meta(&"map"))).to_upper(), n]
 
 
 ## The results screen's next-map vote (hidden when there is no next match, e.g. Tactical).
@@ -1757,7 +1757,7 @@ func _fill_map_vote(next: Dictionary) -> void:
 		else:
 			b.remove_meta(&"map")
 	if not options.is_empty():
-		_map_vote_hint.text = "VOTE THE MAP: most votes wins, a tie keeps %s" % str(Data.MAPS[str(options[0])].name)
+		_map_vote_hint.text = "VOTE THE MAP: most votes wins, a tie keeps %s" % MapBuilder.map_name(str(options[0]))
 	# Counts may have arrived while the winner's emote played, before this screen opened.
 	set_map_votes(_map_counts)
 

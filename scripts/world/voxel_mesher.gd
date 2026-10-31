@@ -73,6 +73,11 @@ var faces := {}
 var part_faces := {}
 var part_shapes := {}
 var _grid: VoxelGrid
+## Editable builds: apply_chunk also creates a chunk that had no node (the Map Editor, which adds
+## blocks to empty chunks); Demolition only removes blocks and leaves it off.
+var grow_chunks := false
+var _parent: Node3D
+var _origin := Vector3.ZERO
 
 
 ## Builds every chunk of `g` under `parent`, with grid cell (0,0,0) at
@@ -116,6 +121,8 @@ static func build(g: VoxelGrid, parent: Node3D, origin: Vector3, nav_source: Nav
 			m.part_shapes[key] = shapes
 	if editable:
 		m._grid = g
+		m._parent = parent
+		m._origin = origin
 	return m
 
 
@@ -154,16 +161,25 @@ static func _arrays_of(s: Surface) -> Array:
 ## the padded copy, and adds to `dirty` (as keys) every chunk whose mesh that changes: the cells'
 ## own chunks and, for cells on a chunk border, the neighbour whose faces and AO they touch.
 func clear_cells(cells: PackedInt32Array, dirty: Dictionary) -> void:
+	var air := PackedByteArray()
+	air.resize(cells.size())
+	set_cells(cells, air, dirty)
+
+
+## Editable builds: like clear_cells, but cell `cells[k]` becomes a full cube of block `values[k]`
+## (AIR removes it).
+func set_cells(cells: PackedInt32Array, values: PackedByteArray, dirty: Dictionary) -> void:
 	var sx := _grid.size.x
 	var sxz := sx * _grid.size.z
-	for i in cells:
+	for k in cells.size():
+		var i := cells[k]
 		var x := i % sx
 		var z := (i / sx) % _grid.size.z
 		var y := i / sxz
-		_grid.blocks[i] = BlockAtlas.AIR
+		_grid.blocks[i] = values[k]
 		_grid.shapes[i] = VoxelGrid.CUBE
 		var p := (y + 1) * _pxz + (z + 1) * _px + x + 1
-		_pb[p] = 0
+		_pb[p] = values[k]
 		_ps[p] = 0
 		for dz in range(-1, 2):
 			for dx in range(-1, 2):
@@ -206,13 +222,27 @@ func mesh_chunks(keys: Array) -> Dictionary:
 
 ## Editable builds, main thread: swaps in chunk `key`'s new mesh from mesh_chunks' `data` and
 ## rebuilds the collision parts whose triangles changed (a chunk left with no faces is freed).
-## Returns how many parts it rebuilt. Chunks that never had a node stay empty: removing blocks
-## only takes faces away from, or exposes faces inside, built chunks.
+## Returns how many parts it rebuilt. Chunks that never had a node stay empty unless
+## `grow_chunks` is set: removing blocks only takes faces away from, or exposes faces inside,
+## built chunks.
 func apply_chunk(key: Vector2i, data: Array) -> int:
 	var mi: MeshInstance3D = chunks.get(key)
-	if mi == null:
-		return 0
 	var coll: PackedVector3Array = data[2]
+	if mi == null:
+		if not grow_chunks or coll.is_empty():
+			return 0
+		mi = MeshInstance3D.new()
+		mi.name = "Chunk_%d_%d" % [key.x, key.y]
+		mi.position = _origin + Vector3(key.x * CHUNK, 0, key.y * CHUNK)
+		_parent.add_child(mi)
+		chunks[key] = mi
+		var empty_parts := []
+		var no_shapes := []
+		for k in (data[3] as PackedInt32Array).size() - 1:
+			empty_parts.append(PackedVector3Array())
+			no_shapes.append(null)
+		part_faces[key] = empty_parts
+		part_shapes[key] = no_shapes
 	if coll.is_empty():
 		chunks.erase(key)
 		faces.erase(key)

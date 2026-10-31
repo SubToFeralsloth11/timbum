@@ -19,6 +19,8 @@ const RADIUS := 4.0
 const HEIGHT_BELOW := 1.0
 const HEIGHT_ABOVE := 3.5
 const MIN_SPACING := 10.0
+## Fewer pickup spots than this: spawns become zone spots too (zone_spots).
+const MIN_SPOTS := 3
 const MOVE_INTERVAL := 60.0
 const WARNING := 10.0
 
@@ -71,13 +73,22 @@ func _ready() -> void:
 
 
 ## The map's zone spots: its pickup spots (not Tactical's weapon spots) in map order, skipping
-## any closer than MIN_SPACING to one already taken.
+## any closer than MIN_SPACING to one already taken. A map with fewer than MIN_SPOTS such spots
+## (a custom map with few pickups) adds its spawns the same way.
 static func zone_spots(info: MapInfo) -> Array[Vector3]:
 	var out: Array[Vector3] = []
+	var candidates: Array[Vector3] = []
 	for pick: Dictionary in info.pickups:
-		if str(pick.kind) == "weapon":
-			continue
-		var pos: Vector3 = pick.pos
+		if str(pick.kind) != "weapon":
+			candidates.append(pick.pos)
+	_add_spaced(out, candidates)
+	if out.size() < MIN_SPOTS:
+		_add_spaced(out, info.spawns)
+	return out
+
+
+static func _add_spaced(out: Array[Vector3], candidates: Array[Vector3]) -> void:
+	for pos in candidates:
 		var near := false
 		for s: Vector3 in out:
 			if s.distance_to(pos) < MIN_SPACING:
@@ -85,7 +96,6 @@ static func zone_spots(info: MapInfo) -> Array[Vector3]:
 				break
 		if not near:
 			out.append(pos)
-	return out
 
 
 func zone_pos() -> Vector3:

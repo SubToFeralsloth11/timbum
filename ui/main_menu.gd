@@ -431,6 +431,7 @@ func _build_home() -> MenuScreen:
 		["host", "HOST GAME", &"", func() -> void: go("host")],
 		["join", "JOIN GAME", &"", func() -> void: go("join")],
 		["range", "FIRING RANGE", &"", func() -> void: Net.play_range()],
+		["editor", "MAP EDITOR", &"", func() -> void: get_tree().change_scene_to_file(MapEditor.SCENE)],
 		["tutorial", "TUTORIAL", &"", start_tutorial],
 	])
 	home.add_child(_flyout)
