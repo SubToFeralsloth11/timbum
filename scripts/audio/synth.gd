@@ -1,6 +1,6 @@
 class_name Synth
 extends RefCounted
-## Minimal offline DSP toolkit used to synthesise every sound in the game.
+## Minimal offline DSP toolkit used by Chiptune to synthesise the results fanfare.
 ## Buffers are mono PackedFloat32Array at RATE Hz; helpers mix into them in place.
 ## Thread-safe: no shared state, so it may run on WorkerThreadPool tasks.
 
@@ -103,59 +103,6 @@ static func noise(b: PackedFloat32Array, rng: RandomNumberGenerator, start: floa
 		b[i0 + j] += v * g * amp
 		env *= k
 		fc *= ratio
-
-
-## A tiny metallic click: a band-limited noise tick plus a high sine ping.
-static func click(b: PackedFloat32Array, rng: RandomNumberGenerator, start: float, amp: float, ping_hz := 3200.0) -> void:
-	noise(b, rng, start, 0.012, amp * 2.2, 9000.0, 5000.0, 1800.0, 0.0003, 0.0025)
-	tone(b, start, 0.04, ping_hz, ping_hz * 0.97, amp * 0.35, Wave.SINE, 0.0005, 0.007)
-
-
-## Bell-like strike: a sine fundamental plus inharmonic partials.
-static func bell(b: PackedFloat32Array, start: float, dur: float, freq: float, amp: float, decay: float) -> void:
-	tone(b, start, dur, freq, freq, amp, Wave.SINE, 0.001, decay)
-	tone(b, start, dur, freq * 2.76, freq * 2.76, amp * 0.35, Wave.SINE, 0.001, decay * 0.45)
-	tone(b, start, dur, freq * 5.4, freq * 5.4, amp * 0.12, Wave.SINE, 0.001, decay * 0.2)
-
-
-## In-place two-pole (cascaded one-pole) low-pass.
-static func lowpass(b: PackedFloat32Array, cutoff: float) -> void:
-	var a := 1.0 - exp(-TAU * cutoff * INV_RATE)
-	var s1 := 0.0
-	var s2 := 0.0
-	for i in b.size():
-		s1 += a * (b[i] - s1)
-		s2 += a * (s1 - s2)
-		b[i] = s2
-
-
-## In-place feedback delay with a darkening low-pass in the loop: cheap outdoor slap/tail.
-static func echo(b: PackedFloat32Array, delay: float, feedback: float, mix: float, damp_hz := 2500.0) -> void:
-	var d := int(delay * RATE)
-	var n := b.size()
-	if d <= 0 or d >= n:
-		return
-	var line := PackedFloat32Array()
-	line.resize(d)
-	line.fill(0.0)
-	var a := 1.0 - exp(-TAU * damp_hz * INV_RATE)
-	var s := 0.0
-	var p := 0
-	for i in n:
-		var out := line[p]
-		s += a * (out - s)
-		line[p] = b[i] + s * feedback
-		b[i] += s * mix
-		p += 1
-		if p == d:
-			p = 0
-
-
-## In-place tanh saturation, normalised so a full-scale input stays full scale.
-static func drive(b: PackedFloat32Array, amount: float) -> void:
-	var norm := 1.0 / tanh(amount)
-	for i in b.size():
-		b[i] = tanh(b[i] * amount) * norm
 
 
 ## Removes DC, trims trailing silence, fades both ends, normalises the peak to `peak_db`

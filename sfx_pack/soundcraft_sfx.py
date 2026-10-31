@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Builds every Timbum sound effect in SoundCraft and bounces it into sfx_pack/sounds/.
+"""Builds every Timbum sound effect in SoundCraft and bounces it into audio/sfx/.
 
 Each sound is its own SoundCraft session: noise layers from the Signal Generator (shaped with clip
 fades, EQ and automation), Subtractive Synth and Drum Synth instrument tracks playing MIDI, and a
-bus of SoundCraft's built-in effects. The session is bounced to `sfx_pack/sounds/<name>.wav`
+bus of SoundCraft's built-in effects. The session is bounced to `audio/sfx/<name>.wav`
 (`<name>_<take>.wav` for sounds with several takes) and saved to `build/sfx_sessions/` so it can
 be opened and tweaked in the app.
 
@@ -25,7 +25,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT_DIR = ROOT / "sfx_pack" / "sounds"
+OUT_DIR = ROOT / "audio" / "sfx"
 SESSION_DIR = ROOT / "build" / "sfx_sessions"
 TICKS_PER_SECOND = 1920  # 960 ticks per quarter note at the session's default 120 BPM
 

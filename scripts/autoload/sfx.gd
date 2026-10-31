@@ -1,9 +1,9 @@
 extends Node
-## Audio: synthesised sound effects (pooled flat + positional voices) and music with
-## crossfades. The menu, shop and match music are songs (`MUSIC_FILES`, MP3s that loop); the
-## short results fanfare is a procedural chiptune. All synthesis runs on WorkerThreadPool tasks
-## (AudioJob) whose results are polled in _process; a sound requested before its worker result
-## arrives is rendered on the spot (a few ms).
+## Audio: sound effects from WAV files (pooled flat + positional voices) and music with
+## crossfades. Every effect take (`audio/sfx/<name>.wav`, or `<name>_<take>.wav` for the sounds
+## in VARIANTS) is loaded when the autoload starts. The menu, shop and match music are songs
+## (`MUSIC_FILES`, MP3s that loop); the short results fanfare is a procedural chiptune rendered on
+## a WorkerThreadPool task (AudioJob) whose result is polled in _process.
 ## Headless runs (dedicated servers, tests) skip all audio work: every call is a no-op.
 
 const FLAT_VOICES := 12
@@ -24,11 +24,77 @@ const MUSIC_FILES := {
 	&"shop": {"first": SHOP_SONG, "playlist": [MENU_SONG, SHOP_SONG] + MATCH_SONGS},
 	&"match": {"first": "", "playlist": MATCH_SONGS},
 }
+const SFX_DIR := "res://audio/sfx/"
+
+## Every sound name in the Sfx contract (cheap UI sounds first).
+const NAMES: Array[StringName] = [
+	&"ui_hover", &"ui_click", &"ui_buy", &"ui_error", &"hit_marker", &"headshot", &"kill_confirm",
+	&"countdown", &"coins", &"level_up", &"match_start", &"match_end", &"spawn",
+	&"footstep", &"jump", &"land", &"hurt", &"death", &"weapon_switch", &"reload", &"dry_fire",
+	&"knife_swing", &"knife_hit", &"pickup_health", &"pickup_ammo", &"grenade_throw", &"grenade_bounce",
+	&"bullet_impact", &"whizz", &"shot_pistol", &"shot_revolver", &"shot_smg", &"shot_rifle",
+	&"shot_shotgun", &"shot_sniper", &"shot_lmg", &"shot_rocket", &"explosion",
+	&"shot_suppressed", &"shot_dmr", &"slide", &"grapple_fire", &"smoke_pop", &"flashbang",
+	&"streak_reward", &"radar_sweep", &"shield_hit", &"shield_break", &"bomber_warning",
+	&"ping", &"ping_enemy", &"spray", &"jump_pad",
+	&"shot_crossbow", &"shot_drum_shotgun", &"shot_carbine", &"shot_burst_smg", &"shot_minigun",
+	&"swing_blunt", &"swing_heavy", &"swing_blade",
+]
+
+## Sounds with several takes; one is picked at random per play.
+const VARIANTS := {&"footstep": 4, &"bullet_impact": 3, &"knife_hit": 2, &"grenade_bounce": 2}
+
+## Default playback gain (dB) that keeps the files at sensible relative levels. Each file was
+## loudness-matched against the earlier synthesised sound (see sfx_pack/README.md).
+const GAIN_DB := {
+	&"ui_hover": -14.0, &"ui_click": -10.0, &"ui_buy": -3.0, &"ui_error": -8.0, &"hit_marker": -9.0,
+	&"headshot": -4.0, &"kill_confirm": -3.0, &"countdown": -8.5, &"coins": -4.0, &"level_up": -8.0,
+	&"match_start": -6.0, &"match_end": -6.5, &"spawn": -8.0, &"footstep": -11.5, &"jump": -11.5,
+	&"land": -6.5, &"hurt": -4.0, &"death": -5.0, &"weapon_switch": -15.0, &"reload": -8.5,
+	&"dry_fire": -10.0, &"knife_swing": -9.0, &"knife_hit": -1.0, &"pickup_health": -5.5,
+	&"pickup_ammo": -7.0, &"grenade_throw": -12.5, &"grenade_bounce": -8.0, &"bullet_impact": -8.5,
+	&"whizz": -5.5, &"shot_pistol": -1.5, &"shot_revolver": 0.0, &"shot_smg": -4.5,
+	&"shot_rifle": -1.5, &"shot_shotgun": -0.5, &"shot_sniper": 0.0, &"shot_lmg": 0.0,
+	&"shot_rocket": -5.0, &"explosion": 0.0, &"shot_suppressed": -4.5, &"shot_dmr": 0.0,
+	&"slide": -10.0, &"grapple_fire": -10.0, &"smoke_pop": -4.5, &"flashbang": 0.0,
+	&"streak_reward": -4.5, &"radar_sweep": -5.0, &"shield_hit": -4.5, &"shield_break": -1.5,
+	&"bomber_warning": -5.5, &"ping": -7.5, &"ping_enemy": -8.0, &"spray": -13.0, &"jump_pad": -4.5,
+	&"shot_crossbow": 0.0, &"shot_drum_shotgun": 0.0, &"shot_carbine": -1.0, &"shot_burst_smg": -4.0,
+	&"shot_minigun": 0.0, &"swing_blunt": -10.0, &"swing_heavy": -11.0, &"swing_blade": -8.0,
+}
+
+## Reference distance (m) for positional playback: loud sounds carry across a ~60 m map,
+## small ones fade within a few metres.
+const UNIT_SIZE := {
+	&"shot_pistol": 14.0, &"shot_revolver": 16.0, &"shot_smg": 13.0, &"shot_rifle": 15.0,
+	&"shot_shotgun": 16.0, &"shot_sniper": 24.0, &"shot_lmg": 16.0, &"shot_rocket": 16.0,
+	&"explosion": 26.0, &"footstep": 4.0, &"jump": 4.0, &"land": 5.0, &"bullet_impact": 5.0,
+	&"whizz": 3.0, &"grenade_bounce": 6.0, &"reload": 4.0, &"dry_fire": 3.0, &"weapon_switch": 3.0,
+	&"shot_suppressed": 5.0, &"shot_dmr": 20.0, &"slide": 5.0, &"grapple_fire": 6.0,
+	&"smoke_pop": 10.0, &"flashbang": 24.0, &"shield_hit": 6.0, &"shield_break": 8.0,
+	&"bomber_warning": 30.0, &"spray": 4.0, &"jump_pad": 12.0,
+	&"shot_crossbow": 20.0, &"shot_drum_shotgun": 18.0, &"shot_carbine": 16.0, &"shot_burst_smg": 14.0, &"shot_minigun": 22.0,
+	&"swing_blunt": 4.0, &"swing_heavy": 5.0, &"swing_blade": 4.0,
+}
+const DEFAULT_UNIT_SIZE := 7.0
+
+## Sounds that are pitch-jittered (±4 %) per play so repeats don't sound mechanical.
+## Musical cues (UI, jingles, chimes) keep their exact pitch.
+const JITTER := {
+	&"footstep": true, &"jump": true, &"land": true, &"hurt": true, &"death": true,
+	&"weapon_switch": true, &"reload": true, &"dry_fire": true, &"knife_swing": true, &"knife_hit": true,
+	&"pickup_ammo": true, &"grenade_throw": true, &"grenade_bounce": true, &"bullet_impact": true,
+	&"whizz": true, &"shot_pistol": true, &"shot_revolver": true, &"shot_smg": true, &"shot_rifle": true,
+	&"shot_shotgun": true, &"shot_sniper": true, &"shot_lmg": true, &"shot_rocket": true, &"explosion": true,
+	&"shot_suppressed": true, &"shot_dmr": true, &"slide": true, &"grapple_fire": true,
+	&"shield_hit": true, &"shot_crossbow": true, &"shot_drum_shotgun": true, &"shot_carbine": true, &"shot_burst_smg": true, &"shot_minigun": true,
+	&"swing_blunt": true, &"swing_heavy": true, &"swing_blade": true,
+}
 
 var _enabled := false
-## name -> Array[AudioStreamWAV] (one entry per take).
+## name -> Array[AudioStream] (one entry per take).
 var _streams := {}
-## track -> AudioStreamWAV for procedural tracks, filled as music workers finish.
+## track -> AudioStreamWAV for procedural tracks, filled when the music worker finishes.
 var _music := {}
 ## Per song track: the shuffled playlist order still to play.
 var _song_queue := {}
@@ -43,14 +109,14 @@ var _music_players: Array[AudioStreamPlayer] = []
 var _music_active := 0
 var _music_track := &""
 var _music_tween: Tween
-var _jobs: Array[AudioJob] = []
-## Milliseconds spent synthesising, keyed "sfx" / track name (worker time) and "sfx_main"
-## (main-thread on-demand renders). Read by tests and diagnostics.
-var timings := {"sfx_main": 0.0}
+var _job: AudioJob
+## Milliseconds the worker spent rendering each procedural music track. Read by tests and
+## diagnostics.
+var timings := {}
 
 
 # Setup runs in _init so play_music() calls made by scripts that run before this autoload's
-# _ready are remembered, and rendering starts as early as possible.
+# _ready are remembered, and the fanfare render starts as early as possible.
 func _init() -> void:
 	_enabled = DisplayServer.get_name() != "headless"
 	if not _enabled:
@@ -84,44 +150,50 @@ func _init() -> void:
 		p.finished.connect(_on_song_finished.bind(p))
 		add_child(p)
 		_music_players.append(p)
-	# Two parallel jobs: the results fanfare alone, and the effects bank.
-	_start_job(AudioJob.new(false, [&"results"]))
-	_start_job(AudioJob.new(true, [] as Array[StringName]))
+	_load_effects()
+	_job = AudioJob.new([&"results"])
+	_job.task_id = WorkerThreadPool.add_task(AudioJob.run.bind(_job), true, "Sfx render")
 
 
-func _start_job(job: AudioJob) -> void:
-	job.task_id = WorkerThreadPool.add_task(AudioJob.run.bind(job), true, "Sfx render")
-	_jobs.append(job)
+## Loads every take of every effect into `_streams`.
+func _load_effects() -> void:
+	for sound in NAMES:
+		var takes: Array[AudioStream] = []
+		var count := int(VARIANTS.get(sound, 1))
+		for v in count:
+			var path := "%s%s.wav" % [SFX_DIR, sound] if count == 1 else "%s%s_%d.wav" % [SFX_DIR, sound, v]
+			var stream := load(path) as AudioStream
+			if stream:
+				takes.append(stream)
+			else:
+				push_warning("Sfx: missing sound file '%s'" % path)
+		_streams[sound] = takes
 
 
-## Cancels in-flight renders. Only jobs that already started are waited on (they stop within
-## one sound or bar): during engine shutdown the pool may never pick up a queued task, and
-## waiting on one would hang forever.
+## Cancels the fanfare render. It is only waited on if it already started (it stops within one
+## bar): during engine shutdown the pool may never pick up a queued task, and waiting on one
+## would hang forever.
 func _exit_tree() -> void:
-	for job in _jobs:
-		job.cancelled = true
-	for job in _jobs:
-		if job.started:
-			WorkerThreadPool.wait_for_task_completion(job.task_id)
-	_jobs.clear()
+	if _job:
+		_job.cancelled = true
+		if _job.started:
+			WorkerThreadPool.wait_for_task_completion(_job.task_id)
+		_job = null
 
 
 func _process(_delta: float) -> void:
-	for i in range(_jobs.size() - 1, -1, -1):
-		var job := _jobs[i]
-		var res := job.take()
-		timings.merge(res.timings, true)
-		for sound: StringName in res.sfx:
-			if not _streams.has(sound):
-				_streams[sound] = res.sfx[sound]
-		for track: StringName in res.music:
-			_music[track] = res.music[track]
-			if track == _music_track:
-				_crossfade_to(res.music[track])
-		if res.done:
-			WorkerThreadPool.wait_for_task_completion(job.task_id)
-			_jobs.remove_at(i)
-	if _jobs.is_empty():
+	if not _job:
+		set_process(false)
+		return
+	var res := _job.take()
+	timings.merge(res.timings, true)
+	for track: StringName in res.music:
+		_music[track] = res.music[track]
+		if track == _music_track:
+			_crossfade_to(res.music[track])
+	if res.done:
+		WorkerThreadPool.wait_for_task_completion(_job.task_id)
+		_job = null
 		set_process(false)
 
 
@@ -131,18 +203,19 @@ func play(sound: StringName, pos: Variant = null, volume_db := 0.0, pitch := 1.0
 		return
 	var takes: Array = _streams.get(sound, [])
 	if takes.is_empty():
-		takes = _render_now(sound)
-		if takes.is_empty():
-			return
-	var stream: AudioStreamWAV = takes[randi() % takes.size()]
-	var vol := volume_db + float(SfxBank.GAIN_DB.get(sound, 0.0))
-	if SfxBank.JITTER.has(sound):
+		if not _warned.has(sound):
+			_warned[sound] = true
+			push_warning("Sfx: unknown sound '%s'" % sound)
+		return
+	var stream: AudioStream = takes[randi() % takes.size()]
+	var vol := volume_db + float(GAIN_DB.get(sound, 0.0))
+	if JITTER.has(sound):
 		pitch *= randf_range(1.0 - PITCH_JITTER, 1.0 + PITCH_JITTER)
 	if pos is Vector3:
 		var i := _pick_voice(_pos, _pos_started)
 		var p := _pos[i]
 		p.stream = stream
-		p.unit_size = float(SfxBank.UNIT_SIZE.get(sound, SfxBank.DEFAULT_UNIT_SIZE))
+		p.unit_size = float(UNIT_SIZE.get(sound, DEFAULT_UNIT_SIZE))
 		p.volume_db = vol
 		p.pitch_scale = pitch
 		p.global_position = pos
@@ -245,16 +318,3 @@ func _pick_voice(pool: Array, started: PackedInt64Array) -> int:
 			oldest = i
 	started[oldest] = Time.get_ticks_usec()
 	return oldest
-
-
-func _render_now(sound: StringName) -> Array:
-	var t := Time.get_ticks_usec()
-	var takes := SfxBank.render(sound)
-	if takes.is_empty():
-		if not _warned.has(sound):
-			_warned[sound] = true
-			push_warning("Sfx: unknown sound '%s'" % sound)
-		return takes
-	timings.sfx_main += (Time.get_ticks_usec() - t) / 1000.0
-	_streams[sound] = takes
-	return takes

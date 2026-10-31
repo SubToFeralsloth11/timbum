@@ -1,40 +1,27 @@
 class_name AudioJob
 extends RefCounted
-## One background render (the effect bank and/or music tracks) run on the WorkerThreadPool.
-## The task callable is the static `run` with the job bound as an argument, so the worker
-## never touches the Sfx node (which may be freed while a render is in flight). Results are
-## handed over through `take()`, polled by the main thread; `cancelled` makes the worker
-## stop within one sound or one bar of music.
+## One background render of procedural music tracks (the results fanfare) run on the
+## WorkerThreadPool. The task callable is the static `run` with the job bound as an argument, so
+## the worker never touches the Sfx node (which may be freed while a render is in flight).
+## Results are handed over through `take()`, polled by the main thread; `cancelled` makes the
+## worker stop within one bar of music.
 
-var sfx := false
 var music: Array[StringName] = []
 var task_id := -1
 var cancelled := false
 var started := false
 var done := false
 var _mutex := Mutex.new()
-var _sfx := {}
 var _music := {}
 var _timings := {}
 
 
-func _init(render_sfx: bool, tracks: Array[StringName]) -> void:
-	sfx = render_sfx
+func _init(tracks: Array[StringName]) -> void:
 	music = tracks
 
 
 static func run(job: AudioJob) -> void:
 	job.started = true
-	if job.sfx:
-		var t := Time.get_ticks_usec()
-		for sound in SfxBank.NAMES:
-			if job.cancelled:
-				break
-			var takes := SfxBank.render(sound)
-			job._mutex.lock()
-			job._sfx[sound] = takes
-			job._mutex.unlock()
-		job._put_timing("sfx", t)
 	for track in job.music:
 		if job.cancelled:
 			break
@@ -50,12 +37,11 @@ static func run(job: AudioJob) -> void:
 	job._mutex.unlock()
 
 
-## Returns and clears finished results: `{sfx: {name: takes}, music: {track: stream},
-## timings: {key: ms}, done: bool}`.
+## Returns and clears finished results: `{music: {track: stream}, timings: {key: ms},
+## done: bool}`.
 func take() -> Dictionary:
 	_mutex.lock()
-	var out := {"sfx": _sfx, "music": _music, "timings": _timings, "done": done}
-	_sfx = {}
+	var out := {"music": _music, "timings": _timings, "done": done}
 	_music = {}
 	_timings = {}
 	_mutex.unlock()
