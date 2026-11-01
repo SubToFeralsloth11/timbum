@@ -150,11 +150,15 @@ void fragment() {
 		uv = fract(uv + vec2(TIME * 0.02, TIME * 0.013) + 0.04 * vec2(sin(TIME + v_world.z * 1.3), cos(TIME * 0.8 + v_world.x * 1.1)));
 	}
 	vec4 t = texture(tiles, vec3(uv, v_layer));
-	if (detail > 0.5) {
-		vec3 dp1 = dFdx(VERTEX);
-		vec3 dp2 = dFdy(VERTEX);
-		vec2 duv1 = dFdx(UV);
-		vec2 duv2 = dFdy(UV);
+	// The bump fades out by 35 m and never applies to water: past that, skip its four extra
+	// samples (the result is identical). Derivatives are taken outside the branch, where every
+	// pixel of a quad runs them, and the samples use them explicitly.
+	vec3 dp1 = dFdx(VERTEX);
+	vec3 dp2 = dFdy(VERTEX);
+	vec2 duv1 = dFdx(UV);
+	vec2 duv2 = dFdy(UV);
+	float bump = detail > 0.5 ? clamp(1.0 - length(VERTEX) / 35.0, 0.0, 1.0) * bump_strength * (1.0 - props.w) : 0.0;
+	if (bump > 0.0) {
 		vec3 dp2perp = cross(dp2, NORMAL);
 		vec3 dp1perp = cross(NORMAL, dp1);
 		vec3 T = dp2perp * duv1.x + dp1perp * duv2.x;
@@ -163,11 +167,10 @@ void fragment() {
 		T *= inv_len;
 		B *= inv_len;
 		float texel = 1.0 / 16.0;
-		float hl = luma(texture(tiles, vec3(uv - vec2(texel, 0.0), v_layer)).rgb);
-		float hr = luma(texture(tiles, vec3(uv + vec2(texel, 0.0), v_layer)).rgb);
-		float hu = luma(texture(tiles, vec3(uv - vec2(0.0, texel), v_layer)).rgb);
-		float hd = luma(texture(tiles, vec3(uv + vec2(0.0, texel), v_layer)).rgb);
-		float bump = clamp(1.0 - length(VERTEX) / 35.0, 0.0, 1.0) * bump_strength * (1.0 - props.w);
+		float hl = luma(textureGrad(tiles, vec3(uv - vec2(texel, 0.0), v_layer), duv1, duv2).rgb);
+		float hr = luma(textureGrad(tiles, vec3(uv + vec2(texel, 0.0), v_layer), duv1, duv2).rgb);
+		float hu = luma(textureGrad(tiles, vec3(uv - vec2(0.0, texel), v_layer), duv1, duv2).rgb);
+		float hd = luma(textureGrad(tiles, vec3(uv + vec2(0.0, texel), v_layer), duv1, duv2).rgb);
 		NORMAL = normalize(NORMAL - (T * (hr - hl) + B * (hd - hu)) * bump);
 	}
 	ALBEDO = t.rgb * mix(vec3(1.0), COLOR.rgb, 0.75);
