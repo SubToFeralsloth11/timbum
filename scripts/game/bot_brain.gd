@@ -813,7 +813,9 @@ func _roam_tactical(delta: float) -> void:
 		return
 	_order_timer -= delta
 	if _order_timer <= 0.0 or _order.is_empty():
-		_order_timer = ORDER_INTERVAL
+		# A little jitter keeps 50 Tactical bots (all spawned on one tick) from all asking for
+		# orders on the same physics tick, every ORDER_INTERVAL, for the whole match.
+		_order_timer = ORDER_INTERVAL * randf_range(0.85, 1.15)
 		_order = p.world.tactical.bot_order(p)
 	var order := _order
 	var pos: Vector3 = order.pos
@@ -854,7 +856,9 @@ func _go_toward(point: Vector3, delta: float) -> void:
 	if _goal.distance_to(point) > 2.0:
 		_goal_pickup = null
 	if _repath_timer <= 0.0 or _goal.distance_to(point) > 2.0:
-		_repath_timer = REPATH_INTERVAL
+		# Jittered for the same reason: bots spawned together would otherwise all plan routes on
+		# one tick every REPATH_INTERVAL.
+		_repath_timer = REPATH_INTERVAL * randf_range(0.85, 1.15)
 		_goal = point
 		_has_goal = true
 		_path = NavigationServer3D.map_get_path(p.world.map_info.nav_map, p.global_position, point, true)
