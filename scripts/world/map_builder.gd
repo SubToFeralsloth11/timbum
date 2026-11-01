@@ -259,11 +259,11 @@ static func add_environment(parent: Node3D, atm: Dictionary, quality: int) -> vo
 	env.fog_sky_affect = atm.get("fog_sky", 0.3)
 	env.fog_aerial_perspective = 0.15
 	env.sdfgi_enabled = false
-	# SSAO, bloom, SSR and sun shadows follow the Video toggles (apply_graphics), live.
+	# SSAO, SSIL, bloom, SSR, brightness and sun shadows follow the Video settings
+	# (apply_graphics), live.
 	env.ssao_radius = 1.2
 	env.ssao_intensity = 1.6
 	env.ssao_detail = 0.5
-	env.ssil_enabled = quality >= 2
 	env.ssil_radius = 3.0
 	env.ssil_intensity = 0.7
 	env.ssr_max_steps = 48
@@ -292,21 +292,13 @@ static func add_environment(parent: Node3D, atm: Dictionary, quality: int) -> vo
 	sun.shadow_bias = 0.04
 	sun.shadow_normal_bias = 1.2
 	sun.shadow_blur = 1.0
-	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS if quality >= 2 else DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
-	sun.directional_shadow_max_distance = [45.0, 80.0, 130.0][clampi(quality, 0, 2)]
-	sun.directional_shadow_blend_splits = quality >= 2
 	_apply_graphics_to(sun)
 	parent.add_child(sun)
-	RenderingServer.directional_shadow_atlas_set_size([2048, 4096, 8192][clampi(quality, 0, 2)], true)
-	RenderingServer.directional_soft_shadow_filter_set_quality([
-		RenderingServer.SHADOW_QUALITY_HARD,
-		RenderingServer.SHADOW_QUALITY_SOFT_LOW,
-		RenderingServer.SHADOW_QUALITY_SOFT_MEDIUM,
-	][clampi(quality, 0, 2)])
 
 
-## Applies the Video toggles (shadows, ambient occlusion, bloom, reflections) to every built
-## map's sun and environment. Profile calls it whenever a setting changes.
+## Applies the Video settings (shadow quality, ambient occlusion, indirect light, bloom,
+## reflections, brightness) to every built map's sun and environment. Video.apply calls it
+## whenever a setting changes; the shadow atlas and filter quality are global (Video.apply).
 static func apply_graphics(tree: SceneTree) -> void:
 	for node in tree.get_nodes_in_group(GRAPHICS_GROUP):
 		_apply_graphics_to(node)
@@ -314,12 +306,21 @@ static func apply_graphics(tree: SceneTree) -> void:
 
 static func _apply_graphics_to(node: Node) -> void:
 	if node is DirectionalLight3D:
-		(node as DirectionalLight3D).shadow_enabled = bool(Profile.get_setting("shadows"))
+		var sun := node as DirectionalLight3D
+		var shadow := int(Profile.get_setting("shadow_quality"))
+		sun.shadow_enabled = shadow > 0
+		if shadow > 0:
+			var level: Array = Video.SHADOW_LEVELS[shadow]
+			sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS if int(level[0]) == 4 else DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
+			sun.directional_shadow_max_distance = level[1]
+			sun.directional_shadow_blend_splits = level[4]
 	elif node is WorldEnvironment and (node as WorldEnvironment).environment != null:
 		var env := (node as WorldEnvironment).environment
-		env.ssao_enabled = bool(Profile.get_setting("ambient_occlusion"))
+		env.ssao_enabled = int(Profile.get_setting("ssao_quality")) > 0
+		env.ssil_enabled = bool(Profile.get_setting("ssil"))
 		env.glow_enabled = bool(Profile.get_setting("bloom"))
 		env.ssr_enabled = bool(Profile.get_setting("reflections"))
+		env.adjustment_brightness = float(Profile.get_setting("brightness"))
 
 
 ## Agent: radius 0.45 m, height 1.8 m, climb 0.3 m, slope 50 deg. Recast rounds

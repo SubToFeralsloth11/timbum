@@ -32,18 +32,42 @@ const DEFAULT_SETTINGS := {
 	"sfx_volume": 0.85,
 	## Silence the Master bus while the game window doesn't have focus (also in menus).
 	"mute_unfocused": true,
-	"fullscreen": false,
-	"vsync": true,
+	## Video (Video applies them; option lists are Video's *_NAMES and tables). window_mode:
+	## Video.WINDOW_MODE_NAMES; screen: 0 the current screen, else screen number; vsync_mode:
+	## Video.VSYNC_NAMES; fps_limit: Video.FPS_LIMITS index; background_fps caps unfocused
+	## windows at Video.BACKGROUND_FPS; hidpi (Retina resolution) takes a restart.
+	"window_mode": 0,
+	"screen": 0,
+	"vsync_mode": 1,
+	"fps_limit": 0,
+	"background_fps": true,
+	"hidpi": true,
+	## Video.QUALITY_NAMES preset last picked (also the sky's reflection detail, next map).
 	"quality": 1,
 	"post_fx": true,
 	## 0 off, 1 FXAA, 2 MSAA 2x, 3 MSAA 4x, 4 TAA (see ANTI_ALIASING_NAMES).
 	"anti_aliasing": 2,
+	## Video.ANISO_NAMES index (texture filtering at grazing angles).
+	"anisotropic": 2,
+	## Video.RENDER_HEIGHTS index (3D render resolution cap; 1 is 900p), the scale under it,
+	## the upscaler (Video.UPSCALER_NAMES), its sharpening (0-1) and the dynamic resolution
+	## target (Video.DYNAMIC_TARGETS index; 0 off).
+	"render_resolution": 1,
 	"render_scale": 1.0,
-	"shadows": true,
-	"ambient_occlusion": true,
+	"upscaler": 0,
+	"sharpness": 0.85,
+	"dynamic_resolution": 0,
+	## Video.LEVEL_NAMES levels (0 off).
+	"shadow_quality": 2,
+	"ssao_quality": 2,
+	## Screen-space indirect light (bounce light from nearby surfaces).
+	"ssil": false,
 	"bloom": true,
 	"reflections": false,
 	"block_detail": true,
+	"debanding": false,
+	## Environment brightness multiplier (0.5-1.5).
+	"brightness": 1.0,
 	"show_fps": false,
 	"damage_numbers": true,
 	"killfeed": true,
@@ -74,12 +98,6 @@ const HOLD_TOGGLE_NAMES: Array[String] = ["Hold", "Toggle"]
 ## Controller stick response curves: [name, exponent]. The stick's travel past the deadzone (0..1)
 ## is raised to the exponent, so higher curves give finer control near the centre.
 const PAD_CURVES: Array = [["Linear", 1.0], ["Classic", 1.8], ["Precise", 2.8]]
-## Effect toggles each graphics quality preset (Low, Medium, High) switches to when picked.
-const QUALITY_PRESETS: Array[Dictionary] = [
-	{"shadows": true, "ambient_occlusion": false, "bloom": false, "reflections": false, "anti_aliasing": 1},
-	{"shadows": true, "ambient_occlusion": true, "bloom": true, "reflections": false, "anti_aliasing": 2},
-	{"shadows": true, "ambient_occlusion": true, "bloom": true, "reflections": true, "anti_aliasing": 3},
-]
 
 const DEFAULT_STATS := {
 	"kills": 0, "deaths": 0, "headshots": 0, "matches": 0, "wins": 0,
@@ -1013,6 +1031,8 @@ func get_setting(key: String) -> Variant:
 
 func set_setting(key: String, value: Variant) -> void:
 	settings[key] = value
+	if key == "hidpi" and persist:
+		Video.save_hidpi(bool(value))
 	apply_settings()
 	save()
 	changed.emit()
@@ -1024,58 +1044,31 @@ func apply_settings() -> void:
 	_set_bus_volume("SFX", float(get_setting("sfx_volume")))
 	if DisplayServer.get_name() == "headless":
 		return
-	var want_fs: bool = get_setting("fullscreen")
-	var mode := DisplayServer.window_get_mode()
-	var is_fs := mode == DisplayServer.WINDOW_MODE_FULLSCREEN or mode == DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN
-	if want_fs != is_fs:
-		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN if want_fs else DisplayServer.WINDOW_MODE_WINDOWED)
-	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_ENABLED if get_setting("vsync") else DisplayServer.VSYNC_DISABLED)
-	_apply_graphics()
-
-
-## The 3D view renders at most this many pixels at render scale 1.0 (1600 x 900). Bigger windows
-## (fullscreen on a large or HiDPI/Retina display, where the GPU cost grows with every pixel)
-## render 3D below native and upscale it with FSR 1; the HUD and menus stay at full resolution.
-## Measured FFA fullscreen 2560 x 1440 on an A18 Pro: 38 fps rendering natively, 56 with this
-## budget (a 1440 x 810 budget gained under 1 fps more, so the sharper one stays).
-const RENDER_PIXEL_BUDGET := 1600.0 * 900.0
-
-
-## Anti-aliasing and render scale on the main viewport; shadows, AO, bloom and reflections on
-## the current map; block shader detail on the shared block materials. All live.
-func _apply_graphics() -> void:
 	var vp := get_viewport()
-	var aa := int(get_setting("anti_aliasing"))
-	vp.msaa_3d = [Viewport.MSAA_DISABLED, Viewport.MSAA_DISABLED, Viewport.MSAA_2X, Viewport.MSAA_4X, Viewport.MSAA_DISABLED][aa]
-	vp.screen_space_aa = Viewport.SCREEN_SPACE_AA_FXAA if aa == 1 else Viewport.SCREEN_SPACE_AA_DISABLED
-	vp.use_taa = aa == 4
-	_apply_render_scale()
-	if not vp.size_changed.is_connected(_apply_render_scale):
-		vp.size_changed.connect(_apply_render_scale)
-	BlockAtlas.set_detail(bool(get_setting("block_detail")))
-	MapBuilder.apply_graphics(get_tree())
+	Video.apply(self, vp)
+	if not vp.size_changed.is_connected(_on_viewport_resized):
+		vp.size_changed.connect(_on_viewport_resized)
 
 
-## The render scale setting, times the share of the window the pixel budget covers; anything
-## below native is upscaled with FSR 1 (sharper than bilinear).
-func _apply_render_scale() -> void:
-	var vp := get_viewport()
-	var win := Vector2(DisplayServer.window_get_size())
-	var budget := 1.0 if win.x * win.y <= 0.0 else minf(1.0, sqrt(RENDER_PIXEL_BUDGET / (win.x * win.y)))
-	var s := float(get_setting("render_scale")) * budget
-	vp.scaling_3d_scale = s
-	vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR if s < 0.99 else Viewport.SCALING_3D_MODE_BILINEAR
-	vp.fsr_sharpness = 0.3
+func _on_viewport_resized() -> void:
+	Video.apply_render_scale(self, get_viewport())
+
+
+func _process(delta: float) -> void:
+	if DisplayServer.get_name() != "headless":
+		Video.tick(self, get_viewport(), delta)
 
 
 ## The game window has focus. Clicking away, alt-tabbing or minimising clears it; with the
-## "mute_unfocused" setting the Master bus is muted until the window gets focus back.
+## "mute_unfocused" setting the Master bus is muted until the window gets focus back, and with
+## "background_fps" the frame rate drops to Video.BACKGROUND_FPS.
 var window_focused := true
 
 
 func _on_window_focus(focused: bool) -> void:
 	window_focused = focused
 	_apply_master()
+	Video.apply_fps(self)
 
 
 func _apply_master() -> void:
@@ -1247,12 +1240,35 @@ func load_from_dict(d: Dictionary) -> void:
 			var numeric := want in [TYPE_INT, TYPE_FLOAT] and got in [TYPE_INT, TYPE_FLOAT]
 			if settings.has(key) and (got == want or numeric):
 				settings[key] = int(saved_settings[key]) if want == TYPE_INT and numeric else saved_settings[key]
-	settings.quality = clampi(int(settings.quality), 0, 2)
-	# Saves from before the per-effect toggles take them from their quality preset.
-	var preset: Dictionary = QUALITY_PRESETS[settings.quality]
-	for key: String in preset:
-		if typeof(saved_settings) != TYPE_DICTIONARY or not (saved_settings as Dictionary).has(key):
+	var saved: Dictionary = saved_settings if typeof(saved_settings) == TYPE_DICTIONARY else {}
+	settings.quality = clampi(int(settings.quality), 0, Video.QUALITY_NAMES.size() - 1)
+	# Saves from before the per-effect settings take them from their quality preset (the render
+	# resolution and texture filtering keep their defaults: older versions had no choice there).
+	var preset: Dictionary = Video.PRESETS[settings.quality]
+	for key: String in ["shadow_quality", "ssao_quality", "ssil", "bloom", "reflections", "anti_aliasing"]:
+		if not saved.has(key):
 			settings[key] = preset[key]
+	# The on/off switches the Video tab had before it grew carry over to their new settings.
+	if saved.has("fullscreen") and not saved.has("window_mode"):
+		settings.window_mode = 1 if bool(saved.fullscreen) else 0
+	if saved.has("vsync") and not saved.has("vsync_mode"):
+		settings.vsync_mode = 1 if bool(saved.vsync) else 0
+	if saved.has("shadows") and not saved.has("shadow_quality"):
+		settings.shadow_quality = settings.quality + 1 if bool(saved.shadows) else 0
+	if saved.has("ambient_occlusion") and not saved.has("ssao_quality"):
+		settings.ssao_quality = 2 if bool(saved.ambient_occlusion) else 0
+	settings.window_mode = clampi(int(settings.window_mode), 0, Video.WINDOW_MODE_NAMES.size() - 1)
+	settings.screen = clampi(int(settings.screen), 0, 16)
+	settings.vsync_mode = clampi(int(settings.vsync_mode), 0, Video.VSYNC_NAMES.size() - 1)
+	settings.fps_limit = clampi(int(settings.fps_limit), 0, Video.FPS_LIMITS.size() - 1)
+	settings.anisotropic = clampi(int(settings.anisotropic), 0, Video.ANISO_NAMES.size() - 1)
+	settings.render_resolution = clampi(int(settings.render_resolution), 0, Video.RENDER_HEIGHTS.size() - 1)
+	settings.upscaler = clampi(int(settings.upscaler), 0, Video.UPSCALER_NAMES.size() - 1)
+	settings.sharpness = clampf(float(settings.sharpness), 0.0, 1.0)
+	settings.dynamic_resolution = clampi(int(settings.dynamic_resolution), 0, Video.DYNAMIC_TARGETS.size() - 1)
+	settings.shadow_quality = clampi(int(settings.shadow_quality), 0, Video.LEVEL_NAMES.size() - 1)
+	settings.ssao_quality = clampi(int(settings.ssao_quality), 0, Video.LEVEL_NAMES.size() - 1)
+	settings.brightness = clampf(float(settings.brightness), 0.5, 1.5)
 	settings.anti_aliasing = clampi(int(settings.anti_aliasing), 0, ANTI_ALIASING_NAMES.size() - 1)
 	settings.render_scale = clampf(float(settings.render_scale), 0.5, 1.0)
 	settings.fov = clampf(float(settings.fov), 60.0, 110.0)

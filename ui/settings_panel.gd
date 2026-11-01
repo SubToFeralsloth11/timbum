@@ -5,7 +5,6 @@ extends PanelContainer
 
 signal closed
 
-const QUALITY_NAMES: Array[String] = ["Low", "Medium", "High"]
 ## Rebindable actions in display order with friendly names; bindings come from Profile.
 const CONTROLS: Array = [
 	["move_forward", "Move forward"], ["move_back", "Move back"], ["move_left", "Strafe left"],
@@ -206,19 +205,48 @@ func _ready() -> void:
 	crosshair.add_child(xh_tip)
 
 	var video := _page(pages)
-	_check_row(video, "fullscreen", "Fullscreen")
-	_check_row(video, "vsync", "V-Sync")
-	_option_row(video, "quality", "Graphics quality", QUALITY_NAMES)
-	video.add_child(UIKit.label("Quality sets view distance and shadow detail (next map) and switches the effects below to its preset. Effects apply at once.", &"DimLabel"))
-	(video.get_child(-1) as Label).autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_option_row(video, "anti_aliasing", "Anti-aliasing", Profile.ANTI_ALIASING_NAMES)
+	video.add_child(UIKit.label("DISPLAY", &"SubheaderLabel"))
+	_option_row(video, "window_mode", "Window mode", Video.WINDOW_MODE_NAMES)
+	_option_row(video, "screen", "Screen", Video.screen_names())
+	_option_row(video, "vsync_mode", "V-Sync", Video.VSYNC_NAMES)
+	var limits: Array[String] = []
+	for fps in Video.FPS_LIMITS:
+		limits.append("Unlimited" if fps == 0 else "%d FPS" % fps)
+	_option_row(video, "fps_limit", "Frame rate limit", limits)
+	_check_row(video, "background_fps", "Limit to %d FPS when unfocused" % Video.BACKGROUND_FPS)
+	_check_row(video, "hidpi", "Retina / HiDPI resolution (restart)")
+	_tip(video, "V-Sync off gives the lowest input lag but can tear; Adaptive tears only when a frame is late; Mailbox never tears and stays responsive where the system supports it. Retina / HiDPI off draws the window at its size in points (a quarter of the pixels on a Retina or scaled display): much lighter on the GPU fullscreen, a little softer.")
+
+	video.add_child(UIKit.label("RESOLUTION", &"SubheaderLabel"))
+	var heights: Array[String] = []
+	for h in Video.RENDER_HEIGHTS:
+		heights.append("Native" if h == 0 else "%dp" % h)
+	_option_row(video, "render_resolution", "3D resolution cap", heights)
 	_slider_row(video, "render_scale", "Render scale", 0.5, 1.0, 0.05, "pct")
-	_check_row(video, "shadows", "Shadows")
-	_check_row(video, "ambient_occlusion", "Ambient occlusion")
+	_option_row(video, "upscaler", "Upscaler", Video.UPSCALER_NAMES)
+	_slider_row(video, "sharpness", "Sharpening", 0.0, 1.0, 0.05, "pct")
+	var targets: Array[String] = []
+	for fps in Video.DYNAMIC_TARGETS:
+		targets.append("Off" if fps == 0 else "Hold %d FPS" % fps)
+	_option_row(video, "dynamic_resolution", "Dynamic resolution", targets)
+	_tip(video, "The 3D view renders at up to the cap (times the render scale) and is upscaled to the window; the HUD always stays sharp. Auto uses MetalFX Spatial on Mac and FSR 1 elsewhere, plain bilinear in windows bigger than 2560 x 1600 (a sharp upscale costs a full pass at that size), and sharpens a native image with FSR; pick FSR 1 or MetalFX to keep the sharp upscale there. FSR 2.2 and MetalFX Temporal also anti-alias. Dynamic resolution lowers the render scale (to 60 % of it at most) whenever frames run slower than the target, and raises it again when there is room.")
+
+	video.add_child(UIKit.label("QUALITY", &"SubheaderLabel"))
+	_option_row(video, "quality", "Graphics preset", Video.QUALITY_NAMES)
+	_tip(video, "A preset switches every setting below, the 3D resolution cap and Retina / HiDPI (Low turns it off, from the next start); the sky's reflections follow it from the next map. Everything else applies at once.")
+	_option_row(video, "anti_aliasing", "Anti-aliasing", Profile.ANTI_ALIASING_NAMES)
+	_option_row(video, "anisotropic", "Texture filtering", Video.ANISO_NAMES)
+	_option_row(video, "shadow_quality", "Shadows", Video.LEVEL_NAMES)
+	_option_row(video, "ssao_quality", "Ambient occlusion", Video.LEVEL_NAMES)
+	_check_row(video, "ssil", "Indirect lighting")
 	_check_row(video, "bloom", "Bloom")
 	_check_row(video, "reflections", "Reflections")
 	_check_row(video, "block_detail", "Block shader effects")
-	_check_row(video, "post_fx", "Colour grading and sharpening")
+	_check_row(video, "post_fx", "Colour grading and vignette")
+
+	video.add_child(UIKit.label("IMAGE", &"SubheaderLabel"))
+	_slider_row(video, "brightness", "Brightness", 0.5, 1.5, 0.05, "pct")
+	_check_row(video, "debanding", "Debanding")
 
 	var audio := _page(pages)
 	_slider_row(audio, "master_volume", "Master volume", 0.0, 1.0, 0.01, "pct")
@@ -397,6 +425,13 @@ func _slider_row(parent: Control, key: String, text: String, lo: float, hi: floa
 		show_value.call(s.value)
 
 
+## A wrapped dim explanation line under a group of rows.
+func _tip(parent: Control, text: String) -> void:
+	var tip := UIKit.label(text, &"DimLabel")
+	tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	parent.add_child(tip)
+
+
 func _check_row(parent: Control, key: String, text: String) -> void:
 	var h := _row(parent, text)
 	var c := CheckBox.new()
@@ -425,7 +460,8 @@ func _option_row(parent: Control, key: String, text: String, names: Array[String
 		if key == "quality":
 			_apply_quality_preset(i))
 	h.add_child(o)
-	_refreshers[key] = func() -> void: o.select(int(Profile.get_setting(key)))
+	# Clamped: a saved screen that has since been unplugged shows as the current screen.
+	_refreshers[key] = func() -> void: o.select(clampi(int(Profile.get_setting(key)), 0, o.item_count - 1))
 
 
 func _color_row(parent: Control, key: String, text: String) -> void:
@@ -455,7 +491,7 @@ func _stage(key: String, value: Variant) -> void:
 
 ## Picking a quality preset switches the effect toggles (and anti-aliasing) to match it.
 func _apply_quality_preset(quality: int) -> void:
-	var preset: Dictionary = Profile.QUALITY_PRESETS[quality]
+	var preset: Dictionary = Video.PRESETS[quality]
 	for key: String in preset:
 		Profile.settings[key] = preset[key]
 		_pending[key] = preset[key]
