@@ -96,8 +96,11 @@ const SECTIONS: Array[Dictionary] = [
 		"icon": ["......##...", ".....#..#..", ".....#...#.", "......#..##", ".....#####.", "....###....",
 			"...###.....", "..###......", ".###.......", "###........", "##........."],
 		"bullets": [
-			"This update log: it opens once after every update, and the version button at the bottom left of the home screen opens it again.",
-			"Bots no longer walk into lava or water while strafing.",
+			"[b]Map Editor FLAGS tool:[/b] place the two Capture the Flag stands on your own maps. The editor's checks tell you when a stand is too close, boxed in or out of the bots' reach, and match setup says why a map can't host Capture the Flag.",
+			"[b]This update log:[/b] it opens once after every update. The version button at the bottom left of the home screen (move down from the daily reward with a keyboard or controller) opens it again.",
+			"The season screen works fully with a controller: down on a claimed cosmetic reaches EQUIP, and up from the tier cards reaches CLAIM ALL.",
+			"The Tab scoreboard and the results screen name the match's weather along with the map, mutator and time of day.",
+			"Bots no longer walk into lava or water while strafing, and no longer trip up when the player they chase leaves or starts spectating.",
 			"Spectating a player who fires before holding a gun no longer breaks the view.",
 			"The main menu counts the modes itself, so the tagline always matches.",
 		]},
