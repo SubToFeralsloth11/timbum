@@ -16,7 +16,9 @@ extends TeamDeathmatch
 ## nearer their own stand than the enemy's (on_own_side).
 ## The server decides everything and tells every peer with `_s_flag` (one flag's state plus the
 ## event that changed it); joiners get both flags with `_s_flags`, the score with TDM's `_s_score`.
-## Every peer draws the stands and flags (the carried one on the carrier's back), the FlagOverlay
+## Every peer draws the stands and flags (the carried one on the carrier's back; in a kill cam
+## replay each flag as the tape recorded it, replay_mark_*, a carried one on its carrier's ghost),
+## the FlagOverlay
 ## (world markers through walls, the carrier banner), compass pips, the score card's flag states
 ## (hud_team_status) and the callouts. Bots split into attackers and defenders (_bot_plan).
 
@@ -76,12 +78,15 @@ var _stand_mats: Array = [[], []]
 var _palette := -1
 var _first_person: Array[bool] = [false, false]
 var _overlay: FlagOverlay
-## Entity id -> its avatar's torso node (_torso_of).
+## Entity id -> its avatar's torso node (_torso_of); kill cam ghost instance id -> its torso.
 var _torsos := {}
+var _ghost_torsos := {}
 
 
 func _init() -> void:
 	name = "CaptureTheFlag"
+	# The flags follow avatars and kill cam ghosts posed this frame: place them after those.
+	process_priority = 1
 
 
 func _ready() -> void:
@@ -399,33 +404,49 @@ func _process(_delta: float) -> void:
 	if Palette.mode() != _palette:
 		_recolor()
 	var t := World.now()
+	var kc := world.killcam
+	var replay := kc.is_playing()
 	for f in 2:
 		var node := _flag_nodes[f]
 		var state := flag_state[f]
+		var at := flag_pos[f]
+		var torso: Node3D = null
 		var first_person := false
+		if state == State.CARRIED:
+			var p: Player = world.entities.get(carrier[f])
+			if p != null and p.alive and p.avatar != null:
+				# Every peer keeps the carried flag's position (markers, drops) with its carrier.
+				flag_pos[f] = p.global_position
+				torso = _torso_of(p)
+				first_person = _is_first_person(p)
+		if replay:
+			# The kill cam replay shows each flag as it was then (KillCam tape): home, dropped where
+			# it lay, or on its carrier's ghost; one the killer carried rides with the replay's own
+			# eyes, so (like a first-person carrier's) it isn't drawn.
+			var rs := kc.replay_mark_state(f)
+			state = rs if rs >= 0 else state
+			at = kc.replay_mark_pos(f)
+			torso = null
+			first_person = false
+			if state == State.CARRIED:
+				var ghost := kc.replay_ghost(kc.replay_mark_carrier(f))
+				torso = _ghost_torso(ghost) if ghost != null else null
 		node.visible = true
 		match state:
 			State.HOME:
 				node.global_transform = Transform3D(Basis(Vector3.UP, t * 0.4), stands[f] + Vector3.UP * 0.18)
 			State.DROPPED:
 				var bob := 0.12 + 0.08 * sin(t * 3.0)
-				node.global_transform = Transform3D(Basis(Vector3.UP, t * 1.2) * Basis(Vector3.RIGHT, 0.35), flag_pos[f] + Vector3.UP * bob)
+				node.global_transform = Transform3D(Basis(Vector3.UP, t * 1.2) * Basis(Vector3.RIGHT, 0.35), at + Vector3.UP * bob)
 			State.CARRIED:
-				var p: Player = world.entities.get(carrier[f])
-				var torso: Node3D = null
-				if p != null and p.alive and p.avatar != null:
-					# Every peer keeps the carried flag's position (markers, drops) with its carrier.
-					flag_pos[f] = p.global_position
-					torso = _torso_of(p)
-				# The kill cam replay hides the live players (its ghosts carry no flag): so does this.
-				if torso == null or world.killcam.is_playing():
+				if torso == null:
 					node.visible = false
+					first_person = false
 				else:
 					# On the back (the avatar faces -Z), leaning back, at 65 % size, with the cloth
 					# above the head.
 					var on_back := Transform3D(Basis(Vector3.RIGHT, 0.3).scaled(Vector3.ONE * 0.65), Vector3(0.0, 0.3, 0.2))
 					node.global_transform = torso.global_transform.orthonormalized() * on_back
-					first_person = _is_first_person(p)
 		_beams[f].visible = state == State.DROPPED
 		if first_person != _first_person[f]:
 			_first_person[f] = first_person
@@ -456,6 +477,17 @@ func _torso_of(p: Player) -> Node3D:
 		return cached
 	var torso := p.avatar.find_child("Torso", true, false) as Node3D
 	_torsos[p.id] = torso
+	return torso
+
+
+## The torso of a kill cam ghost (KillCam.replay_ghost), looked up once per ghost.
+func _ghost_torso(ghost: Avatar) -> Node3D:
+	var key := ghost.get_instance_id()
+	var cached: Variant = _ghost_torsos.get(key)
+	if is_instance_valid(cached) and ghost.is_ancestor_of(cached):
+		return cached
+	var torso := ghost.find_child("Torso", true, false) as Node3D
+	_ghost_torsos[key] = torso
 	return torso
 
 
@@ -645,6 +677,23 @@ func hud_goal() -> String:
 	var n := int(Net.config.kill_limit)
 	var goal := "First team to %d capture%s" % [n, "" if n == 1 else "s"]
 	return goal if mine < 0 else "Your team: %s  ·  %s" % [Teams.label(mine), goal.to_lower()]
+
+
+## The kill cam records both flags: state, carrier and position (flag_pos).
+func replay_mark_count() -> int:
+	return 2 if stands.size() == 2 else 0
+
+
+func replay_mark_state(k: int) -> int:
+	return flag_state[k]
+
+
+func replay_mark_carrier(k: int) -> int:
+	return carrier[k] if flag_state[k] == State.CARRIED else 0
+
+
+func replay_mark_pos(k: int) -> Vector3:
+	return flag_pos[k]
 
 
 func hud_team_status(team: int) -> String:

@@ -389,6 +389,25 @@ func compass_pips(_cam: Camera3D) -> Array:
 	return []
 
 
+## Mode objectives the kill cam records every frame (at most KillCam.MARKS; Capture the Flag: its
+## two flags), each as a state number, a carrier entity id (0: none) and a position. The mode draws
+## them in a replay from KillCam.replay_mark_state / replay_mark_carrier / replay_mark_pos.
+func replay_mark_count() -> int:
+	return 0
+
+
+func replay_mark_state(_k: int) -> int:
+	return -1
+
+
+func replay_mark_carrier(_k: int) -> int:
+	return 0
+
+
+func replay_mark_pos(_k: int) -> Vector3:
+	return Vector3.ZERO
+
+
 ## Results title [text, colour] for `next` from the server ("" text: the placement title).
 func results_title(rows: Array, next: Dictionary) -> Array:
 	if not next.has("winner"):

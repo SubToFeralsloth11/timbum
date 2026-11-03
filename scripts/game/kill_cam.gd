@@ -6,7 +6,9 @@ extends Node
 ## RATE frames a second for SECONDS, each with every player's feet position, eye position, yaw,
 ## pitch and state flags (Player.net_flags: stance, aim, sprint, slide, reload, held weapon, lean;
 ## plus alive, grappling and "remote"), the projectiles in flight, and the shots, knife swings,
-## throws, rockets, explosions and hits it plays as effects. A remote player's entry is the
+## throws, rockets, explosions and hits it plays as effects, and up to MARKS mode objectives
+## (Capture the Flag's flags: MatchMode.replay_mark_count / replay_mark_state / _carrier / _pos,
+## state, carrier and position). A remote player's entry is the
 ## interpolated pose this peer shows, which runs Player.INTERP_DELAY behind the events it
 ## receives, so the replay reads remote poses that much later and they line up with their shots.
 ## Nothing is sent over the network for it, and nothing is recorded in Tactical (no respawns:
@@ -18,7 +20,9 @@ extends Node
 ## killer's eyes: their recorded eye, aim and stance drive this node's own camera and a Viewmodel
 ## built with the killer's outfit, skin, charm and camos (gun, kick, muzzle flash, reload, knife,
 ## throw), their shots draw tracers and impacts, and everyone else is a ghost Avatar at their
-## recorded pose (the local player's own ghost is labelled YOU). KillCamOverlay draws the KILLCAM
+## recorded pose (the local player's own ghost is labelled YOU). The mode draws its objectives at
+## their recorded state through replay_mark_state / replay_mark_carrier / replay_mark_pos and
+## replay_ghost (Capture the Flag puts a carried flag on the carrier's ghost). KillCamOverlay draws the KILLCAM
 ## banner, the skip key (`skip_killcam`) and progress. The replay ends END_MARGIN before the
 ## respawn at the latest: its length is the respawn delay minus START_DELAY and END_MARGIN, at
 ## most MAX_LEN, and none plays under MIN_LEN; a respawn, the end of the match or the skip key
@@ -37,6 +41,8 @@ const FRAMES := 152
 const SLOTS := 16
 ## Projectiles recorded per frame.
 const PROJ := 8
+## Mode objectives recorded per frame (Capture the Flag's two flags).
+const MARKS := 2
 ## Effect events kept (shots of a full lobby over a few seconds).
 const EVENTS := 512
 const START_DELAY := 0.8
@@ -78,6 +84,10 @@ class Tape:
 	var proj_id := PackedInt32Array()
 	var proj_kind := PackedInt32Array()
 	var proj_pos := PackedVector3Array()
+	## Per frame and mode objective: its state (-1: none), carrier entity id and position.
+	var mark_state := PackedInt32Array()
+	var mark_carrier := PackedInt32Array()
+	var mark_pos := PackedVector3Array()
 	var ev_cap := 0
 	var ev_count := 0
 	var ev_head := 0
@@ -105,6 +115,9 @@ class Tape:
 		proj_id.resize(m)
 		proj_kind.resize(m)
 		proj_pos.resize(m)
+		mark_state.resize(cap * MARKS)
+		mark_carrier.resize(cap * MARKS)
+		mark_pos.resize(cap * MARKS)
 		ev_time.resize(ev_cap)
 		ev_kind.resize(ev_cap)
 		ev_eid.resize(ev_cap)
@@ -139,6 +152,8 @@ class Tape:
 		var pb := f * proj
 		for k in proj:
 			proj_id[pb + k] = 0
+		for k in MARKS:
+			mark_state[f * MARKS + k] = -1
 		return f
 
 	func add_event(t: float, kind: int, eid: int, arg: int, a: Vector3, b: Vector3) -> void:
@@ -196,6 +211,10 @@ class Tape:
 				proj_id[dp + k] = src.proj_id[op + k]
 				proj_kind[dp + k] = src.proj_kind[op + k]
 				proj_pos[dp + k] = src.proj_pos[op + k]
+			for k in MARKS:
+				mark_state[f * MARKS + k] = src.mark_state[sf * MARKS + k]
+				mark_carrier[f * MARKS + k] = src.mark_carrier[sf * MARKS + k]
+				mark_pos[f * MARKS + k] = src.mark_pos[sf * MARKS + k]
 			if src.times[sf] > t_to:
 				break
 		for j in src.ev_count:
@@ -234,6 +253,8 @@ var _t0 := 0.0
 var _started_at := 0.0
 var _ev_next := 0
 var _frames_played := 0
+## The replayed moment (World.now() time of the recording) of the current replay frame.
+var _replay_t := 0.0
 
 var _root3d: Node3D
 var _cam: Camera3D
@@ -367,6 +388,11 @@ func _record(t: float) -> void:
 		_tape.proj_kind[pb + n] = KINDS.find(proj.kind)
 		_tape.proj_pos[pb + n] = proj.global_position
 		n += 1
+	var rules := world.rules
+	for k in mini(rules.replay_mark_count(), MARKS):
+		_tape.mark_state[f * MARKS + k] = rules.replay_mark_state(k)
+		_tape.mark_carrier[f * MARKS + k] = rules.replay_mark_carrier(k)
+		_tape.mark_pos[f * MARKS + k] = rules.replay_mark_pos(k)
 
 
 func _slot(eid: int, t: float) -> int:
@@ -647,12 +673,43 @@ func _hide_live_projectiles() -> void:
 		(world.projectiles[pid] as Node3D).visible = false
 
 
+## While a replay plays: the recorded state of mode objective `k` at the replayed moment (-1: none
+## recorded), its carrier's entity id and its position (MatchMode.replay_mark_*).
+func replay_mark_state(k: int) -> int:
+	return _play.mark_state[_mark_frame() * MARKS + k] if _playing and k < MARKS and _play.count > 0 else -1
+
+
+func replay_mark_carrier(k: int) -> int:
+	return _play.mark_carrier[_mark_frame() * MARKS + k] if _playing and k < MARKS and _play.count > 0 else 0
+
+
+func replay_mark_pos(k: int) -> Vector3:
+	return _play.mark_pos[_mark_frame() * MARKS + k] if _playing and k < MARKS and _play.count > 0 else Vector3.ZERO
+
+
+## Ring index of the replay frame at or before the replayed moment.
+func _mark_frame() -> int:
+	return _play.at(maxi(0, _play.find(_replay_t)))
+
+
+## While a replay plays: the ghost avatar standing in for `eid` (null for the killer, whose eyes the
+## replay looks through, and for anyone not shown).
+func replay_ghost(eid: int) -> Avatar:
+	if not _playing or eid == _killer:
+		return null
+	for s in SLOTS:
+		if _g_eid[s] == eid and _ghosts[s] != null and _ghosts[s].visible:
+			return _ghosts[s]
+	return null
+
+
 func _step(delta: float) -> void:
 	var r := World.now() - _started_at
 	if r >= _len:
 		_finish("end")
 		return
 	var t := _t0 + r
+	_replay_t = t
 	_frames_played += 1
 	_overlay.set_progress(r / _len)
 	_hide_live_projectiles()
