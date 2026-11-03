@@ -1,9 +1,9 @@
 extends Control
 ## Main menu root: 3D backdrop (MenuBackdrop), persistent top bar (coins, level), home screen and
-## the sub-screens (match setup, join, shop, locker, stats, challenges, achievements, settings)
-## with tweened transitions. Home keeps the 3D scene clear in the middle: logo top left; STATS,
-## CHALLENGES, ACHIEVEMENTS chips and round SETTINGS / QUIT icons top right; the player card
-## bottom left; LOCKER and SHOP cards beside a big PLAY bottom right. PLAY pops up a panel (vs
+## the sub-screens (match setup, join, shop, locker, stats, challenges, achievements, season,
+## settings) with tweened transitions. Home keeps the 3D scene clear in the middle: logo top left;
+## STATS, CHALLENGES, ACHIEVEMENTS, SEASON chips and round SETTINGS / QUIT icons top right; the
+## player card bottom left; LOCKER and SHOP cards beside a big PLAY bottom right. PLAY pops up a panel (vs
 ## bots / host / join / Firing Range / tutorial). A new profile (Profile.tutorial_offered false)
 ## is offered the tutorial once, over the home screen.
 
@@ -31,6 +31,7 @@ var _name_edit: LineEdit
 var _daily_button: Button
 var _play_button: MenuTile
 var _challenges_button: MenuTile
+var _season_button: MenuTile
 ## Home: every focusable home control (they leave the focus chain while the PLAY panel is open),
 ## the PLAY panel, and the control to focus when home shows again.
 var _home_controls: Array[Control] = []
@@ -268,6 +269,8 @@ func _get_screen(screen_name: String) -> Control:
 			s = ChallengesScreen.new()
 		"achievements":
 			s = AchievementsScreen.new()
+		"season":
+			s = SeasonScreen.new()
 		"settings":
 			s = _build_settings_screen()
 	s.visible = false
@@ -419,6 +422,7 @@ func _build_home() -> MenuScreen:
 	_add_chip(top, "stats", "STATS", func() -> void: go("stats"))
 	_challenges_button = _add_chip(top, "challenges", "CHALLENGES", func() -> void: go("challenges"))
 	_add_chip(top, "achievements", "ACHIEVEMENTS", func() -> void: go("achievements"))
+	_season_button = _add_chip(top, "season", "SEASON", func() -> void: go("season"))
 	var gap := Control.new()
 	gap.custom_minimum_size.x = 6
 	top.add_child(gap)
@@ -493,7 +497,7 @@ func _add_card(parent: Container, icon_id: String, text: String, variation: Stri
 	return t
 
 
-## STATS / CHALLENGES / ACHIEVEMENTS: a slim pill with a small icon.
+## STATS / CHALLENGES / ACHIEVEMENTS / SEASON: a slim pill with a small icon.
 func _add_chip(parent: Container, icon_id: String, text: String, action: Callable) -> MenuTile:
 	var t := MenuTile.new(text, icon_id, &"", 44.0, 14, UITheme.ACCENT, UITheme.TEXT, 2)
 	t.compact = true
@@ -673,6 +677,8 @@ func _refresh_profile() -> void:
 	var to_claim := Profile.claimable_challenges()
 	var badge := str(to_claim) if to_claim > 0 else ""
 	_challenges_button.set_badge(badge)
+	var tiers := Profile.claimable_season_tiers().size()
+	_season_button.set_badge(str(tiers) if tiers > 0 else "")
 	_refresh_daily()
 
 

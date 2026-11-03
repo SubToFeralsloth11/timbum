@@ -37,6 +37,8 @@ const ICONS := {
 		"#..###....#", "#...#.....#", "#.........#", "#.........#", "###########"],
 	"achievements": [".....#.....", ".....#.....", "....###....", "###########", ".#########.", "..#######..",
 		"...#####...", "..#######..", "..###.###..", ".##.....##.", ".#.......#."],
+	"season": ["##.........", "#####......", "########...", "##########.", "########...", "#####......",
+		"##.........", "#..........", "#..........", "#..........", "##........."],
 	"back": ["...........", "....#......", "...##......", "..###......", ".##########", "###########",
 		".##########", "..###......", "...##......", "....#......", "..........."],
 }
@@ -142,12 +144,18 @@ static func round_styles(b: Button, base: Color, pad := 16) -> void:
 ## Shows `value` in a gold pill on the right edge ("" hides it).
 func set_badge(value: String) -> void:
 	if compact:
-		# A bubble on the top-right corner instead, clear of the label.
+		# A small bubble on the top-right corner instead, clear of the label.
 		_badge.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
 		_badge.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 		_badge.grow_vertical = Control.GROW_DIRECTION_END
-		_badge.offset_top = -10
-		_badge.offset_right = 12
+		_badge.offset_top = -14
+		_badge.offset_right = 10
+		_badge_label.add_theme_font_size_override("font_size", 12)
+		var pill := _badge.get_theme_stylebox("panel") as StyleBoxFlat
+		pill.content_margin_left = 7
+		pill.content_margin_right = 7
+		pill.content_margin_top = 0
+		pill.content_margin_bottom = 0
 	_badge.visible = not value.is_empty()
 	_badge_label.text = value
 

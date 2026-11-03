@@ -283,9 +283,15 @@ func _fill_pickers() -> void:
 		_style_picker(o, row[0], _current(key))
 
 
-## A picker showing a Dev Pack piece gets the neon edge and text, like its shop card.
+## A picker showing a Dev Pack piece gets the neon edge and text, a season pass piece the season
+## colour, like their shop cards.
 static func _style_picker(o: OptionButton, category: String, id: String) -> void:
-	o.theme_type_variation = &"DevOptionButton" if UIKit.is_dev_item(category, id) else &""
+	if UIKit.is_dev_item(category, id):
+		o.theme_type_variation = &"DevOptionButton"
+	elif UIKit.is_season_item(category, id):
+		o.theme_type_variation = &"SeasonOptionButton"
+	else:
+		o.theme_type_variation = &""
 
 
 func _on_pick(key: String, idx: int) -> void:

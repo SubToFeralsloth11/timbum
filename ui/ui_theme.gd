@@ -345,6 +345,32 @@ static func _build() -> Theme:
 		var s := t.get_stylebox(st, "DevOptionButton") as StyleBoxFlat
 		s.border_color = Color(DevPack.NEON, 1.0 if st != "normal" else 0.6)
 		s.set_border_width_all(2)
+	# Season pass cards, tags and locker pickers: deep plum with a Season.COLOR edge.
+	t.set_type_variation("SeasonCardButton", "Button")
+	var sn := cn.duplicate() as StyleBoxFlat
+	sn.bg_color = Color(0.09, 0.05, 0.12, 0.95)
+	sn.border_color = Color(Season.COLOR, 0.55)
+	sn.set_border_width_all(2)
+	var sh := sn.duplicate() as StyleBoxFlat
+	sh.bg_color = Color(0.14, 0.07, 0.17, 0.95)
+	sh.border_color = Season.COLOR
+	var sp := sh.duplicate() as StyleBoxFlat
+	sp.bg_color = Color(0.2, 0.08, 0.22, 0.95)
+	sp.set_border_width_all(3)
+	t.set_stylebox("normal", "SeasonCardButton", sn)
+	t.set_stylebox("hover", "SeasonCardButton", sh)
+	t.set_stylebox("pressed", "SeasonCardButton", sp)
+	t.set_stylebox("hover_pressed", "SeasonCardButton", sp)
+	t.set_stylebox("disabled", "SeasonCardButton", sn)
+	t.set_stylebox("focus", "SeasonCardButton", _focus_box())
+	t.set_type_variation("SeasonBadgePanel", "PanelContainer")
+	t.set_stylebox("panel", "SeasonBadgePanel", chip_box(Color(0.12, 0.04, 0.14), Season.COLOR))
+	t.set_type_variation("SeasonOptionButton", "OptionButton")
+	_button_type(t, "SeasonOptionButton", Color("1c0c22"), 17, Season.COLOR, 14, 6)
+	for st: String in ["normal", "hover", "pressed", "hover_pressed"]:
+		var s := t.get_stylebox(st, "SeasonOptionButton") as StyleBoxFlat
+		s.border_color = Color(Season.COLOR, 1.0 if st != "normal" else 0.6)
+		s.set_border_width_all(2)
 
 	# Line edits
 	var le := round_box(Color(0.02, 0.025, 0.04, 0.7), Color(1, 1, 1, 0.08), 1, 10, 12)

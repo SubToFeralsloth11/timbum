@@ -123,6 +123,8 @@ func _claim(kind: String, index: int, from: Button) -> void:
 	var parts := ["+%s coins" % UIKit.format_int(int(got.coins))]
 	if int(got.xp) > 0:
 		parts.append("+%s XP" % UIKit.format_int(int(got.xp)))
+	if int(got.season_xp) > 0:
+		parts.append("+%s season XP" % UIKit.format_int(int(got.season_xp)))
 	if int(got.levels) > 0:
 		parts.append("level %d!" % Profile.level)
 	_say("Claimed: " + ", ".join(parts), UITheme.ACCENT)

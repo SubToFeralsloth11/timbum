@@ -7,7 +7,8 @@ extends MenuScreen
 ## The ATTACHMENTS tab sells upgrade levels instead of items (Data.ATTACHMENTS): one level at a
 ## time, each dearer than the last, applying to every gun.
 ## Dev Pack pieces (`dev: true`) get a neon-edged card and a CODE ONLY tag instead of a price and
-## no Buy button; owned, they equip like anything else.
+## no Buy button; season pass pieces (`season: true`) a Season.COLOR card and a SEASON · TIER N tag
+## (the tier that unlocks them, Season.item_tier). Owned, both equip like anything else.
 
 ## Group name -> its sub-tabs ([tab id, label]); a tab id is a Data catalog, or "melee".
 const GROUPS := {
@@ -229,8 +230,10 @@ func _show_category(tab: String) -> void:
 func _make_card(cat: String, id: String, group: ButtonGroup) -> Button:
 	var item: Dictionary = _items(cat)[id]
 	var dev := cat != "attachments" and UIKit.is_dev_item(cat, id)
-	# Dev Pack pieces: neon-edged black card and neon title, CODE ONLY instead of a price.
-	var card := UIKit.button("", &"DevCardButton" if dev else &"CardButton")
+	var season := cat != "attachments" and UIKit.is_season_item(cat, id)
+	# Dev Pack pieces: neon-edged black card and neon title, CODE ONLY instead of a price. Season
+	# pieces: the season colour and their tier.
+	var card := UIKit.button("", &"DevCardButton" if dev else (&"SeasonCardButton" if season else &"CardButton"))
 	card.toggle_mode = true
 	card.button_group = group
 	card.custom_minimum_size = Vector2(CARD_WIDTH, 168)
@@ -276,6 +279,8 @@ func _make_card(cat: String, id: String, group: ButtonGroup) -> Button:
 	title.clip_text = true
 	if dev:
 		title.add_theme_color_override("font_color", DevPack.NEON)
+	elif season:
+		title.add_theme_color_override("font_color", Season.COLOR)
 	name_row.add_child(title)
 	if cat != "attachments":
 		var colors := UIKit.item_colors(cat, id)
@@ -289,8 +294,9 @@ func _make_card(cat: String, id: String, group: ButtonGroup) -> Button:
 	return card
 
 
-## Returns a Callable building the icon model, or an invalid Callable for "no item".
-func _thumb_builder(cat: String, id: String) -> Callable:
+## Returns a Callable building the icon model, or an invalid Callable for "no item". Also the
+## season screen's reward thumbnails.
+static func _thumb_builder(cat: String, id: String) -> Callable:
 	match cat:
 		"weapons":
 			return func() -> Node3D: return Models.build_gun(id, "default")
@@ -335,6 +341,8 @@ func _refresh_cards() -> void:
 			foot.add_child(owned)
 		elif UIKit.is_dev_item(_category, id):
 			foot.add_child(UIKit.code_only_badge())
+		elif UIKit.is_season_item(_category, id):
+			foot.add_child(UIKit.season_badge(Season.item_tier(_category, id)))
 		else:
 			var price := UIKit.coin_amount(Profile.price_of(_category, id), 16)
 			if Profile.coins < Profile.price_of(_category, id):
@@ -382,13 +390,15 @@ func _select(id: String) -> void:
 	_preview.show_model(_preview_model(cat, id), pedestal, _yaw_for(cat), 1.15 if gun else 0.95)
 
 
-func _yaw_for(cat: String) -> float:
+static func _yaw_for(cat: String) -> float:
 	if cat == "sprays":
 		return SPRAY_YAW
 	return GUN_YAW if cat in ["weapons", "skins", "charms", "draws", "attachments"] else FRONT_YAW
 
 
-func _preview_model(cat: String, id: String) -> Node3D:
+## The detail panel's live model of an item, in the player's current gear (also the season
+## screen's preview).
+static func _preview_model(cat: String, id: String) -> Node3D:
 	match cat:
 		"weapons":
 			return Models.build_gun(id, Profile.gun_skin(id), Profile.equipped.charm)
@@ -429,8 +439,11 @@ func _refresh_detail() -> void:
 	for c in _price_row.get_children():
 		c.queue_free()
 	var dev := cat != "attachments" and UIKit.is_dev_item(cat, id)
+	var season := cat != "attachments" and UIKit.is_season_item(cat, id)
 	if dev:
 		_name.add_theme_color_override("font_color", DevPack.NEON)
+	elif season:
+		_name.add_theme_color_override("font_color", Season.COLOR)
 	else:
 		_name.remove_theme_color_override("font_color")
 	if cat == "attachments":
@@ -468,16 +481,22 @@ func _refresh_detail() -> void:
 			_kind.text = "SPRAY · PAINT IT ON A WALL WITH %s" % Profile.key_text("spray")
 	if dev:
 		_kind.text += " · THE DEV PACK"
+	elif season:
+		_kind.text += " · %s" % Season.title()
 	var owned := Profile.is_owned(cat, id)
 	var equipped := _is_equipped(id)
 	var price := Profile.price_of(cat, id)
-	_buy.visible = not owned and not dev
+	_buy.visible = not owned and not dev and not season
 	_equip.visible = owned and not equipped
 	_state.visible = equipped
 	_state.text = "EQUIPPED"
 	_state.add_theme_color_override("font_color", UITheme.GOOD)
 	if not owned and dev:
 		_price_row.add_child(UIKit.code_only_badge())
+	elif not owned and season:
+		var tier := Season.item_tier(cat, id)
+		_price_row.add_child(UIKit.season_badge(tier))
+		_desc.text += " Claim tier %d of the season pass (SEASON on the home screen) to unlock it." % tier
 	elif not owned:
 		_price_row.add_child(UIKit.coin_amount(price, 26))
 		var short := price - Profile.coins

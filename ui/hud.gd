@@ -320,6 +320,8 @@ var _vignette_alpha := 0.0
 var _pickup_t := 0.0
 var _scores_dirty := true
 const FEAT_TOAST_LIFE := 5.0
+## Title colour of challenge and achievement toasts (season tiers use Season.COLOR).
+const FEAT_COLOR := Color(1, 0.82, 0.25)
 ## Last entity to hold the lead outright (0 before anyone has); lead changes involving us are announced.
 var _last_leader := 0
 ## Each entry: [label, anchor pos, age, total damage, any headshot].
@@ -1673,8 +1675,8 @@ func callout(text: String, kind := "info", tint := Color(0, 0, 0, 0)) -> void:
 
 ## A challenge completed or an achievement unlocked mid-match: a gold-edged toast, over the
 ## results screen too.
-func feat_toast(title: String, text: String) -> void:
-	toast(title, text, Color(1, 0.82, 0.25), FEAT_TOAST_LIFE)
+func feat_toast(title: String, text: String, color := FEAT_COLOR) -> void:
+	toast(title, text, color, FEAT_TOAST_LIFE)
 	Sfx.play(&"level_up", null, -4.0)
 
 
@@ -1966,8 +1968,25 @@ func _fill_rewards(rewards: Dictionary) -> void:
 	_results_rewards.add_child(_label("Total", 17, green, true))
 	_results_rewards.add_child(_label("+%d" % int(rewards.coins), 17, Color(1, 0.82, 0.25), true))
 	_results_rewards.add_child(_label("+%d" % int(rewards.xp), 17, green, true))
+	_fill_season_row(rewards.get("season", {}))
 	if int(rewards.levels_gained) > 0:
 		Sfx.play(&"level_up")
+
+
+## Under the total, one row: the season XP the match earned (Profile._add_season_xp) and the tier
+## progress ("Season tier 7 · 450/1000", "TIER 8 REACHED!" on a tier-up, "pass complete" at the end).
+func _fill_season_row(season: Dictionary) -> void:
+	if season.is_empty():
+		return
+	var tier := int(season.tier)
+	var line := "Season tier %d · %d/%d" % [tier, int(season.progress), Season.XP_PER_TIER]
+	if tier >= Season.TIERS:
+		line = "Season tier %d · pass complete" % tier
+	if not (season.reached as Array).is_empty():
+		line = "Season: TIER %d REACHED!" % tier
+	_results_rewards.add_child(_label(line, 15, Season.COLOR, true))
+	_results_rewards.add_child(_label("", 15))
+	_results_rewards.add_child(_label("+%d SXP" % int(season.xp), 15, Season.COLOR, true))
 
 
 # ---------------------------------------------------------------- input

@@ -102,6 +102,19 @@ static func code_only_badge() -> PanelContainer:
 	return p
 
 
+## True for a season pass piece (catalog entry with `season: true`): never sold, unlocked by
+## claiming its tier (Season.item_tier).
+static func is_season_item(category: String, id: String) -> bool:
+	return bool(Data.catalog(category).get(id, {}).get("season", false))
+
+
+## The tag a season piece shows instead of a price: "SEASON · TIER 25".
+static func season_badge(tier: int) -> PanelContainer:
+	var p := badge("SEASON · TIER %d" % tier, &"SeasonBadgePanel")
+	(p.get_child(0) as Label).add_theme_color_override("font_color", Season.COLOR)
+	return p
+
+
 ## Pixel-art coin icon.
 static func coin_icon() -> Texture2D:
 	if _coin == null:

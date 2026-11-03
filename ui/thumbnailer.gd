@@ -4,8 +4,11 @@ extends Node
 ## Usage: add a Thumbnailer to the tree, then `request(key, builder, on_ready)` where
 ## `builder` returns a fresh Node3D and `on_ready(texture)` receives the icon.
 
-## Wide icons suit guns; tall items are simply height-limited.
+## Wide icons suit guns; tall items are simply height-limited. `size` (set before adding the node)
+## overrides it, e.g. the season screen's taller cards; use cache keys of their own then.
 const SIZE := Vector2i(256, 128)
+
+var size := SIZE
 
 static var _cache := {}
 
@@ -17,7 +20,7 @@ var _busy := false
 
 func _ready() -> void:
 	_viewport = SubViewport.new()
-	_viewport.size = SIZE
+	_viewport.size = size
 	_viewport.own_world_3d = true
 	_viewport.transparent_bg = true
 	_viewport.msaa_3d = Viewport.MSAA_4X
