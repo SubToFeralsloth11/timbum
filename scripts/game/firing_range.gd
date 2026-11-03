@@ -289,11 +289,14 @@ func on_local_shot(p: Player, wid: String, ends: PackedVector3Array, hits: Dicti
 	readout.last_wid = wid
 	readout.last_dmg = best_dmg
 	readout.last_head = head
-	readout.last_dist = _hit_distance(p, best, ends)
+	# Hitscan records the eye-to-hit distance it used for damage (a piercing beam's end is the
+	# block behind the dummy, not the dummy); melee hits only have the ends.
+	var entry: Array = hits[best]
+	readout.last_dist = float(entry[2]) if entry.size() > 2 else _hit_distance(p, best, ends)
 	readout.last_pellets = _pellets_on(best, ends)
 
 
-## Eye-to-hit distance (what Player.damage_at used) of the pellet that hit `target` closest to it.
+## Eye-to-hit distance of the end that stopped closest to `target` (melee).
 func _hit_distance(p: Player, target_id: int, ends: PackedVector3Array) -> float:
 	var target: Player = world.entities.get(target_id)
 	var eye := p.head.global_position

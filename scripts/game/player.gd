@@ -1528,8 +1528,9 @@ func _spread_dir(b: Basis, spread_deg: float) -> Vector3:
 
 ## Hitscan pellets from `aim`. A pellet stops at the first world block or player; a `pierce`
 ## weapon (the Rail Cube) passes through players, nearest first, until it has hit `pierce` of them
-## or a block stops it, and reports one end per pellet (where the beam stopped). A charge
-## weapon's damage scales with the charge the shot was released at (_shot_charge).
+## or a block stops it, and reports one end per pellet (where the beam stopped). `hits` maps a
+## target id to [damage, any headshot, nearest hit distance from the eye]. A charge weapon's damage
+## scales with the charge the shot was released at (_shot_charge).
 func _fire_hitscan(wid: String, w: Dictionary, aim: Transform3D) -> void:
 	var spread := current_spread()
 	var space := get_world_3d().direct_space_state
@@ -1561,9 +1562,10 @@ func _fire_hitscan(wid: String, w: Dictionary, aim: Transform3D) -> void:
 				var is_head: bool = col.get_meta("part") == "head" or world.admin.head_for(self)
 				var dist: float = aim.origin.distance_to(r.position)
 				var dmg := damage_at(w, dist, mod("barrel")) * mult * (float(w.head_mult) if is_head else 1.0)
-				var entry: Array = hits.get(target.id, [0.0, false])
+				var entry: Array = hits.get(target.id, [0.0, false, dist])
 				entry[0] += dmg
 				entry[1] = entry[1] or is_head
+				entry[2] = minf(entry[2], dist)
 				hits[target.id] = entry
 				struck += 1
 			if struck >= pierce or pierce <= 1:
