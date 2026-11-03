@@ -173,6 +173,9 @@ var tutorial_paid := false
 var season_id := Season.ID
 var season_xp := 0
 var season_claimed: Array = []
+## The game version whose update log (WhatsNew) the player has closed. Empty in a new profile and
+## in saves from before the log, so the main menu shows the log once after every update.
+var seen_version := ""
 
 ## Set to false by tests so they never touch the real save file.
 var persist := true
@@ -1001,6 +1004,14 @@ func do_prestige() -> int:
 
 # ---------------------------------------------------------------- tutorial
 
+## The update log for `version` was closed: the main menu won't open it by itself again.
+func mark_version_seen(version: String) -> void:
+	if seen_version == version:
+		return
+	seen_version = version
+	save()
+
+
 ## The main menu's first-launch offer was answered (or the tutorial started): don't ask again.
 func mark_tutorial_offered() -> void:
 	if tutorial_offered:
@@ -1265,6 +1276,7 @@ func _payload() -> Dictionary:
 		"loadout_presets": loadout_presets, "active_preset": active_preset,
 		"tutorial_offered": tutorial_offered, "tutorial_paid": tutorial_paid,
 		"season_id": season_id, "season_xp": season_xp, "season_claimed": season_claimed,
+		"seen_version": seen_version,
 	}
 
 
@@ -1521,6 +1533,8 @@ func load_from_dict(d: Dictionary) -> void:
 				if t >= 1 and t <= season_tier() and not season_claimed.has(t):
 					season_claimed.append(t)
 		season_claimed.sort()
+	var seen: Variant = d.get("seen_version", "")
+	seen_version = seen if typeof(seen) == TYPE_STRING else ""
 	# Saves from before achievements: what their stats already reach unlocks now.
 	_unlock_achievements()
 	_load_pad_bindings(d.get("pad_bindings", {}))

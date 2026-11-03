@@ -4,8 +4,9 @@ extends Control
 ## settings) with tweened transitions. Home keeps the 3D scene clear in the middle: logo top left;
 ## STATS, CHALLENGES, ACHIEVEMENTS, SEASON chips and round SETTINGS / QUIT icons top right; the
 ## player card bottom left; LOCKER and SHOP cards beside a big PLAY bottom right. PLAY pops up a panel (vs
-## bots / host / join / Firing Range / tutorial). A new profile (Profile.tutorial_offered false)
-## is offered the tutorial once, over the home screen.
+## bots / host / join / Firing Range / tutorial). After every update the update log (WhatsNew)
+## opens once over the home screen; a new profile (Profile.tutorial_offered false) is then offered
+## the tutorial once.
 
 const TRANSITION := 0.22
 ## Height of the bottom-right dock (LOCKER, SHOP, PLAY) and the other compact buttons.
@@ -39,6 +40,8 @@ var _flyout: PanelContainer
 var _home_focus: Control
 ## The first-launch tutorial offer (null once answered).
 var tutorial_offer: Control
+## The update log while it is open (null otherwise).
+var whats_new: WhatsNew
 
 
 func _ready() -> void:
@@ -78,7 +81,9 @@ func _ready() -> void:
 	if int(carried.coins) > 0:
 		toast.call_deferred("UNCLAIMED CHALLENGES PAID: +%d COINS" % int(carried.coins), UITheme.ACCENT)
 	_refresh_profile()
-	if not Profile.tutorial_offered:
+	if WhatsNew.should_show():
+		open_whats_new()
+	elif not Profile.tutorial_offered:
 		_add_tutorial_offer()
 	else:
 		_play_button.grab_focus.call_deferred()
@@ -110,10 +115,12 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 
-## Esc / B: closes the tutorial offer, leaves the current screen or closes the PLAY flyout.
-## Returns false when there was nothing to close.
+## Esc / B: closes the update log or the tutorial offer, leaves the current screen or closes the
+## PLAY flyout. Returns false when there was nothing to close.
 func _cancel() -> bool:
-	if tutorial_offer != null:
+	if whats_new != null:
+		whats_new.close()
+	elif tutorial_offer != null:
 		decline_tutorial()
 	elif _current != _screens["home"]:
 		(_current as MenuScreen).back_requested.emit()
@@ -138,6 +145,27 @@ func decline_tutorial() -> void:
 		tutorial_offer = null
 	_refresh_daily()
 	_play_button.grab_focus.call_deferred()
+
+
+## The update log over the home screen (by itself once per version, or the version button).
+## Closing it goes on to the tutorial offer for a new profile, else back to the home screen.
+func open_whats_new() -> void:
+	if whats_new != null:
+		return
+	_close_flyout(false)
+	whats_new = WhatsNew.new()
+	whats_new.closed.connect(_on_whats_new_closed)
+	add_child(whats_new)
+	_refresh_daily()
+
+
+func _on_whats_new_closed() -> void:
+	whats_new = null
+	if not Profile.tutorial_offered:
+		_add_tutorial_offer()
+		return
+	_refresh_daily()
+	_focus_home.call_deferred()
 
 
 func _add_tutorial_offer() -> void:
@@ -183,8 +211,12 @@ func go(screen_name: String) -> void:
 	var next := _get_screen(screen_name)
 	if next == _current:
 		return
-	# Going anywhere from under the first-launch offer (keyboard/controller focus can reach the home
-	# buttons behind it) answers it with NOT NOW, so the offer can't swallow that screen's Esc.
+	# Going anywhere from under the update log or the first-launch offer (keyboard/controller focus
+	# can reach the home buttons behind them) closes it, so it can't swallow that screen's Esc.
+	if whats_new != null:
+		whats_new.closed.disconnect(_on_whats_new_closed)
+		whats_new.close()
+		whats_new = null
 	if tutorial_offer != null:
 		decline_tutorial()
 	# Toasts belong to the screen that raised them; don't let one cover the next page.
@@ -468,10 +500,19 @@ func _build_home() -> MenuScreen:
 	])
 	home.add_child(_flyout)
 
-	var version := UIKit.label("v%s" % ProjectSettings.get_setting("application/config/version", "1.0"), &"SmallLabel")
+	# Bottom left, under the player card: the version, which opens the update log.
+	var version := UIKit.button("v%s  ·  WHAT'S NEW" % WhatsNew.current_version())
+	version.name = "VersionButton"
+	version.flat = true
+	version.focus_mode = Control.FOCUS_NONE
+	version.add_theme_font_size_override("font_size", 13)
+	version.add_theme_color_override("font_color", UITheme.TEXT_DIM)
+	version.add_theme_color_override("font_hover_color", UITheme.ACCENT)
 	version.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
-	version.offset_left = 18
-	version.offset_top = -26
+	version.offset_left = 30
+	version.offset_top = -34
+	version.offset_bottom = -4
+	version.pressed.connect(open_whats_new)
 	home.add_child(version)
 	return home
 
@@ -685,7 +726,7 @@ func _refresh_profile() -> void:
 ## The daily reward button; hidden while the first-launch tutorial offer is open, so a new player's
 ## first screen offers the tutorial, not a coin claim (it shows once the offer is answered).
 func _refresh_daily() -> void:
-	_daily_button.visible = tutorial_offer == null
+	_daily_button.visible = tutorial_offer == null and whats_new == null
 	if Profile.can_claim_daily():
 		_daily_button.disabled = false
 		_daily_button.text = "CLAIM DAILY REWARD  +%d" % Data.DAILY_REWARD
