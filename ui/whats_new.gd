@@ -305,7 +305,7 @@ func _build_footer() -> Control:
 	return h
 
 
-## Shows page `index` (clamped) and marks its tab.
+## Shows page `index` (clamped), marks its tab and rewires the focus neighbours (_wire_focus).
 func show_page(index: int, animate := true) -> void:
 	_page = clampi(index, 0, SECTIONS.size() - 1)
 	var s: Dictionary = SECTIONS[_page]
@@ -324,12 +324,40 @@ func show_page(index: int, animate := true) -> void:
 	_count.text = "%d / %d" % [_page + 1, SECTIONS.size()]
 	_prev.disabled = _page == 0
 	_next.disabled = _page == SECTIONS.size() - 1
+	_wire_focus()
 	if animate:
 		if _page_tween != null:
 			_page_tween.kill()
 		_body.modulate.a = 0.0
 		_page_tween = create_tween()
 		_page_tween.tween_property(_body, "modulate:a", 1.0, 0.18)
+
+
+## Keeps keyboard / controller focus inside the log: down the tab list (the last tab down, and
+## any tab right, goes to the footer: NEXT, or GOT IT on the last page), along the footer's
+## enabled buttons (left from the first goes back to the current tab, up from any of them too).
+## A footer button that this page disables hands its focus on (PREV to NEXT, NEXT to GOT IT).
+func _wire_focus() -> void:
+	var foot: Button = _got_it if _next.disabled else _next
+	var tab := _tabs[_page]
+	for j: int in _tabs.size():
+		var t := _tabs[j]
+		t.focus_neighbor_left = t.get_path_to(t)
+		t.focus_neighbor_right = t.get_path_to(foot)
+		t.focus_neighbor_top = t.get_path_to(_tabs[j - 1] if j > 0 else t)
+		t.focus_neighbor_bottom = t.get_path_to(_tabs[j + 1] if j + 1 < _tabs.size() else foot)
+	var row: Array[Button] = []
+	for b: Button in [_prev, _next, _got_it]:
+		if not b.disabled:
+			row.append(b)
+	for b: Button in [_prev, _next, _got_it]:
+		var k := row.find(b)
+		b.focus_neighbor_top = b.get_path_to(tab)
+		b.focus_neighbor_bottom = b.get_path_to(b)
+		b.focus_neighbor_left = b.get_path_to(row[k - 1] if k > 0 else tab)
+		b.focus_neighbor_right = b.get_path_to(row[k + 1] if k >= 0 and k + 1 < row.size() else b)
+	if _prev.disabled and _prev.has_focus() or _next.disabled and _next.has_focus():
+		foot.grab_focus.call_deferred()
 
 
 func page() -> int:

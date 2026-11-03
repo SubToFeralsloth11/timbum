@@ -33,8 +33,8 @@ var _daily_button: Button
 var _play_button: MenuTile
 var _challenges_button: MenuTile
 var _season_button: MenuTile
-## Home: every focusable home control (they leave the focus chain while the PLAY panel is open),
-## the PLAY panel, and the control to focus when home shows again.
+## Home: every focusable home control (they leave the focus chain while the PLAY panel, the update
+## log or the tutorial offer is open), the PLAY panel, and the control to focus when home shows again.
 var _home_controls: Array[Control] = []
 var _flyout: PanelContainer
 var _home_focus: Control
@@ -143,8 +143,16 @@ func decline_tutorial() -> void:
 	if tutorial_offer != null:
 		tutorial_offer.queue_free()
 		tutorial_offer = null
+	_set_home_focusable(true)
 	_refresh_daily()
 	_play_button.grab_focus.call_deferred()
+
+
+## While the update log or the tutorial offer covers home, its controls (the top-right chips
+## included) leave the focus chain, as for the PLAY panel, so the D-pad stays inside the overlay.
+func _set_home_focusable(on: bool) -> void:
+	for c in _home_controls:
+		c.focus_mode = Control.FOCUS_ALL if on else Control.FOCUS_NONE
 
 
 ## The update log over the home screen (by itself once per version, or the version button).
@@ -153,6 +161,7 @@ func open_whats_new() -> void:
 	if whats_new != null:
 		return
 	_close_flyout(false)
+	_set_home_focusable(false)
 	whats_new = WhatsNew.new()
 	whats_new.closed.connect(_on_whats_new_closed)
 	add_child(whats_new)
@@ -164,11 +173,13 @@ func _on_whats_new_closed() -> void:
 	if not Profile.tutorial_offered:
 		_add_tutorial_offer()
 		return
+	_set_home_focusable(true)
 	_refresh_daily()
 	_focus_home.call_deferred()
 
 
 func _add_tutorial_offer() -> void:
+	_set_home_focusable(false)
 	tutorial_offer = Control.new()
 	tutorial_offer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	tutorial_offer.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -211,12 +222,13 @@ func go(screen_name: String) -> void:
 	var next := _get_screen(screen_name)
 	if next == _current:
 		return
-	# Going anywhere from under the update log or the first-launch offer (keyboard/controller focus
-	# can reach the home buttons behind them) closes it, so it can't swallow that screen's Esc.
+	# Going anywhere from under the update log or the first-launch offer (a mouse click or a
+	# script; focus can't leave them) closes it, so it can't swallow that screen's Esc.
 	if whats_new != null:
 		whats_new.closed.disconnect(_on_whats_new_closed)
 		whats_new.close()
 		whats_new = null
+		_set_home_focusable(true)
 	if tutorial_offer != null:
 		decline_tutorial()
 	# Toasts belong to the screen that raised them; don't let one cover the next page.
