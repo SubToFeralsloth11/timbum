@@ -120,7 +120,7 @@ void fragment() {
 	float c = clamp(charge, 0.0, 1.0);
 	float pulse = 0.75 + 0.25 * sin(TIME * (8.0 + 30.0 * c));
 	vec3 col = mix(vec3(0.2, 0.55, 1.0), vec3(0.75, 0.97, 1.0), c * c);
-	ALBEDO = col * c * pulse * (c >= 0.999 ? 1.6 : 1.0);
+	ALBEDO = col * c * pulse * (c >= 0.999 ? 0.7 : 0.45);
 }
 """
 static var _charge_glow_mats: Array[ShaderMaterial] = [null, null]
@@ -1464,13 +1464,15 @@ static func _gun_cube_lobber(k: MeshKit) -> Dictionary:
 	k.box(METAL, Vector3(0, 0.05, -0.455), Vector3(0.096, 0.096, 0.02))
 	k.box(RED, Vector3(0, 0.0955, -0.36), Vector3(0.022, 0.002, 0.15))
 	k.box(DARK, Vector3(0, -0.04, -0.33), Vector3(0.032, 0.085, 0.036))
-	# Ladder sight on the receiver, a post on the front band.
-	k.box(METAL, Vector3(0.014, 0.09, 0.05), Vector3(0.006, 0.032, 0.01))
-	k.box(METAL, Vector3(-0.014, 0.09, 0.05), Vector3(0.006, 0.032, 0.01))
-	k.box(METAL, Vector3(0, 0.1, 0.05), Vector3(0.034, 0.005, 0.01))
-	k.box(METAL, Vector3(0, 0.112, -0.455), Vector3(0.006, 0.028, 0.008))
+	# Tall ladder sight on the receiver and a tall post on the front band, so aiming looks over
+	# the drum instead of into the back of the receiver.
+	k.box(METAL, Vector3(0.016, 0.11, 0.05), Vector3(0.006, 0.07, 0.01))
+	k.box(METAL, Vector3(-0.016, 0.11, 0.05), Vector3(0.006, 0.07, 0.01))
+	k.box(METAL, Vector3(0, 0.1, 0.05), Vector3(0.038, 0.005, 0.01))
+	k.box(METAL, Vector3(0, 0.124, 0.05), Vector3(0.038, 0.005, 0.01))
+	k.box(METAL, Vector3(0, 0.13, -0.455), Vector3(0.006, 0.064, 0.008))
 	_trigger(k, -0.012)
-	return {"muzzle": Vector3(0, 0.05, -0.475), "sight": Vector3(0, 0.116, 0.055),
+	return {"muzzle": Vector3(0, 0.05, -0.475), "sight": Vector3(0, 0.152, 0.055),
 		"support": Vector3(0, -0.05, -0.33)}
 
 
@@ -1546,16 +1548,18 @@ static func _melee_pixel_scythe(k: MeshKit) -> Dictionary:
 	k.box(DARK, Vector3(0.04, 0, -0.3), Vector3(0.07, 0.022, 0.022))
 	k.box(DARK, Vector3(0.07, 0, -0.3), Vector3(0.02, 0.022, 0.05))
 	k.box(METAL, Vector3(0, 0, -0.66), Vector3(0.04, 0.042, 0.05))
-	# Blade: segments stepping out to -X and curving back towards the grip.
+	# Blade: segments hanging down and out to the left from the collar, curving back towards the
+	# grip, tilted so both the side (shop, other players) and the first-person view see its face.
+	var tilt := -0.45
+	var down := Vector3(sin(tilt), -cos(tilt), 0.0)
 	var tip := Vector3.ZERO
 	for i in 6:
-		var x := -0.05 - i * 0.062
-		var z := -0.67 + i * i * 0.0075
-		var depth := 0.06 - i * 0.007
-		k.box(BODY, Vector3(x, 0, z), Vector3(0.066, 0.012, depth))
-		k.box(LENS, Vector3(x, 0, z + depth * 0.5 + 0.003), Vector3(0.066, 0.0125, 0.008))
-		tip = Vector3(x - 0.033, 0, z)
-	k.box(METAL, Vector3(-0.025, 0, -0.67), Vector3(0.03, 0.016, 0.07))
+		var at := Vector3(0, -0.02, -0.67) + down * (0.04 + i * 0.062) + Vector3(0, 0, i * i * 0.008)
+		var depth := 0.07 - i * 0.008
+		k.box(BODY, at, Vector3(0.014, 0.066, depth), Vector3(0, 0, tilt))
+		k.box(LENS, at + Vector3(0, 0, depth * 0.5 + 0.004), Vector3(0.015, 0.066, 0.008), Vector3(0, 0, tilt))
+		tip = at + down * 0.033
+	k.box(METAL, Vector3(0, -0.02, -0.67), Vector3(0.036, 0.05, 0.07))
 	return {"muzzle": tip, "sight": Vector3(0, 0.04, 0.0), "support": null}
 
 

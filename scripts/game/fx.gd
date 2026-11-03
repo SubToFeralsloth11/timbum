@@ -26,7 +26,7 @@ const BLOCK_DEBRIS_AMOUNT := 48
 const BEAM_POOL := 6
 const BEAM_LIFE := 0.5
 const BEAM_CORE := 0.035
-const BEAM_GLOW := 0.16
+const BEAM_GLOW := 0.2
 
 ## A beam's core and glow: flat additive colour; `fade` (1 -> 0 over BEAM_LIFE) per instance.
 const BEAM_SHADER := """
@@ -215,7 +215,7 @@ func _make_beams() -> void:
 		var root := Node3D.new()
 		root.visible = false
 		add_child(root)
-		for part: Array in [["Core", BEAM_CORE, Color(0.85, 0.97, 1.0), 2.2], ["Glow", BEAM_GLOW, Color(0.25, 0.65, 1.0), 0.6]]:
+		for part: Array in [["Core", BEAM_CORE, Color(0.85, 0.97, 1.0), 3.0], ["Glow", BEAM_GLOW, Color(0.25, 0.65, 1.0), 1.0]]:
 			var mat := ShaderMaterial.new()
 			mat.shader = shader
 			mat.set_shader_parameter("tint", part[2])
