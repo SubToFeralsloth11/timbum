@@ -33,6 +33,8 @@ const NAME_MAX := 24
 const KILL_DEPTH := 8.0
 ## A jump pad's arc apex above the higher of pad and landing (JumpPad.setup).
 const PAD_RISE := 3.0
+## Why a spot fails the bot rules (`unreachable`), appended to its message.
+const BOT_RULES := " (bots only walk on the level, through gaps two blocks wide, and take jump pads)."
 ## Largest deflated map (network payload) and inflated JSON text accepted.
 const MAX_PAYLOAD := 1 << 20
 const MAX_TEXT := 8 << 20
@@ -255,9 +257,11 @@ static func validate(map: Dictionary) -> PackedStringArray:
 
 ## Why Capture the Flag can't be played on `map` (empty when it can; the map itself must pass
 ## validate() first): both flag stands (Map Editor FLAGS tool) on a solid floor with room above,
-## at least CaptureTheFlag.MIN_STAND_GAP apart and reachable on foot from spawn 1; with no stands
-## placed, two spawns that far apart stand in for them (CaptureTheFlag.spawn_stands). Match setup
-## doesn't offer the map for the mode and Net.load_map won't start it there.
+## at least CaptureTheFlag.MIN_STAND_GAP apart, reachable on foot from spawn 1, and each stand
+## reachable from the other under the bots' rules (`unreachable`), else bots never take or bring
+## home a flag; with no stands placed, two spawns that far apart stand in for them
+## (CaptureTheFlag.spawn_stands). Match setup doesn't offer the map for the mode and Net.load_map
+## won't start it there.
 static func ctf_problems(map: Dictionary) -> PackedStringArray:
 	var out := PackedStringArray()
 	var flags: Array = map.flags
@@ -287,16 +291,22 @@ static func ctf_problems(map: Dictionary) -> PackedStringArray:
 		for f: Dictionary in flags:
 			if not flood.reached(f.pos):
 				out.append("%s's flag stand can't be reached from spawn 1." % Teams.name_of(int(f.team)))
+		if out.is_empty():
+			for team in 2:
+				var from: Vector3 = flags[flag_of(map, team)].pos
+				var to: Vector3 = flags[flag_of(map, 1 - team)].pos
+				if not _Flood.new(map, true, from).reached(to):
+					out.append("Bots can't get from %s's flag stand to %s's%s" % [Teams.name_of(team), Teams.name_of(1 - team), BOT_RULES])
 	return out
 
 
-## The spawns, pickups and jump pads that can't be reached from spawn 1, as messages. Expects
-## validate()'s spot checks to pass. Player rules make a map unplayable (validate); bot rules are
-## advice the Map Editor shows on a playable map. A flood fill over the cells feet can stand in
-## (a full block below, two air cells for feet and head), with jump pads as one-way links from
-## the pad cell to the landing cell. Player rules (`bots` false): step to a neighbour on the
-## same level, jump up one block (with head room over the take-off cell), or drop down any
-## height onto a floor.
+## The spawns, pickups and jump pads (with `bots`, the flag stands too) that can't be reached from
+## spawn 1, as messages. Expects validate()'s spot checks to pass. Player rules make a map
+## unplayable (validate); bot rules are advice the Map Editor shows on a playable map. A flood fill
+## over the cells feet can stand in (a full block below, two air cells for feet and head), with
+## jump pads as one-way links from the pad cell to the landing cell. Player rules (`bots` false):
+## step to a neighbour on the same level, jump up one block (with head room over the take-off
+## cell), or drop down any height onto a floor.
 ## Bot rules (`bots` true) are the navmesh's (MapBuilder.navigation_mesh): it climbs at most
 ## 0.25 m and links no drops, so bots only walk on the level; its 0.5 m agent radius erodes a
 ## one-block-wide strip (walls, ledges or low ceilings on both sides) away. A bot counts as
@@ -304,8 +314,7 @@ static func ctf_problems(map: Dictionary) -> PackedStringArray:
 static func unreachable(map: Dictionary, bots: bool) -> PackedStringArray:
 	var f := _Flood.new(map, bots)
 	var out := PackedStringArray()
-	var why := " (bots only walk on the level, through gaps two blocks wide, and take jump pads)." if bots \
-		else " (walking, jumping up one block, dropping down or taking a jump pad)."
+	var why := BOT_RULES if bots else " (walking, jumping up one block, dropping down or taking a jump pad)."
 	var lead := "Bots can't get from spawn 1 to %s" if bots else "%s can't be reached from spawn 1"
 	for i in range(1, map.spawns.size()):
 		if not f.reached(map.spawns[i]):
@@ -317,12 +326,17 @@ static func unreachable(map: Dictionary, bots: bool) -> PackedStringArray:
 	for i in map.jump_pads.size():
 		if not f.reached(map.jump_pads[i].pos):
 			out.append(lead % ("jump pad %d" % (i + 1) if bots else "Jump pad %d" % (i + 1)) + why)
+	if bots:
+		for fl: Dictionary in map.flags:
+			if not f.reached(fl.pos):
+				out.append(lead % ("%s's flag stand" % Teams.name_of(int(fl.team))) + why)
 	return out
 
 
-## The flood fill behind unreachable(): `seen` marks the cells reached from spawn 1 (by
-## VoxelGrid.index). Standable cells are worked out once each (`_memo`), reading the grid's
-## arrays directly, so a 96 x 96 map stays cheap enough to recheck after every edit.
+## The flood fill behind unreachable(): `seen` marks the cells reached from spawn 1 (or from
+## `start`, feet position, when given) by VoxelGrid.index. Standable cells are worked out once
+## each (`_memo`), reading the grid's arrays directly, so a 96 x 96 map stays cheap enough to
+## recheck after every edit.
 class _Flood:
 	const DIRS: Array[Vector2i] = [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
 	var seen := PackedByteArray()
@@ -336,7 +350,7 @@ class _Flood:
 	var _sz := 0
 	var _layer := 0
 
-	func _init(map: Dictionary, p_bots: bool) -> void:
+	func _init(map: Dictionary, p_bots: bool, start: Variant = null) -> void:
 		var g: VoxelGrid = map.grid
 		bots = p_bots
 		_blocks = g.blocks
@@ -347,7 +361,7 @@ class _Flood:
 		_layer = _sx * _sz
 		seen.resize(_blocks.size())
 		_memo.resize(_blocks.size())
-		_fill(map)
+		_fill(map, map.spawns[0] if start == null else start)
 
 	## Index of cell (x, y, z), or -1 outside the grid.
 	func idx(x: int, y: int, z: int) -> int:
@@ -400,7 +414,7 @@ class _Flood:
 					return true
 		return false
 
-	func _fill(map: Dictionary) -> void:
+	func _fill(map: Dictionary, start: Vector3) -> void:
 		# Pad cell index -> landing cells. A bot's route reaches a pad from a level neighbour too.
 		var pads := {}
 		for j: Dictionary in map.jump_pads:
@@ -416,7 +430,7 @@ class _Flood:
 						pads[k] = []
 					pads[k].append(to)
 		var queue := PackedInt32Array()
-		var first := cell(map.spawns[0])
+		var first := cell(start)
 		if first < 0:
 			return
 		seen[first] = 1
