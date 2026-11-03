@@ -6,7 +6,8 @@ extends Node3D
 ## (fire: left mouse / RT) and remove (aim: right mouse / LT) presses do: BLOCK places the
 ## hotbar's block on the aimed face (brush 1 or 3 x 3 across the face) and removes the aimed
 ## block(s); SPAWN / HEALTH / AMMO / GRENADE put a marker on the aimed top face or remove the
-## nearest one; JUMP PAD takes the pad, then the landing. A translucent ghost shows where the next
+## nearest one; JUMP PAD takes the pad, then the landing; FLAGS places Capture the Flag's stands,
+## ALPHA's first, then BRAVO's (removing one and placing again moves it). A translucent ghost shows where the next
 ## press lands. Edits go through the VoxelMesher of an editable build (set_cells, then
 ## mesh_chunks / apply_chunk of the touched chunks on the spot) and onto the undo stack
 ## (UNDO_MAX steps; block edits store the cells' old and new ids, marker edits the marker lists).
@@ -20,11 +21,11 @@ signal message(text: String, error: bool)
 signal replace_broken_asked(map_name: String)
 
 const SCENE := "res://scenes/map_editor.tscn"
-const TOOLS: Array[String] = ["block", "spawn", "health", "ammo", "grenade", "pad"]
+const TOOLS: Array[String] = ["block", "spawn", "health", "ammo", "grenade", "pad", "flag"]
 const TOOL_NAMES := {"block": "BLOCKS", "spawn": "SPAWN", "health": "HEALTH", "ammo": "AMMO",
-	"grenade": "GRENADES", "pad": "JUMP PAD"}
+	"grenade": "GRENADES", "pad": "JUMP PAD", "flag": "FLAGS"}
 const TOOL_COLORS := {"block": Color("ffd166"), "spawn": Color("6ee7a0"), "health": Color("ff6b6b"),
-	"ammo": Color("ffd166"), "grenade": Color("9fb3c8"), "pad": Color(0.25, 1.0, 0.85)}
+	"ammo": Color("ffd166"), "grenade": Color("9fb3c8"), "pad": Color(0.25, 1.0, 0.85), "flag": Color("f2f2f2")}
 ## Every block the palette offers, in order, with its name.
 const PALETTE := [
 	[BlockAtlas.GRASS, "Grass"], [BlockAtlas.DIRT, "Dirt"], [BlockAtlas.STONE, "Stone"], [BlockAtlas.COBBLE, "Cobble"],
@@ -188,6 +189,11 @@ func set_time_of_day(tod: String) -> void:
 
 func problems() -> PackedStringArray:
 	return CustomMaps.validate(map)
+
+
+## What stops Capture the Flag on this map (CustomMaps.ctf_problems; call when problems() is empty).
+func ctf_problems() -> PackedStringArray:
+	return CustomMaps.ctf_problems(map)
 
 
 ## Playable-map advice: the spots bots can't route to from spawn 1 (call when problems() is empty).
@@ -385,6 +391,12 @@ func use_primary() -> void:
 			else:
 				add_jump_pad(pad_start, feet)
 				pad_start = null
+		"flag":
+			var team := next_flag_team()
+			if team < 0:
+				message.emit("Both flag stands are placed. Remove one (right click / LT) to move it.", true)
+				return
+			add_flag(team, feet)
 		_:
 			if map.pickups.size() >= CustomMaps.MAX_PICKUPS:
 				message.emit("At most %d pickups." % CustomMaps.MAX_PICKUPS, true)
@@ -439,6 +451,24 @@ func add_marker(kind: String, feet: Vector3) -> void:
 	_marker_step(before)
 
 
+## The team whose Capture the Flag stand the FLAGS tool places next (ALPHA first), or -1 when
+## both are placed.
+func next_flag_team() -> int:
+	for team in 2:
+		if CustomMaps.flag_of(map, team) < 0:
+			return team
+	return -1
+
+
+## Places `team`'s flag stand at `feet` (grid space) as one undo step.
+func add_flag(team: int, feet: Vector3) -> void:
+	var before := _marker_state()
+	map.flags.append({"team": team, "pos": feet})
+	_marker_step(before)
+	var problems := CustomMaps.ctf_problems(map)
+	message.emit("%s flag stand placed.%s" % [Teams.name_of(team), " " + problems[0] if not problems.is_empty() else ""], false)
+
+
 func add_jump_pad(pos: Vector3, target: Vector3) -> void:
 	var before := _marker_state()
 	map.jump_pads.append({"pos": pos, "target": target, "rise": CustomMaps.PAD_RISE})
@@ -466,6 +496,11 @@ func remove_marker_near(feet: Vector3) -> bool:
 		if d < best:
 			best = d
 			hit = ["jump_pads", i]
+	for i in map.flags.size():
+		var d: float = (map.flags[i].pos as Vector3).distance_to(feet)
+		if d < best:
+			best = d
+			hit = ["flags", i]
 	if hit.is_empty():
 		return false
 	var before := _marker_state()
@@ -528,13 +563,15 @@ func _apply_blocks(cells: PackedInt32Array, values: PackedByteArray) -> void:
 
 
 func _marker_state() -> Dictionary:
-	return {"spawns": map.spawns.duplicate(), "pickups": map.pickups.duplicate(true), "jump_pads": map.jump_pads.duplicate(true)}
+	return {"spawns": map.spawns.duplicate(), "pickups": map.pickups.duplicate(true), "jump_pads": map.jump_pads.duplicate(true),
+		"flags": map.flags.duplicate(true)}
 
 
 func _set_marker_state(s: Dictionary) -> void:
 	map.spawns = s.spawns.duplicate()
 	map.pickups = s.pickups.duplicate(true)
 	map.jump_pads = s.jump_pads.duplicate(true)
+	map.flags = s.flags.duplicate(true)
 	_rebuild_markers()
 
 
@@ -559,6 +596,8 @@ func _rebuild_markers() -> void:
 		var pad := JumpPad.new()
 		pad.setup(origin + j.pos, origin + j.target, float(j.rise))
 		_markers.add_child(pad)
+	for f: Dictionary in map.flags:
+		_markers.add_child(_flag_marker(origin + f.pos, int(f.team)))
 	if pad_start != null:
 		var disc := MeshInstance3D.new()
 		var cyl := CylinderMesh.new()
@@ -589,6 +628,47 @@ func _spawn_marker(pos: Vector3, i: int) -> Node3D:
 	tag.font_size = 48
 	tag.outline_size = 10
 	tag.position.y = 2.3
+	tag.no_depth_test = true
+	root.add_child(tag)
+	return root
+
+
+## A Capture the Flag stand: a pole with a team-coloured flag and the team's name over it (red
+## pole when the spot has no room).
+func _flag_marker(pos: Vector3, team: int) -> Node3D:
+	var root := Node3D.new()
+	root.position = pos
+	var ok := CustomMaps.spot_problem(grid, pos - origin).is_empty()
+	var base := MeshInstance3D.new()
+	var disc := CylinderMesh.new()
+	disc.top_radius = CaptureTheFlag.TOUCH_RADIUS
+	disc.bottom_radius = CaptureTheFlag.TOUCH_RADIUS
+	disc.height = 0.06
+	base.mesh = disc
+	base.position.y = 0.03
+	base.material_override = _flat_material(Teams.color(team), 0.35)
+	root.add_child(base)
+	var pole := MeshInstance3D.new()
+	var stick := BoxMesh.new()
+	stick.size = Vector3(0.1, 2.4, 0.1)
+	pole.mesh = stick
+	pole.position.y = 1.2
+	pole.material_override = _flat_material(TOOL_COLORS.flag if ok else Color("ff4d4d"), 0.9)
+	root.add_child(pole)
+	var cloth := MeshInstance3D.new()
+	var sheet := BoxMesh.new()
+	sheet.size = Vector3(0.9, 0.6, 0.05)
+	cloth.mesh = sheet
+	cloth.position = Vector3(0.5, 2.05, 0.0)
+	cloth.material_override = _flat_material(Teams.color(team), 0.9)
+	root.add_child(cloth)
+	var tag := Label3D.new()
+	tag.text = Teams.name_of(team)
+	tag.modulate = Teams.color(team).lightened(0.3)
+	tag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	tag.font_size = 48
+	tag.outline_size = 10
+	tag.position.y = 2.9
 	tag.no_depth_test = true
 	root.add_child(tag)
 	return root
@@ -628,7 +708,10 @@ func _update_ghost() -> void:
 	var ok := CustomMaps.spot_problem(grid, feet).is_empty()
 	box.size = Vector3(0.9, 0.12, 0.9) if tool == "pad" else Vector3(0.7, 1.8, 0.7)
 	_ghost.position = origin + (feet as Vector3) + Vector3(0, box.size.y * 0.5, 0)
-	_ghost_mat.albedo_color = Color(TOOL_COLORS[tool] if ok else Color("ff4d4d"), 0.5)
+	var tint: Color = TOOL_COLORS[tool]
+	if tool == "flag" and next_flag_team() >= 0:
+		tint = Teams.color(next_flag_team())
+	_ghost_mat.albedo_color = Color(tint if ok else Color("ff4d4d"), 0.5)
 	_ghost.visible = true
 
 

@@ -5,8 +5,9 @@ extends RefCounted
 ##
 ## A map in memory is a Dictionary: `name`, `time_of_day` (Data.TIMES_OF_DAY), `grid` (VoxelGrid,
 ## full cubes only), `spawns` (Array of Vector3 feet positions), `pickups` (Array of
-## `{kind, pos}`), `jump_pads` (Array of `{pos, target, rise}`), all in grid space (cell (0,0,0)
-## at the grid's corner, y = 0 its floor), like a map generator's output.
+## `{kind, pos}`), `jump_pads` (Array of `{pos, target, rise}`), `flags` (Capture the Flag stands:
+## Array of at most one `{team, pos}` per team, Teams 0 ALPHA / 1 BRAVO), all in grid space (cell
+## (0,0,0) at the grid's corner, y = 0 its floor), like a map generator's output.
 ## On disk (`user://maps/<name>.json`) it is JSON: `version`, `name`, `time_of_day`, `size`
 ## [x, y, z], `blocks` (the grid's block ids, deflated and base64-encoded), and the markers as
 ## number arrays. Match ids of custom maps are PREFIX + name ("custom:Arena").
@@ -79,7 +80,7 @@ static func path_for(map_name: String) -> String:
 static func new_map(size: Vector3i, map_name: String) -> Dictionary:
 	var g := VoxelGrid.new(size)
 	g.fill(Vector3i(0, 0, 0), Vector3i(size.x - 1, 0, size.z - 1), BlockAtlas.GRASS)
-	return {"name": map_name, "time_of_day": "day", "grid": g, "spawns": [], "pickups": [], "jump_pads": []}
+	return {"name": map_name, "time_of_day": "day", "grid": g, "spawns": [], "pickups": [], "jump_pads": [], "flags": []}
 
 
 static func grid_hash(g: VoxelGrid) -> String:
@@ -106,11 +107,14 @@ static func to_json(map: Dictionary) -> String:
 	var pads := []
 	for j: Dictionary in map.jump_pads:
 		pads.append({"pos": _arr(j.pos), "target": _arr(j.target), "rise": float(j.rise)})
+	var flags := []
+	for f: Dictionary in map.flags:
+		flags.append({"team": int(f.team), "pos": _arr(f.pos)})
 	return JSON.stringify({
 		"version": VERSION, "name": map.name, "time_of_day": map.time_of_day,
 		"size": [g.size.x, g.size.y, g.size.z],
 		"blocks": Marshalls.raw_to_base64(g.blocks.compress(FileAccess.COMPRESSION_DEFLATE)),
-		"spawns": spawns, "pickups": pickups, "jump_pads": pads,
+		"spawns": spawns, "pickups": pickups, "jump_pads": pads, "flags": flags,
 	})
 
 
@@ -151,7 +155,7 @@ static func from_json(text: String) -> Dictionary:
 	g.blocks = blocks
 	var tod := str(d.get("time_of_day", "day"))
 	var map := {"name": map_name, "time_of_day": tod if tod in Data.TIMES_OF_DAY else "day", "grid": g,
-		"spawns": [], "pickups": [], "jump_pads": []}
+		"spawns": [], "pickups": [], "jump_pads": [], "flags": []}
 	for s: Variant in _list(d.get("spawns"), MAX_SPAWNS):
 		var p: Variant = _vec(s, size)
 		if p != null:
@@ -170,7 +174,22 @@ static func from_json(text: String) -> Dictionary:
 		if a != null and b != null:
 			var rise := clampf(float(e.get("rise", PAD_RISE)) if _is_num(e.get("rise")) else PAD_RISE, 1.0, 12.0)
 			map.jump_pads.append({"pos": a, "target": b, "rise": rise})
+	# Flag stands (optional, files from before them have none): one per team, the first one wins.
+	for e: Variant in _list(d.get("flags"), 2):
+		if typeof(e) != TYPE_DICTIONARY or not _is_num(e.get("team")) or not int(e.team) in [0, 1] or flag_of(map, int(e.team)) >= 0:
+			continue
+		var p: Variant = _vec(e.get("pos"), size)
+		if p != null:
+			map.flags.append({"team": int(e.team), "pos": p})
 	return map
+
+
+## Index in `map.flags` of team `team`'s stand, or -1.
+static func flag_of(map: Dictionary, team: int) -> int:
+	for i in map.flags.size():
+		if int(map.flags[i].team) == team:
+			return i
+	return -1
 
 
 static func _arr(v: Vector3) -> Array:
@@ -231,6 +250,43 @@ static func validate(map: Dictionary) -> PackedStringArray:
 				spots_ok = false
 	if spots_ok and not map.spawns.is_empty():
 		out.append_array(unreachable(map, false))
+	return out
+
+
+## Why Capture the Flag can't be played on `map` (empty when it can; the map itself must pass
+## validate() first): both flag stands (Map Editor FLAGS tool) on a solid floor with room above,
+## at least CaptureTheFlag.MIN_STAND_GAP apart and reachable on foot from spawn 1; with no stands
+## placed, two spawns that far apart stand in for them (CaptureTheFlag.spawn_stands). Match setup
+## doesn't offer the map for the mode and Net.load_map won't start it there.
+static func ctf_problems(map: Dictionary) -> PackedStringArray:
+	var out := PackedStringArray()
+	var flags: Array = map.flags
+	if flags.is_empty():
+		if CaptureTheFlag.spawn_stands(map.spawns).is_empty():
+			out.append("Capture the Flag: place both flag stands (FLAGS tool); no two spawns are %d m apart to stand in for them." % int(CaptureTheFlag.MIN_STAND_GAP))
+		return out
+	for team in 2:
+		if flag_of(map, team) < 0:
+			out.append("Capture the Flag: place %s's flag stand too." % Teams.name_of(team))
+	if not out.is_empty():
+		return out
+	var g: VoxelGrid = map.grid
+	var spots_ok := true
+	for f: Dictionary in flags:
+		var why := spot_problem(g, f.pos)
+		if not why.is_empty():
+			out.append("%s's flag stand %s." % [Teams.name_of(int(f.team)), why])
+			spots_ok = false
+	var a: Vector3 = flags[0].pos
+	var b: Vector3 = flags[1].pos
+	var gap := Vector2(a.x - b.x, a.z - b.z).length()
+	if gap < CaptureTheFlag.MIN_STAND_GAP:
+		out.append("The flag stands are %.0f m apart: Capture the Flag needs at least %d m." % [gap, int(CaptureTheFlag.MIN_STAND_GAP)])
+	if spots_ok and not map.spawns.is_empty() and validate(map).is_empty():
+		var flood := _Flood.new(map, false)
+		for f: Dictionary in flags:
+			if not flood.reached(f.pos):
+				out.append("%s's flag stand can't be reached from spawn 1." % Teams.name_of(int(f.team)))
 	return out
 
 
@@ -586,4 +642,9 @@ static func generate(map_id: String, info: MapInfo) -> VoxelGrid:
 		pads.append({"pos": j.pos, "target": j.target, "rise": j.rise})
 	if not pads.is_empty():
 		info.marks["jump_pads"] = pads
+	if map.flags.size() == 2:
+		var flags := []
+		for f: Dictionary in map.flags:
+			flags.append({"pos": f.pos, "team": int(f.team)})
+		info.marks["flags"] = flags
 	return g

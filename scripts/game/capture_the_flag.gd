@@ -2,15 +2,18 @@ class_name CaptureTheFlag
 extends TeamDeathmatch
 ## Capture the Flag (`Net.config.mode == "ctf"`): two teams (Teams: ALPHA / BRAVO) on the
 ## deathmatch maps with respawns, each with a flag on a stand at its base (`flag_stands`: the map's
-## `flags` mark, MapKit.flag_stands; on its own half of the map, ALPHA the low end of the longer
-## axis as TeamDeathmatch.along splits it). Walk over the enemy flag to take it; carry it onto your
+## `flags` mark: MapKit.flag_stands on the built-in maps, on its own half of the map, ALPHA the low
+## end of the longer axis as TeamDeathmatch.along splits it; the Map Editor's FLAGS tool on a
+## custom map, else the two spawns farthest apart, `spawn_stands`; a map with neither is not
+## offered for the mode, CustomMaps.ctf_problems). Walk over the enemy flag to take it; carry it onto your
 ## own stand while your own flag is home to capture it (+1 team score, the flag goes home). The
 ## carrier is CARRIER_SPEED times as fast and can't grapple (MatchMode.move_mult / grapple_allowed).
 ## A carrier who dies or leaves drops the flag where they were (straight home if that is over the
 ## void or water); a dropped flag goes home after RETURN_TIME s of match clock, or at once when a
 ## player of its team touches it (a return). The first team to `Net.config.kill_limit` captures
 ## (setup offers LIMITS, default DEFAULT_CAPTURES) wins, otherwise the higher score at the time
-## limit; equal is a draw. Kills score nothing. Teams spawn on their own half (own_side_bonus).
+## limit; equal is a draw. Kills score nothing. Teams spawn on their own side (own_side_bonus):
+## nearer their own stand than the enemy's (on_own_side).
 ## The server decides everything and tells every peer with `_s_flag` (one flag's state plus the
 ## event that changed it); joiners get both flags with `_s_flags`, the score with TDM's `_s_score`.
 ## Every peer draws the stands and flags (the carried one on the carrier's back), the FlagOverlay
@@ -27,6 +30,10 @@ const RETURN_TIME := 20.0
 const TOUCH_RADIUS := 1.6
 const TOUCH_BELOW := 1.2
 const TOUCH_ABOVE := 2.2
+## The two stands must be at least this far apart (flat metres): well over the 2 x TOUCH_RADIUS at
+## which one player could touch both at once, so every capture is a run (custom maps: the Map
+## Editor's stands and the spawn pair standing in for them).
+const MIN_STAND_GAP := 12.0
 ## The carrier's speed (walk, sprint and slide) as a fraction of normal.
 const CARRIER_SPEED := 0.85
 ## Spawn ranking bonus for the own half: far above any other term, so a team always spawns there.
@@ -79,6 +86,11 @@ func _init() -> void:
 
 func _ready() -> void:
 	stands = flag_stands(world.map_info)
+	# Net.load_map never starts the mode on a map without stands (CustomMaps.ctf_problems); the
+	# server loop and the look skip it all the same.
+	if stands.size() < 2:
+		push_error("CaptureTheFlag: %s has no flag stands" % world.map_info.id)
+		return
 	for t in 2:
 		flag_pos[t] = stands[t]
 		_stand_nodes.append(_build_stand(t))
@@ -91,28 +103,38 @@ func _ready() -> void:
 
 
 ## The two stands' feet positions [ALPHA, BRAVO]: the map's `flags` mark (every deathmatch map,
-## MapKit.flag_stands), else (a custom map) the spawn furthest into each team's half.
+## MapKit.flag_stands; a custom map's FLAGS stands, CustomMaps.generate), else spawn_stands();
+## empty when there is no such pair.
 static func flag_stands(info: MapInfo) -> Array[Vector3]:
-	var out: Array[Vector3] = [Vector3.ZERO, Vector3.ZERO]
 	var marks: Array = info.marks.get("flags", [])
 	if marks.size() == 2:
+		var out: Array[Vector3] = [Vector3.ZERO, Vector3.ZERO]
 		for m: Dictionary in marks:
 			out[clampi(int(m.get("team", 0)), 0, 1)] = m.pos
 		return out
-	if info.spawns.is_empty():
-		var c := info.bounds.get_center()
-		var half := info.bounds.size * 0.25
-		var dx := Vector3(half.x, 0.0, 0.0) if info.bounds.size.x >= info.bounds.size.z else Vector3(0.0, 0.0, half.z)
-		out[0] = c - dx
-		out[1] = c + dx
+	return spawn_stands(info.spawns)
+
+
+## A custom map without stands: the two spawns farthest apart (flat distance) [ALPHA, BRAVO],
+## ALPHA the lower end of the axis the pair spreads over most (x on a tie, z when they share an x),
+## or empty when no two spawns are MIN_STAND_GAP apart. Same answer on every peer.
+static func spawn_stands(spawns: Array) -> Array[Vector3]:
+	var out: Array[Vector3] = []
+	var best := MIN_STAND_GAP - 0.001
+	for i in spawns.size():
+		var a: Vector3 = spawns[i]
+		for j in range(i + 1, spawns.size()):
+			var b: Vector3 = spawns[j]
+			var d := Vector2(a.x - b.x, a.z - b.z).length()
+			if d > best:
+				best = d
+				out = [a, b]
+	if out.is_empty():
 		return out
-	out[0] = info.spawns[0]
-	out[1] = info.spawns[0]
-	for s: Vector3 in info.spawns:
-		if along(info, s) < along(info, out[0]):
-			out[0] = s
-		if along(info, s) > along(info, out[1]):
-			out[1] = s
+	var gap := out[1] - out[0]
+	var flip := gap.x < 0.0 if absf(gap.x) >= absf(gap.z) else gap.z < 0.0
+	if flip:
+		out.reverse()
 	return out
 
 
@@ -149,6 +171,16 @@ static func _touches(feet: Vector3, spot: Vector3) -> bool:
 
 func own_side_bonus() -> float:
 	return SIDE_BONUS
+
+
+## A team's side is where its own stand is nearer than the enemy's (a custom map's stands may lie
+## along any line; on the built-in maps this is the TeamDeathmatch.along half).
+func on_own_side(pos: Vector3, team: int) -> bool:
+	if stands.size() < 2:
+		return super(pos, team)
+	var mine := Vector2(pos.x - stands[team].x, pos.z - stands[team].z).length()
+	var theirs := Vector2(pos.x - stands[1 - team].x, pos.z - stands[1 - team].z).length()
+	return mine < theirs
 
 
 func _physics_process(_delta: float) -> void:

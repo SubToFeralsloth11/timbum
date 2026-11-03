@@ -112,6 +112,8 @@ var _map_group: ButtonGroup
 var _map_grid: GridContainer
 ## The CUSTOM heading and cards (saved playable Map Editor maps, _refresh_custom_maps).
 var _custom_head: Label
+## Under CUSTOM in Capture the Flag: why some custom maps are greyed out (no flag stands).
+var _custom_hint: Label
 var _custom_grid: GridContainer
 var _difficulty_row: HBoxContainer
 ## Port and address rows, only shown for the DIRECT connection.
@@ -272,6 +274,11 @@ func _ready() -> void:
 	_add_map_card(grid, group, Data.TACTICAL_MAP, Data.MAPS[Data.TACTICAL_MAP].name, Data.MAPS[Data.TACTICAL_MAP].desc)
 	_custom_head = UIKit.label("CUSTOM", &"SubheaderLabel")
 	map_list.add_child(_custom_head)
+	_custom_hint = UIKit.label("", &"DimLabel")
+	_custom_hint.add_theme_font_size_override("font_size", 13)
+	_custom_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_custom_hint.visible = false
+	map_list.add_child(_custom_hint)
 	_custom_grid = GridContainer.new()
 	_custom_grid.columns = 3
 	_custom_grid.add_theme_constant_override("h_separation", 10)
@@ -465,8 +472,9 @@ func on_shown() -> void:
 
 
 ## (Re)builds the CUSTOM cards from the saved playable maps (CustomMaps.playable), each with its
-## preview; hidden when there are none or in Tactical. A picked custom map that is gone falls
-## back to the rotation.
+## preview and whether Capture the Flag can be played on it (`ctf_ok` meta, CustomMaps.ctf_problems);
+## hidden when there are none or in Tactical. A picked custom map that is gone falls back to the
+## rotation.
 func _refresh_custom_maps() -> void:
 	var names := CustomMaps.playable()
 	var ids: Array[String] = []
@@ -483,10 +491,34 @@ func _refresh_custom_maps() -> void:
 			MapBuilder.forget_preview(ids[i])
 			var m := CustomMaps.load_map(names[i])
 			var g: VoxelGrid = m.grid
-			_add_map_card(_custom_grid, _map_group, ids[i], names[i], "Custom map · %d x %d · %d spawns · %s" % [g.size.x, g.size.z, m.spawns.size(), str(m.time_of_day)])
+			var ctf := CustomMaps.ctf_problems(m)
+			_add_map_card(_custom_grid, _map_group, ids[i], names[i], "Custom map · %d x %d · %d spawns · %s%s" % [g.size.x, g.size.z,
+				m.spawns.size(), str(m.time_of_day), "" if ctf.is_empty() else " · no flag stands for Capture the Flag"])
+			var card: Button = _custom_grid.get_child(_custom_grid.get_child_count() - 1)
+			card.set_meta(&"ctf_ok", ctf.is_empty())
 	if CustomMaps.is_custom(_choice.map) and not ids.has(_choice.map):
 		_choice.map = ROTATION
 	_custom_head.visible = not ids.is_empty() and _choice.mode != "tactical"
+	_apply_custom_ctf()
+
+
+## Capture the Flag greys out the custom maps it can't be played on (no flag stands, see
+## CustomMaps.ctf_problems) with a hint under CUSTOM, and moves a pick of one to the rotation.
+func _apply_custom_ctf() -> void:
+	var ctf: bool = _choice.mode == "ctf"
+	var blocked := 0
+	for b: Node in _custom_grid.get_children():
+		var card := b as Button
+		var off := ctf and not bool(card.get_meta(&"ctf_ok", true))
+		card.disabled = off
+		card.modulate = Color(1, 1, 1, 0.45) if off else Color.WHITE
+		card.tooltip_text = "Place two flag stands in the Map Editor (FLAGS tool) to play Capture the Flag here." if off else ""
+		if off:
+			blocked += 1
+			if _choice.map == card.get_meta(&"map_id"):
+				_choice.map = ROTATION
+	_custom_hint.text = "Greyed-out maps have no flag stands: place them in the Map Editor with the FLAGS tool."
+	_custom_hint.visible = blocked > 0 and _custom_head.visible
 
 
 ## Sets every control to `_choice`.
@@ -522,6 +554,7 @@ func _apply_mode() -> void:
 	for b in _map_group.get_buttons():
 		b.visible = (b.get_meta(&"map_id") == Data.TACTICAL_MAP) == tactical
 	_custom_head.visible = _custom_grid.get_child_count() > 0 and not tactical
+	_apply_custom_ctf()
 	# Tactical's single card keeps a card's size instead of filling the whole column.
 	_map_grid.size_flags_vertical = Control.SIZE_SHRINK_BEGIN if tactical else Control.SIZE_EXPAND_FILL
 	if tactical:

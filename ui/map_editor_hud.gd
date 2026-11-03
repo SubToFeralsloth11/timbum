@@ -406,12 +406,15 @@ func _refresh_open_list() -> void:
 # ---------------------------------------------------------------- refresh
 
 ## The validation card: what stops the map from being played (CustomMaps.validate), or on a
-## playable map the spots bots can't route to (MapEditor.bot_warnings), plus the marker counts.
+## playable map what stops Capture the Flag (MapEditor.ctf_problems) and the spots bots can't
+## route to (MapEditor.bot_warnings), plus the marker counts.
 func _refresh_checks() -> void:
 	var problems := editor.problems()
-	var counts := "Spawns %d · Pickups %d · Jump pads %d" % [editor.map.spawns.size(), editor.map.pickups.size(), editor.map.jump_pads.size()]
+	var counts := "Spawns %d · Pickups %d · Jump pads %d · Flag stands %d/2" % [editor.map.spawns.size(), editor.map.pickups.size(),
+		editor.map.jump_pads.size(), editor.map.flags.size()]
 	if problems.is_empty():
-		var notes := editor.bot_warnings()
+		var notes := editor.ctf_problems()
+		notes.append_array(editor.bot_warnings())
 		if notes.is_empty():
 			_problems.text = "READY TO PLAY\n" + counts
 			_problems.add_theme_color_override("font_color", UITheme.GOOD.lightened(0.2))
@@ -419,7 +422,8 @@ func _refresh_checks() -> void:
 			var lines := notes.slice(0, 2)
 			if notes.size() > 2:
 				lines.append("... and %d more" % (notes.size() - 2))
-			_problems.text = "READY TO PLAY (BOTS WILL STRUGGLE)\n" + "\n".join(lines) + "\n" + counts
+			var head := "READY TO PLAY (NOT FOR CAPTURE THE FLAG)" if not editor.ctf_problems().is_empty() else "READY TO PLAY (BOTS WILL STRUGGLE)"
+			_problems.text = head + "\n" + "\n".join(lines) + "\n" + counts
 			_problems.add_theme_color_override("font_color", Color(1, 0.9, 0.55))
 	else:
 		var lines := problems.slice(0, 4)
@@ -438,6 +442,9 @@ func refresh() -> void:
 		tool_text += "  ·  %s  ·  BRUSH %d x %d" % [MapEditor.block_name(editor.block()).to_upper(), editor.brush, editor.brush]
 	elif editor.tool == "pad":
 		tool_text += "  ·  %s" % ("PLACE THE LANDING" if editor.pad_start != null else "PLACE THE PAD")
+	elif editor.tool == "flag":
+		var team := editor.next_flag_team()
+		tool_text += "  ·  %s" % ("PLACE %s'S STAND" % Teams.name_of(team) if team >= 0 else "BOTH STANDS PLACED")
 	_info.text = "%s%s  ·  %d x %d x %d\n%s" % [editor.map.name, " *" if editor.unsaved else "", s.x, s.z, s.y, tool_text]
 	_keys.text = "LMB place · RMB remove · 1-9 / wheel block · Q / E tool · R brush\nWASD fly · Space / Ctrl up / down · Shift fast · Ctrl+Z / Ctrl+Y undo / redo · Ctrl+S save · Tab menu"
 	_check_due = true

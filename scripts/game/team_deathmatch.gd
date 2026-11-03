@@ -41,6 +41,12 @@ func own_side_bonus() -> float:
 	return OWN_SIDE_BONUS
 
 
+## Whether `pos` is on `team`'s side: ALPHA's half is the low end of the map's longer axis,
+## BRAVO's the high end (Capture the Flag: nearer the own stand).
+func on_own_side(pos: Vector3, team: int) -> bool:
+	return (along(world.map_info, pos) < 0.0) == (team == 0)
+
+
 func spawn_point(eid: int, team: int) -> Array:
 	var space := world.get_world_3d().direct_space_state
 	var centre := world.map_info.bounds.get_center()
@@ -61,9 +67,8 @@ func spawn_point(eid: int, team: int) -> Array:
 			if not seen and d < 70.0:
 				var q := PhysicsRayQueryParameters3D.create(s + Vector3.UP * 1.6, p.global_position + Vector3.UP * 1.6, Player.MASK_WORLD)
 				seen = space.intersect_ray(q).is_empty()
-		# ALPHA's half is the low end of the map's longer axis, BRAVO's the high end.
 		var score_s := minf(enemy, ENEMY_CAP)
-		if (along(world.map_info, s) < 0.0) == (team == 0):
+		if on_own_side(s, team):
 			score_s += own_side_bonus()
 		if mate < MATE_RANGE:
 			score_s += MATE_BONUS

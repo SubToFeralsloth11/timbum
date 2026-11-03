@@ -56,7 +56,9 @@ const GAME_ID := "timbum"
 ## 27: Moon Base and Volcano Forge (map ids "moon" / "volcano", new block ids, the "lava" kill
 ##     cause in _s_killed).
 ## 28: Weather (`weather_pick` / `weather` in the config).
-const PROTOCOL_VERSION := 28
+## 29: Custom map flag stands (`flags` in the map file every peer builds from) and the Capture the
+##     Flag stands of a custom map without them (CaptureTheFlag.spawn_stands).
+const PROTOCOL_VERSION := 29
 const CONNECT_TIMEOUT := 8.0
 ## A room-code join first tries a direct (NAT punch-through) link this long, then the relay.
 const NAT_CONNECT_TIMEOUT := 6.0
@@ -827,6 +829,10 @@ func load_map(map_id: String, variety := {}) -> void:
 	assert(multiplayer.is_server())
 	if CustomMaps.is_custom(map_id) and not CustomMaps.activate_file(map_id):
 		last_error = "The custom map %s is missing or can't be played; playing Village." % CustomMaps.name_of(map_id)
+		status.emit(last_error)
+		map_id = "village"
+	elif CustomMaps.is_custom(map_id) and str(config.mode) == "ctf" and not CustomMaps.ctf_problems(CustomMaps.active.map).is_empty():
+		last_error = "The custom map %s has no flag stands for Capture the Flag; playing Village." % CustomMaps.name_of(map_id)
 		status.emit(last_error)
 		map_id = "village"
 	current_map = map_id
