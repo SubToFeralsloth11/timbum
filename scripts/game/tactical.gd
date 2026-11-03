@@ -163,6 +163,10 @@ func respawn_delay() -> float:
 	return -1.0
 
 
+func no_respawn_note() -> String:
+	return "No respawns in Tactical  ·  spectating your team next"
+
+
 ## Teams wait out the planning phase behind barriers instead.
 func spawn_protection() -> bool:
 	return false

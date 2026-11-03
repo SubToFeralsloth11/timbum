@@ -115,7 +115,8 @@ func refresh() -> void:
 	var w := spectator.watched()
 	var following := w.has("id")
 	var dead_mode := bool(w.dead_mode)
-	_banner.visible = not dead_mode
+	# Tactical's own bar names the teammate a dead player follows; other modes keep this banner.
+	_banner.visible = not dead_mode or spectator.world.tactical == null
 	_card.visible = following
 	var k := Profile.key_text
 	if int(w.view) == Spectator.View.FREE:
@@ -126,12 +127,15 @@ func refresh() -> void:
 		_keys.text = "%s fly  ·  %s / %s up / down  ·  %s fast  ·  %s follow a player  ·  %s follow view  ·  %s menu" % [
 			move, k.call("jump"), k.call("crouch"), k.call("sprint"), k.call("fire"), k.call("spectate_view"), k.call("pause")]
 	else:
-		_title.text = "SPECTATING"
+		_title.text = "OUT  ·  SPECTATING" if dead_mode else "SPECTATING"
 		_name.text = str(w.get("name", "NOBODY TO FOLLOW")).to_upper()
 		var t := int(w.get("team", -1))
 		_name.add_theme_color_override("font_color", Teams.color(t) if t >= 0 else Color.WHITE)
-		_keys.text = "%s next player  ·  %s previous  ·  %s free camera  ·  %s menu" % [
-			k.call("fire"), k.call("aim"), k.call("spectate_view"), k.call("pause")]
+		if dead_mode:
+			_keys.text = "%s next player  ·  %s previous  ·  %s menu" % [k.call("fire"), k.call("aim"), k.call("pause")]
+		else:
+			_keys.text = "%s next player  ·  %s previous  ·  %s free camera  ·  %s menu" % [
+				k.call("fire"), k.call("aim"), k.call("spectate_view"), k.call("pause")]
 	if not following:
 		return
 	var team := int(w.team)

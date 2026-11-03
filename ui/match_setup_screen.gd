@@ -10,16 +10,17 @@ const ROTATION := "rotation"
 
 ## Last choices this session, shared by both modes. Each mode with its own limit keeps it apart
 ## (sent as `kill_limit`): the team score, Capture the Flag's captures, the Gun Game ladder length,
-## King of the Block's points.
+## One in the Chamber's lives, King of the Block's points.
 ## `streaks`: mode -> killstreaks on, once picked for that mode (until then the mode's default,
 ## Streaks.default_for). A match setup preset (Profile.match_presets) holds a copy of it.
 static var _choice := default_choice()
-const MODE_IDS: Array[String] = ["ffa", "tdm", "ctf", "gungame", "koth", "infected", "tactical"]
+const MODE_IDS: Array[String] = ["ffa", "tdm", "ctf", "gungame", "oitc", "koth", "infected", "tactical"]
 const MODE_HINTS := {
 	"ffa": "Bots fill every empty slot up to the player count.",
 	"tdm": "Two teams, bots fill both evenly. The kill limit is the team score; friendly fire is off.",
 	"ctf": "Walk over the enemy flag to take it, then onto your own stand while your flag is home to score. Carriers are slower and can't grapple; a dropped flag goes home after 20 s or when its team touches it.",
 	"gungame": "Everyone climbs the same ladder of guns, one step per kill, and finishes on the knife. A knife kill also knocks the victim down a step. No grenades; Rocket Party and Snipers Only are off.",
+	"oitc": "Everyone has the Cuber .44 with one round and their melee weapon. Any .44 hit kills; every kill gives a round. Out of lives, you watch the rest. Last one standing wins, else the most lives. No grenades, ammo crates, mutators or killstreaks.",
 	"koth": "A glowing zone moves every minute (10 s warning). Stand in it alone for a point a second; two or more contest it. First to the score limit wins.",
 	"infected": "10 s in, one player turns Infected: melee only (their own melee weapon), faster, tougher. Everyone they kill turns too. Survivors win if any are left at the end. Rocket Party and Snipers Only are off.",
 	"tactical": "25 v 25 in Block HQ, bots fill every slot. 30 s of planning behind barriers, then find your weapons: everyone starts with their melee weapon. One life; the last team standing wins.",
@@ -30,13 +31,14 @@ const MODE_TAGS := {
 	"tdm": "Two teams, team kills count",
 	"ctf": "Steal their flag, bring it home",
 	"gungame": "A new gun with every kill",
+	"oitc": "One round, one kill, few lives",
 	"koth": "Hold the moving zone alone",
 	"infected": "Outlast the spreading horde",
 	"tactical": "25 v 25, plan, one life",
 }
 const MODE_COLORS := {
 	"ffa": Color("ff8a4c"), "tdm": Color("4fa3ff"), "ctf": Color("ff5d73"), "gungame": Color("ffc531"),
-	"koth": Color("c58bff"), "infected": Color("7be05a"), "tactical": Color("9fb3c8"),
+	"oitc": Color("ffb066"), "koth": Color("c58bff"), "infected": Color("7be05a"), "tactical": Color("9fb3c8"),
 }
 
 
@@ -48,13 +50,13 @@ class ModeIcon extends Control:
 	func _init(p_mode: String, p_color: Color) -> void:
 		mode = p_mode
 		color = p_color
-		custom_minimum_size = Vector2(40, 40)
+		custom_minimum_size = Vector2(36, 36)
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
 		size_flags_vertical = Control.SIZE_SHRINK_CENTER
 
 	func _draw() -> void:
 		var c := size * 0.5
-		draw_circle(c, 20.0, Color(color, 0.18))
+		draw_circle(c, 18.0, Color(color, 0.18))
 		var w := 3.0
 		match mode:
 			"ffa":
@@ -71,6 +73,12 @@ class ModeIcon extends Control:
 			"gungame":
 				for i in 3:
 					draw_rect(Rect2(c + Vector2(-13 + i * 9, 8 - i * 7), Vector2(7, 6 + i * 7)), color)
+			"oitc":
+				# One upright cartridge: copper nose, brass case, rim.
+				draw_colored_polygon(PackedVector2Array([c + Vector2(-6, -5), c + Vector2(-4, -11), c + Vector2(0, -14),
+					c + Vector2(4, -11), c + Vector2(6, -5)]), Color(0.85, 0.5, 0.3))
+				draw_rect(Rect2(c + Vector2(-6, -5), Vector2(12, 15)), color)
+				draw_rect(Rect2(c + Vector2(-7.5, 10), Vector2(15, 3)), color.darkened(0.3))
 			"koth":
 				draw_colored_polygon(PackedVector2Array([c + Vector2(-13, 9), c + Vector2(-13, -7), c + Vector2(-6, 0),
 					c + Vector2(0, -11), c + Vector2(6, 0), c + Vector2(13, -7), c + Vector2(13, 9)]), color)
@@ -115,6 +123,7 @@ var _team_kill_row: HBoxContainer
 var _ladder_row: HBoxContainer
 var _koth_row: HBoxContainer
 var _ctf_row: HBoxContainer
+var _lives_row: HBoxContainer
 var _time_row: HBoxContainer
 var _mutator_row: HBoxContainer
 var _streak_row: HBoxContainer
@@ -149,7 +158,8 @@ func _init(host_mode: bool) -> void:
 static func default_choice() -> Dictionary:
 	return {"mode": "ffa", "map": ROTATION, "bots_fill": 8, "difficulty": 1, "kill_limit": 20,
 		"team_kill_limit": TeamDeathmatch.DEFAULT_KILL_LIMIT, "ctf_limit": CaptureTheFlag.DEFAULT_CAPTURES,
-		"ladder": GunGame.max_length(), "koth_limit": KingOfTheBlock.DEFAULT_SCORE_LIMIT, "time_minutes": 8,
+		"ladder": GunGame.max_length(), "oitc_lives": OneInTheChamber.DEFAULT_LIVES,
+		"koth_limit": KingOfTheBlock.DEFAULT_SCORE_LIMIT, "time_minutes": 8,
 		"mutators": true, "link": Net.Link.DIRECT,
 		"streaks": {}}
 
@@ -170,7 +180,8 @@ static func sanitize_choice(raw: Variant) -> Dictionary:
 	out.bots_fill = clampi(_int(d.get("bots_fill"), out.bots_fill), 2, Data.MAX_PLAYERS)
 	out.difficulty = clampi(_int(d.get("difficulty"), out.difficulty), 0, Data.DIFFICULTY_NAMES.size() - 1)
 	for pair: Array in [["kill_limit", KILL_LIMITS], ["team_kill_limit", TEAM_KILL_LIMITS], ["ctf_limit", CaptureTheFlag.LIMITS],
-			["ladder", GunGame.LENGTHS], ["koth_limit", KingOfTheBlock.LIMITS], ["time_minutes", TIME_LIMITS]]:
+			["ladder", GunGame.LENGTHS], ["oitc_lives", OneInTheChamber.LIVES], ["koth_limit", KingOfTheBlock.LIMITS],
+			["time_minutes", TIME_LIMITS]]:
 		var v := _int(d.get(pair[0]), -1)
 		if (pair[1] as Array).has(v):
 			out[pair[0]] = v
@@ -206,11 +217,11 @@ func _ready() -> void:
 	page.add_child(body)
 
 	# Left: one big card per mode.
-	var modes := UIKit.vbox(8)
-	modes.custom_minimum_size.x = 262
+	var modes := UIKit.vbox(6)
+	modes.custom_minimum_size.x = 274
 	body.add_child(modes)
 	modes.add_child(UIKit.label("MODE", &"SubheaderLabel"))
-	_mode_row = UIKit.vbox(8)
+	_mode_row = UIKit.vbox(6)
 	_mode_row.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	modes.add_child(_mode_row)
 	var mode_group := ButtonGroup.new()
@@ -306,7 +317,7 @@ func _ready() -> void:
 	_players_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	players_row.add_child(_players_label)
 	_rule(rules, "PLAYERS", players_row)
-	_mode_rule(rules, ["ffa", "tdm", "ctf", "gungame", "koth", "infected"])
+	_mode_rule(rules, ["ffa", "tdm", "ctf", "gungame", "oitc", "koth", "infected"])
 	_update_players_label()
 
 	var difficulty_names: Array[String] = []
@@ -342,6 +353,13 @@ func _ready() -> void:
 		func(i: int) -> void: _choice.ladder = GunGame.LENGTHS[i])
 	_rule(rules, "GUNS", _ladder_row)
 	_mode_rule(rules, ["gungame"])
+	var lives_names: Array[String] = []
+	for n in OneInTheChamber.LIVES:
+		lives_names.append(str(n))
+	_lives_row = _segmented(lives_names, OneInTheChamber.LIVES.find(_choice.oitc_lives),
+		func(i: int) -> void: _choice.oitc_lives = OneInTheChamber.LIVES[i])
+	_rule(rules, "LIVES", _lives_row)
+	_mode_rule(rules, ["oitc"])
 	var koth_names: Array[String] = []
 	for k in KingOfTheBlock.LIMITS:
 		koth_names.append(str(k))
@@ -363,6 +381,7 @@ func _ready() -> void:
 	_streak_row = _segmented(["ON", "OFF"] as Array[String], 0 if _streaks_on() else 1,
 		func(i: int) -> void: _choice.streaks[_choice.mode] = i == 0)
 	_rule(rules, "STREAKS", _streak_row)
+	_mode_rule(rules, ["ffa", "tdm", "ctf", "gungame", "koth", "infected", "tactical"])
 	_rules_hint = UIKit.label(MODE_HINTS.ffa, &"DimLabel")
 	_rules_hint.add_theme_font_size_override("font_size", 13)
 	_rules_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -396,7 +415,7 @@ func _mode_card(id: String, group: ButtonGroup) -> Button:
 	card.toggle_mode = true
 	card.button_group = group
 	card.name = id
-	card.custom_minimum_size = Vector2(0, 62)
+	card.custom_minimum_size = Vector2(0, 50)
 	card.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	card.button_pressed = id == _choice.mode
 	card.pressed.connect(func() -> void: pick_mode(id))
@@ -473,6 +492,7 @@ func _show_choice() -> void:
 	_pick_segment(_ctf_row, CaptureTheFlag.LIMITS.find(_choice.ctf_limit))
 	_pick_segment(_ladder_row, GunGame.LENGTHS.find(_choice.ladder))
 	_pick_segment(_koth_row, KingOfTheBlock.LIMITS.find(_choice.koth_limit))
+	_pick_segment(_lives_row, OneInTheChamber.LIVES.find(_choice.oitc_lives))
 	_pick_segment(_time_row, TIME_LIMITS.find(_choice.time_minutes))
 	_pick_segment(_mutator_row, 0 if _choice.mutators else 1)
 	if _link_row != null:
@@ -892,10 +912,12 @@ static func describe_config(cfg: Dictionary) -> Array:
 			rows.append(["CAPTURES", "%d capture%s" % [int(cfg.kill_limit), "" if int(cfg.kill_limit) == 1 else "s"]])
 		"gungame":
 			rows.append(["LADDER", "%d guns" % (int(cfg.kill_limit) - 1)])
+		"oitc":
+			rows.append(["LIVES", "%d li%s each" % [int(cfg.kill_limit), "fe" if int(cfg.kill_limit) == 1 else "ves"]])
 		"koth":
 			rows.append(["POINTS", "%d points" % int(cfg.kill_limit)])
 	rows.append(["TIME LIMIT", "%d min" % (int(cfg.time_limit) / 60)])
-	if mode != "tactical":
+	if mode != "tactical" and mode != "oitc":
 		rows.append(["MUTATORS", "Random mutators" if cfg.mutators else "No mutators"])
 	rows.append(["KILLSTREAKS", "Killstreaks on" if cfg.streaks else "Killstreaks off"])
 	return rows
@@ -909,7 +931,7 @@ static func config_from(choice: Dictionary) -> Dictionary:
 		"bots_fill": choice.bots_fill,
 		"difficulty": choice.difficulty,
 		"kill_limit": {"tdm": choice.team_kill_limit, "ctf": choice.ctf_limit, "gungame": choice.ladder,
-			"koth": choice.koth_limit}.get(choice.mode, choice.kill_limit),
+			"oitc": choice.oitc_lives, "koth": choice.koth_limit}.get(choice.mode, choice.kill_limit),
 		"time_limit": int(choice.time_minutes) * 60,
 		"mutators": choice.mutators,
 		"streaks": bool(choice.streaks.get(choice.mode, Streaks.default_for(choice.mode))),

@@ -51,7 +51,9 @@ const GAME_ID := "timbum"
 ## 24: Rail Cube, Cube Lobber, Pixel Scythe (new weapon ids and indices, "cube_lobber" projectiles,
 ##     Player.FLAG_CHARGE in the state flags, several hit targets per Rail Cube shot).
 ## 25: Capture the Flag (config.mode "ctf", the CaptureTheFlag node's _s_flag / _s_flags RPCs).
-const PROTOCOL_VERSION := 25
+## 26: One in the Chamber (config.mode "oitc", the OneInTheChamber node's _s_lives / _s_round /
+##     _s_final_two RPCs, `lives` / `out_at` / `one_round` in a player's info).
+const PROTOCOL_VERSION := 26
 const CONNECT_TIMEOUT := 8.0
 ## A room-code join first tries a direct (NAT punch-through) link this long, then the relay.
 const NAT_CONNECT_TIMEOUT := 6.0
@@ -71,7 +73,7 @@ const MAX_SPECTATORS := 4
 const MAP_CHUNK := 1000
 
 const DEFAULT_CONFIG := {
-	## A Data.MODES id: "ffa" (deathmatch), "tdm", "ctf", "gungame", "koth", "infected" or "tactical"
+	## A Data.MODES id: "ffa" (deathmatch), "tdm", "ctf", "gungame", "oitc", "koth", "infected" or "tactical"
 	## (see MatchMode).
 	"mode": "ffa",
 	"map": "rotation",
@@ -724,12 +726,16 @@ static func sanitize_config(cfg: Dictionary) -> Dictionary:
 	out.bots_fill = clampi(int(cfg.get("bots_fill", out.bots_fill)), 1, Data.MAX_PLAYERS)
 	out.difficulty = clampi(int(cfg.get("difficulty", out.difficulty)), 0, 2)
 	# `kill_limit` is each mode's limit: kills (Deathmatch), the team score (Team Deathmatch, and
-	# Capture the Flag's captures), the ladder length (Gun Game) or the points to win (King of the Block).
+	# Capture the Flag's captures), the ladder length (Gun Game), the lives (One in the Chamber) or
+	# the points to win (King of the Block).
 	var default_limit: int = {"tdm": TeamDeathmatch.DEFAULT_KILL_LIMIT, "ctf": CaptureTheFlag.DEFAULT_CAPTURES,
-		"gungame": GunGame.max_length(), "koth": KingOfTheBlock.DEFAULT_SCORE_LIMIT}.get(out.mode, out.kill_limit)
+		"gungame": GunGame.max_length(), "oitc": OneInTheChamber.DEFAULT_LIVES,
+		"koth": KingOfTheBlock.DEFAULT_SCORE_LIMIT}.get(out.mode, out.kill_limit)
 	out.kill_limit = clampi(int(cfg.get("kill_limit", default_limit)), 1, 200)
 	if out.mode == "gungame":
 		out.kill_limit = clampi(out.kill_limit, 2, GunGame.max_length())
+	elif out.mode == "oitc":
+		out.kill_limit = clampi(out.kill_limit, 1, OneInTheChamber.LIVES[-1])
 	out.time_limit = clampi(int(cfg.get("time_limit", out.time_limit)), 60, 3600)
 	out.mutators = bool(cfg.get("mutators", out.mutators))
 	out.streaks = bool(cfg.get("streaks", Streaks.default_for(out.mode)))
@@ -755,6 +761,11 @@ static func sanitize_config(cfg: Dictionary) -> Dictionary:
 		out.bots_fill = Tactical.PLAYERS
 		out.mutators = false
 		out.mutator = "none"
+	elif out.mode == "oitc":
+		# One in the Chamber is the Cuber .44 and one round: no mutators or killstreaks.
+		out.mutators = false
+		out.mutator = "none"
+		out.streaks = false
 	elif (out.mode == "infected" or out.mode == "gungame") and World.LOADOUT_MUTATORS.has(out.mutator):
 		# Infected keeps everyone's own loadout, Gun Game hands out the ladder's guns: no
 		# loadout mutators.

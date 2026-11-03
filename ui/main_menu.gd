@@ -403,7 +403,7 @@ func _build_home() -> MenuScreen:
 	head.offset_top = 22
 	home.add_child(head)
 	head.add_child(BlockTitle.new())
-	var tagline := UIKit.label("BLOCKY ARENA SHOOTER  ·  6 MODES", &"SubheaderLabel")
+	var tagline := UIKit.label("BLOCKY ARENA SHOOTER  ·  %d MODES" % Data.MODES.size(), &"SubheaderLabel")
 	tagline.add_theme_font_size_override("font_size", 15)
 	tagline.add_theme_color_override("font_color", Color(UITheme.TEXT, 0.85))
 	head.add_child(tagline)

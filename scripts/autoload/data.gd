@@ -599,6 +599,8 @@ const MODES := {
 		"desc": "Two teams. Take the enemy flag and carry it to your own while yours is home."},
 	"gungame": {"name": "Gun Game", "short": "GUN GAME",
 		"desc": "Every kill gives you the next gun. A knife kill on the last step wins; a knife kill sets the victim back."},
+	"oitc": {"name": "One in the Chamber", "short": "CHAMBER",
+		"desc": "A Cuber .44 with one round: any hit kills, every kill gives a round. Run out of lives and you're out."},
 	"koth": {"name": "King of the Block", "short": "KING", "desc": "Stand alone in the glowing zone to score. It moves every minute."},
 	"infected": {"name": "Infected", "short": "INFECTED", "teams": true,
 		"team_names": ["SURVIVORS", "INFECTED"], "team_colors": ["survivors", "infected"],
@@ -703,6 +705,8 @@ const CHALLENGE_TEMPLATES := {
 		"daily": [1, 3], "weekly": [8, 12]},
 	"flag_returns": {"text": ["Return your team's flag", "Return your team's flag {n} times"], "key": "flag_returns", "param": "",
 		"group": "mode", "daily": [2, 4], "weekly": [10, 15]},
+	"last_standing": {"text": ["Be the last one standing in One in the Chamber", "Be the last one standing in One in the Chamber {n} times"],
+		"key": "medal:last_standing", "param": "", "group": "mode", "daily": [1, 1], "weekly": [2, 3]},
 }
 ## Groups each challenge slot draws from, so every set mixes guns, movement and modes/maps.
 const CHALLENGE_SLOTS := {
@@ -731,6 +735,9 @@ const MEDALS := {
 	"longest_hold": {"name": "Zone Keeper", "desc": "Longest hold of the zone.", "mode": "koth"},
 	"flag_runner": {"name": "Flag Runner", "desc": "Most flag captures of the match.", "mode": "ctf"},
 	"flag_defender": {"name": "Flag Defender", "desc": "Most flags returned in the match.", "mode": "ctf"},
+	"last_standing": {"name": "Last One Standing", "desc": "The only player left with lives in One in the Chamber.", "mode": "oitc"},
+	"dead_eye": {"name": "Dead Eye", "desc": "Most Cuber .44 kills in One in the Chamber.", "mode": "oitc"},
+	"flawless": {"name": "Flawless", "desc": "Won One in the Chamber without losing a life.", "mode": "oitc"},
 }
 
 ## Permanent achievements (Profile.achievements: id -> unlock time). `key` is a lifetime value
@@ -767,6 +774,8 @@ const ACHIEVEMENTS := {
 	"first_capture": {"name": "Flag Bearer", "desc": "Capture your first flag.", "key": "captures", "target": 1},
 	"flag_master": {"name": "Flag Master", "desc": "Capture 25 flags.", "key": "captures", "target": 25},
 	"homeward": {"name": "Homeward", "desc": "Return your team's flag 10 times.", "key": "flag_returns", "target": 10},
+	"oitc_win": {"name": "One Shot Wonder", "desc": "Win a match of One in the Chamber.", "key": "wins_mode:oitc", "target": 1},
+	"oitc_flawless": {"name": "Untouchable", "desc": "Win One in the Chamber without losing a life.", "key": "medal:flawless", "target": 1},
 	"regular": {"name": "Regular", "desc": "Play 50 matches.", "key": "matches", "target": 50},
 	"champion": {"name": "Champion", "desc": "Win 25 matches.", "key": "wins", "target": 25},
 	"decorated": {"name": "Decorated", "desc": "Earn 25 medals (match highlights).", "key": "medals", "target": 25},

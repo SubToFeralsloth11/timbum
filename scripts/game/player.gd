@@ -360,8 +360,11 @@ func mod(mid: String) -> float:
 
 
 ## Magazine size of `wid` with the Extended Mag upgrade (guns holding fewer than 3 rounds keep theirs).
+## `info.one_round` (One in the Chamber): one round in any gun.
 func mag_size(wid: String) -> int:
 	var base := int(Data.WEAPONS[wid].mag)
+	if base > 0 and bool(info.get("one_round", false)):
+		return 1
 	return roundi(base * mod("mag")) if base >= 3 else base
 
 
@@ -1087,6 +1090,19 @@ func top_up_reserves() -> void:
 			ammo[wid] = a
 
 
+## One in the Chamber's round for a kill (`OneInTheChamber._s_round`, on every peer): into the
+## empty chamber of `wid`, otherwise onto its reserve.
+func add_round(wid: String) -> void:
+	if not ammo.has(wid):
+		return
+	var a: Vector2i = ammo[wid]
+	if a.x < mag_size(wid):
+		a.x += 1
+	else:
+		a.y += 1
+	ammo[wid] = a
+
+
 func add_ammo_pickup() -> void:
 	for wid in slots:
 		if wid.is_empty():
@@ -1158,8 +1174,11 @@ func _ammo_scale(wid: String) -> int:
 	return 2 if wid == "rocket" and Net.config.mutator == "rocket_party" else 1
 
 
-## Starting reserve for `wid` this match; ammo crates top it up to twice this.
+## Starting reserve for `wid` this match; ammo crates top it up to twice this. None with
+## `info.one_round` (One in the Chamber: rounds only come from kills).
 func _reserve(wid: String) -> int:
+	if bool(info.get("one_round", false)):
+		return 0
 	return int(Data.WEAPONS[wid].reserve) * _ammo_scale(wid)
 
 

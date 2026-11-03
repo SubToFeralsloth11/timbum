@@ -155,9 +155,13 @@ func _ready() -> void:
 	_entities_root = Node3D.new()
 	_entities_root.name = "Entities"
 	add_child(_entities_root)
+	# The rules exist before the pickups (the mode decides which kinds it has) and the Hud (its
+	# scoreboard asks them for columns); they join the tree after it.
+	rules = MatchMode.create(self)
+	tactical = rules as Tactical
 	for pick: Dictionary in map_info.pickups:
 		# Tactical weapon spots are Tactical's (WeaponPickup), not timed pickups.
-		if pick.kind == "weapon":
+		if pick.kind == "weapon" or not rules.has_pickup(str(pick.kind)):
 			continue
 		var node := PickupNode.new()
 		node.setup(str(pick.kind))
@@ -165,10 +169,6 @@ func _ready() -> void:
 		add_child(node)
 		pickup_nodes.append(node)
 		_pickup_ready_at.append(0.0)
-	# The rules exist before the Hud builds (its scoreboard asks them for columns); they join the
-	# tree after it.
-	rules = MatchMode.create(self)
-	tactical = rules as Tactical
 	hud = Hud.new()
 	hud.name = "Hud"
 	hud.setup(self)
@@ -748,7 +748,7 @@ func _server_shot(shooter_id: int, wid: String, ends: PackedVector3Array, normal
 			_s_shot_fx.rpc_id(pid, shooter_id, wid, ends, normals)
 	if shooter.mode == Player.Mode.REMOTE:
 		_s_shot_fx(shooter_id, wid, ends, normals)
-	if not rate_ok:
+	if not rate_ok or not (rules.server_take_shot(shooter, wid) or admin.ammo_free(shooter)):
 		return
 	_server_unprotect(shooter_id)
 	# One shot can never deal more to a single target than every pellet landing as a headshot (a
@@ -792,7 +792,7 @@ func _server_shot(shooter_id: int, wid: String, ends: PackedVector3Array, normal
 			var cap := Player.damage_at(w, near, shooter.mod("barrel")) * float(w.pellets) \
 				* (float(w.head_mult) if head_hit[tid] else 1.0) * _charge_cap(shooter_id, wid) + 0.01
 			dmg = minf(dmg, cap)
-		_server_damage(target, dmg, shooter_id, wid, head_hit[tid], shooter.global_position)
+		_server_damage(target, rules.hit_damage(shooter, target, wid, dmg), shooter_id, wid, head_hit[tid], shooter.global_position)
 	admin.after_shot(shooter, wid, ends)
 	if w.has("charge_time"):
 		_charge_shot_at[shooter_id] = now()
@@ -915,7 +915,8 @@ func _server_kill(victim_id: int, killer_id: int, wid: String, head: bool) -> vo
 			k.headshots += 1
 		if Net.config.mutator == "vampire" and entities.has(killer_id) and entities[killer_id].alive:
 			_broadcast(&"_s_health", [killer_id, entities[killer_id].max_health()])
-	if rules.respawn_delay() >= 0.0:
+	rules.server_on_death(victim_id, killer_id, wid)
+	if rules.respawn_delay() >= 0.0 and rules.respawns(victim_id):
 		_respawn_at[victim_id] = now() + rules.respawn_delay()
 	_broadcast(&"_s_killed", [victim_id, killer_id, wid, head, killer_hp, killer_dist])
 	_broadcast(&"_s_scores", [scores])
@@ -1516,7 +1517,8 @@ func _s_killed(victim_id: int, killer_id: int, wid: String, head: bool, killer_h
 	if victim_id == me:
 		_my_streak = 0
 		_my_multi = 0
-		hud.show_death(display_name(killer_id) if killer_id != me else "", weapon_label(wid), rules.respawn_delay(), _death_detail(killer_id, killer_hp, killer_dist))
+		var respawn := rules.respawn_delay() if rules.respawns(me) else -1.0
+		hud.show_death(display_name(killer_id) if killer_id != me else "", weapon_label(wid), respawn, _death_detail(killer_id, killer_hp, killer_dist))
 		rules.on_local_death(killer_id)
 		killcam.on_local_death(killer_id, wid)
 		_my_damage_taken.clear()

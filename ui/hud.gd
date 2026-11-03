@@ -1134,7 +1134,7 @@ func _process(delta: float) -> void:
 		_death_left = maxf(0.0, _death_left - delta)
 	if _death_panel.visible:
 		if _death_left < 0.0:
-			_death_timer_label.text = "No respawns in Tactical  ·  spectating your team next"
+			_death_timer_label.text = world.rules.no_respawn_note()
 		else:
 			_death_timer_label.text = "Respawning in %d" % int(ceil(_death_left)) if _death_left > 0.0 else "Respawning..."
 	if _results.visible and world.tactical == null:
@@ -1184,8 +1184,9 @@ func _process(delta: float) -> void:
 	_compass.heading = -p.yaw
 	_compass.queue_redraw()
 	_update_mode_hud()
-	# Spectating in Tactical: the dead player's own cards would sit under the spectator bar.
-	var cards := p.alive or world.tactical == null
+	# Spectating after death (Tactical, One in the Chamber out of lives): the dead player's own
+	# cards would sit under the spectator bar and the followed player's card.
+	var cards := p.alive or (world.tactical == null and not world.spectator.is_dead_follow())
 	_health_card.visible = cards
 	_weapon_card.visible = cards
 
@@ -1206,7 +1207,7 @@ func _process(delta: float) -> void:
 			var can_cut: bool = w.get("reload_per_shell", false) and a.x > 0
 			_hint_label.text = "RELOADING - FIRE TO STOP" if can_cut else "RELOADING"
 		elif a.x == 0 and a.y == 0:
-			_hint_label.text = "NO AMMO - FIND AN AMMO CRATE"
+			_hint_label.text = world.rules.no_ammo_hint()
 		elif low_ammo and a.y > 0:
 			_hint_label.text = "[%s] RELOAD" % Profile.key_text("reload")
 		else:

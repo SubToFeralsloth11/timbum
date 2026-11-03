@@ -11,6 +11,7 @@ extends Node
 ##   - `GunGame` (scripts/game/gun_game.gd, "gungame")
 ##   - `KingOfTheBlock` (scripts/game/king_of_the_block.gd, "koth")
 ##   - `Infected` (scripts/game/infected.gd, "infected")
+##   - `OneInTheChamber` (scripts/game/one_in_the_chamber.gd, "oitc")
 ##   - `Tactical` (scripts/game/tactical.gd, "tactical")
 ## and, for the offline practice sessions (`Net.config.session`), `FiringRange`
 ## (scripts/game/firing_range.gd, "range") and its subclass `Tutorial` (scripts/game/tutorial.gd).
@@ -39,6 +40,7 @@ static func create(p_world: World) -> MatchMode:
 				"gungame": m = GunGame.new()
 				"koth": m = KingOfTheBlock.new()
 				"infected": m = Infected.new()
+				"oitc": m = OneInTheChamber.new()
 				"tactical": m = Tactical.new()
 				_: m = MatchMode.new()
 	m.world = p_world
@@ -67,6 +69,29 @@ func attacks_blocked() -> bool:
 ## Seconds from death to respawn; negative: no respawns.
 func respawn_delay() -> float:
 	return Data.RESPAWN_TIME
+
+
+## Whether `eid` comes back after its death (asked once the death is counted, so on every peer
+## after `server_on_death`): One in the Chamber, not once out of lives. With `respawn_delay()`
+## negative nobody does anyway.
+func respawns(_eid: int) -> bool:
+	return true
+
+
+## The death screen's line when the local player won't respawn.
+func no_respawn_note() -> String:
+	return "No respawns  ·  spectating next"
+
+
+## Whether the map's timed pickups of `kind` ("health", "ammo", "grenade") exist in this mode
+## (World leaves the others out on every peer, so pickup indices still match).
+func has_pickup(_kind: String) -> bool:
+	return true
+
+
+## The weapon card's hint when the held gun is completely out of ammo.
+func no_ammo_hint() -> String:
+	return "NO AMMO - FIND AN AMMO CRATE"
 
 
 ## The match ended (every peer, from World._s_match_end).
@@ -206,6 +231,24 @@ func server_human_joined(pid: int) -> void:
 ## A human left mid-match, or started spectating.
 func server_human_left(pid: int) -> void:
 	world.server_remove_entity(pid)
+
+
+## A death is being counted, before every peer hears of it (World._server_kill, ahead of
+## `_s_killed` and the respawn decision `respawns(victim_id)`).
+func server_on_death(_victim_id: int, _killer_id: int, _wid: String) -> void:
+	pass
+
+
+## Server: a hitscan shot from `shooter` with `wid` passed the fire-rate check; false drops it
+## before any damage (One in the Chamber: the shooter has no round the server handed out).
+func server_take_shot(_shooter: Player, _wid: String) -> bool:
+	return true
+
+
+## Server: the damage an accepted hit deals after the falloff cap (One in the Chamber: a Cuber .44
+## hit kills).
+func hit_damage(_shooter: Player, _target: Player, _wid: String, dmg: float) -> float:
+	return dmg
 
 
 ## After World counted a kill (scores already updated and broadcast).
@@ -420,6 +463,23 @@ func bot_roam_goal(_p: Player) -> Variant:
 ## Closest a bot lets `target` come before backing off (0: its weapon's range decides).
 func bot_min_range(_p: Player, _target: Player) -> float:
 	return 0.0
+
+
+## Weapon slot a bot should hold against `target` (null: none; `dist` INF then), or -1 for the
+## bot's own choice (One in the Chamber: melee when out of rounds or far away).
+func bot_weapon_slot(_p: Player, _target: Player, _dist: float) -> int:
+	return -1
+
+
+## [closest, farthest] distance a bot fights from with `wid` (Vector2.ZERO: the weapon's own).
+func bot_preferred_range(_p: Player, _wid: String) -> Vector2:
+	return Vector2.ZERO
+
+
+## Whether a bot lined up on `target` (its view along `aim_dir`) may pull the trigger now (One in
+## the Chamber: only when the shot would really land).
+func bot_fire_ok(_p: Player, _target: Player, _dist: float, _aim_dir: Vector3) -> bool:
+	return true
 
 
 ## Metres closer than they are that `other` counts when bot `p` picks a target (Capture the

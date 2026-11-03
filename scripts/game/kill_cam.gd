@@ -495,7 +495,8 @@ func on_local_death(killer_id: int, wid: String) -> void:
 	stop("death")
 	if not _recording or killer_id == world.my_id() or world.match_over or not world.entities.has(killer_id):
 		return
-	var delay := world.rules.respawn_delay()
+	# A death the player doesn't come back from (One in the Chamber's last life) has no replay.
+	var delay := world.rules.respawn_delay() if world.rules.respawns(world.my_id()) else -1.0
 	var length := minf(MAX_LEN, delay - START_DELAY - END_MARGIN)
 	if length < MIN_LEN:
 		return

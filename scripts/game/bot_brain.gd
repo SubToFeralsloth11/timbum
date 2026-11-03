@@ -436,6 +436,10 @@ func _choose_weapon() -> void:
 			want = 1
 		elif dist < LAUNCHER_MIN + 2.0 and primary in LAUNCHERS:
 			want = 2
+	# The mode may decide (One in the Chamber: the melee weapon without rounds or far away).
+	var forced := p.world.rules.bot_weapon_slot(p, target, dist)
+	if forced >= 0 and not p.slots[forced].is_empty():
+		want = forced
 	var reacted := target != null and _target_visible and _reaction_left <= 0.0
 	if reacted and dist < 2.2 and difficulty > 0 and p.current_slot != 2 and target.protection_left() <= 0.0:
 		p.in_melee = p.melee_timer <= 0.0 and randf() < 0.06
@@ -450,6 +454,9 @@ func _choose_weapon() -> void:
 
 func _preferred_range() -> Vector2:
 	var wid := p.weapon_id()
+	var mode_range := p.world.rules.bot_preferred_range(p, wid)
+	if mode_range != Vector2.ZERO:
+		return mode_range
 	if Data.is_melee(wid):
 		return Vector2(0.0, float(Data.WEAPONS[wid].range) * 0.65)
 	match wid:
@@ -580,7 +587,7 @@ func _fight(delta: float) -> void:
 	# Never a launcher at point blank: the blast would catch the bot too.
 	if wid in LAUNCHERS and dist < LAUNCHER_MIN:
 		return
-	if not on_target:
+	if not on_target or not p.world.rules.bot_fire_ok(p, target, dist, aim_dir):
 		return
 	if w.has("charge_time"):
 		_semi_wait -= delta
