@@ -13,6 +13,9 @@ var spread := 1.0
 var fov := 85.0
 ## False while aiming down sights: the lines and dot hide, but hitmarkers still draw.
 var show_lines := true
+## Charge of a held charge weapon (0..1; negative: none): a ring around the centre fills with it,
+## turning white when full. It shows while aiming too.
+var charge := -1.0
 ## Half the height the spread cone is measured against; 0 uses this control's own height (the HUD
 ## fills the screen). The settings preview sets the game screen's, so its gap matches a match.
 var view_half_height := 0.0
@@ -69,6 +72,8 @@ func _draw() -> void:
 	var c := size * 0.5
 	if show_lines:
 		_draw_crosshair(c)
+	if charge >= 0.0:
+		_draw_charge(c)
 	if _hit_t > 0.0:
 		var k := clampf(_hit_t / 0.18, 0.0, 1.0)
 		var hc := _hit_color
@@ -77,6 +82,16 @@ func _draw() -> void:
 		for d: Vector2 in [Vector2(1, 1), Vector2(-1, 1), Vector2(1, -1), Vector2(-1, -1)]:
 			var dn := d.normalized()
 			draw_line(c + dn * 8.0, c + dn * reach, hc, 4.0 if _hit_kill else 3.0)
+
+
+func _draw_charge(c: Vector2) -> void:
+	var radius := 22.0
+	draw_arc(c, radius, 0.0, TAU, 40, Color(0, 0, 0, 0.35), 4.0, true)
+	if charge <= 0.0:
+		return
+	var full := charge >= 0.999
+	var col := Color(0.92, 0.98, 1.0) if full else Color(0.35, 0.82, 1.0)
+	draw_arc(c, radius, -PI * 0.5, -PI * 0.5 + TAU * charge, maxi(4, roundi(40 * charge)), col, 3.0 if full else 2.5, true)
 
 
 ## Pixels from the centre to where the lines start: the set gap, plus (dynamic spread) the spread

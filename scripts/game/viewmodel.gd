@@ -86,7 +86,15 @@ const MAGS := {
 	"carbine": [Vector3(0, -0.07, -0.09), Vector3(0.03, 0.14, 0.05), 0.2, Color(0.36, 0.38, 0.42), Vector3.DOWN],
 	"burst_smg": [Vector3(0, -0.065, -0.08), Vector3(0.028, 0.15, 0.034), 0.0, Color(0.36, 0.38, 0.42), Vector3.DOWN],
 	"minigun": [Vector3(-0.085, -0.04, -0.05), Vector3(0.07, 0.11, 0.14), 0.0, Color(0.1, 0.1, 0.11), Vector3.DOWN],
+	# Rail Cube: the glowing power cube is lifted out of its cage and a fresh one pushed down in.
+	"rail_cube": [Vector3(0, 0.1, 0.02), Vector3(0.05, 0.04, 0.05), 0.0, Color(0.3, 0.75, 1.0), Vector3.UP],
+	# Cube Lobber: a whole new six-round drum slides in from the left.
+	"cube_lobber": [Vector3(0, 0.0, -0.14), Vector3(0.14, 0.14, 0.12), 0.0, Color(0.33, 0.36, 0.24), Vector3.LEFT],
 }
+## Charge weapons: the gun trembles up to this far (m) at full charge, and the coil light reaches
+## CHARGE_LIGHT energy.
+const CHARGE_SHAKE := 0.0018
+const CHARGE_LIGHT := 1.1
 ## Where the left hand goes to fetch a new magazine (arms space; below the screen edge).
 const HAND_OFFSCREEN := Vector3(-0.08, -0.4, 0.05)
 ## Melee swing timing (fraction of the swing): wind-up, then the fast strike, then recovery. A
@@ -199,6 +207,9 @@ var _mag_weapon := ""
 ## True while a reload animation has the left hand off its support point.
 var _hand_busy := false
 var _inspect_t := 0.0
+## Charge of the held charge weapon (0..1, Player.charge_fraction) and its glow on the gun.
+var _charge := 0.0
+var _charge_glow: GeometryInstance3D
 
 
 func setup(outfit_id: String, skin_id: String, charm_id := "none", draw_style := "standard", camos: Array = []) -> void:
@@ -253,6 +264,10 @@ func set_weapon(wid: String, draw_len := 0.3) -> void:
 	_arms.attach_gun(_gun)
 	_convert(_gun)
 	_muzzle = _gun.get_node_or_null(^"Muzzle") as Node3D
+	_charge_glow = _gun.get_node_or_null(^"ChargeGlow") as GeometryInstance3D
+	if _charge_glow != null:
+		_charge_glow.material_override = Models.charge_glow_material(true)
+	_charge = 0.0
 	_scoped = Data.WEAPONS[wid].get("scope", false)
 	_ads_pos = _compute_ads_pos()
 	play_draw(draw_len)
@@ -285,12 +300,25 @@ func play_fire(kick_deg: float) -> void:
 	_kick = minf(_kick + 0.35 + kick_deg * 0.12, 1.4)
 	_kick_roll = clampf(_kick_roll + randf_range(-0.06, 0.06) * (1.0 + kick_deg * 0.2), -0.18, 0.18)
 	_flash_t = 0.05
-	# A suppressor swallows the flash.
-	var suppressed: bool = Data.WEAPONS[_weapon].get("suppressed", false)
+	# A suppressor swallows the flash; a beam weapon flashes cyan.
+	var w: Dictionary = Data.WEAPONS[_weapon]
+	var suppressed: bool = w.get("suppressed", false)
 	_flash.visible = not suppressed
 	_flash.rotation.z = randf() * TAU
 	_flash.scale = Vector3.ONE * randf_range(0.8, 1.25)
+	_flash_light.light_color = Color(0.45, 0.85, 1.0) if w.get("beam", false) else Color(1.0, 0.78, 0.4)
 	_flash_light.light_energy = 0.3 if suppressed else 2.2
+
+
+## Charge of the held charge weapon (0..1; 0 hides the glow): the coils glow and light up, and
+## the gun trembles harder as it builds.
+func set_charge(c: float) -> void:
+	_charge = c
+	if _charge_glow == null:
+		return
+	_charge_glow.visible = c > 0.0
+	if c > 0.0:
+		_charge_glow.set_instance_shader_parameter(&"charge", c)
 
 
 func play_reload(length: float) -> void:
@@ -511,6 +539,8 @@ func pose(delta: float, ads: float, sprinting: bool, sliding: bool, grappling: b
 		var e := smoothstep(0.0, 0.2, u) * (1.0 - smoothstep(0.7, 1.0, u))
 		pos += Vector3(0.06, -0.14, 0.06) * e
 		rot += Vector3(-0.5, -0.2, -0.3) * e
+	if _charge > 0.0:
+		pos += Vector3(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0), 0.0) * CHARGE_SHAKE * _charge * _charge
 	_pivot.position = pos
 	_pivot.rotation = rot
 	_pivot.visible = not (_scoped and ads > 0.85)
@@ -527,6 +557,11 @@ func pose(delta: float, ads: float, sprinting: bool, sliding: bool, grappling: b
 			_flash_light.light_energy = 0.0
 	if _scoped and ads > 0.85:
 		_flash.visible = false
+	# A charging coil lights the hands and gun (the muzzle flash takes the light over when it fires).
+	if _flash_t <= 0.0 and _charge_glow != null and (_charge > 0.0 or _flash_light.light_energy > 0.0):
+		_flash_light.light_color = Color(0.45, 0.85, 1.0)
+		_flash_light.global_position = _charge_glow.global_position
+		_flash_light.light_energy = CHARGE_LIGHT * _charge
 
 
 ## Draw animation `style` at `d` (1 = just started, 0 = done): [pivot offset, pivot rotation,

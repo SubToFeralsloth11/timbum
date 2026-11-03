@@ -1,7 +1,8 @@
 class_name Fx
 extends Node3D
-## Pooled combat effects: tracers, impact debris, bullet holes, blood cubes, muzzle flashes,
-## explosions and death bursts. Every pool is a fixed-size ring so nothing allocates mid-fight.
+## Pooled combat effects: tracers, Rail Cube beams, impact debris, bullet holes, blood cubes,
+## muzzle flashes, explosions and death bursts. Every pool is a fixed-size ring so nothing
+## allocates mid-fight.
 
 const TRACER_POOL := 32
 const IMPACT_POOL := 20
@@ -21,6 +22,23 @@ const FLASH_BURST_LIFE := 0.45
 ## Demolition: concurrent block-debris bursts (made on first use), and chunks per burst.
 const BLOCK_DEBRIS_POOL := 4
 const BLOCK_DEBRIS_AMOUNT := 48
+## Rail Cube beams: concurrent beams, how long one lasts, and the width of its core and glow.
+const BEAM_POOL := 6
+const BEAM_LIFE := 0.5
+const BEAM_CORE := 0.035
+const BEAM_GLOW := 0.16
+
+## A beam's core and glow: flat additive colour; `fade` (1 -> 0 over BEAM_LIFE) per instance.
+const BEAM_SHADER := """
+shader_type spatial;
+render_mode unshaded, blend_add, cull_disabled, depth_draw_never, shadows_disabled;
+instance uniform float fade = 1.0;
+uniform vec3 tint : source_color = vec3(0.35, 0.85, 1.0);
+uniform float strength = 1.0;
+void fragment() {
+	ALBEDO = tint * strength * fade * fade;
+}
+"""
 
 ## Soft billboarded smoke puff: value-noise blob with a round falloff; `fade` per instance.
 const SMOKE_SHADER := """
@@ -76,6 +94,10 @@ var _flash_burst: OmniLight3D
 var _flash_burst_life := 0.0
 var _block_debris: Array[CPUParticles3D] = []
 var _i_block_debris := 0
+## Rail Cube beams: per beam a root holding "Core" and "Glow" boxes, and its time left.
+var _beams: Array[Node3D] = []
+var _beam_life: Array[float] = []
+var _i_beam := 0
 
 
 func _ready() -> void:
@@ -181,6 +203,32 @@ func _ready() -> void:
 	_flash_burst.light_energy = 0.0
 	_flash_burst.visible = false
 	add_child(_flash_burst)
+	_make_beams()
+
+
+func _make_beams() -> void:
+	var shader := Shader.new()
+	shader.code = BEAM_SHADER
+	var cube := BoxMesh.new()
+	cube.size = Vector3.ONE
+	for i in BEAM_POOL:
+		var root := Node3D.new()
+		root.visible = false
+		add_child(root)
+		for part: Array in [["Core", BEAM_CORE, Color(0.85, 0.97, 1.0), 2.2], ["Glow", BEAM_GLOW, Color(0.25, 0.65, 1.0), 0.6]]:
+			var mat := ShaderMaterial.new()
+			mat.shader = shader
+			mat.set_shader_parameter("tint", part[2])
+			mat.set_shader_parameter("strength", part[3])
+			var mi := MeshInstance3D.new()
+			mi.name = part[0]
+			mi.mesh = cube
+			mi.material_override = mat
+			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			mi.scale = Vector3(part[1], part[1], 1.0)
+			root.add_child(mi)
+		_beams.append(root)
+		_beam_life.append(0.0)
 
 
 func _cube_material(vertex_color: bool) -> StandardMaterial3D:
@@ -261,6 +309,38 @@ func _process(delta: float) -> void:
 		_flash_burst.light_energy = maxf(0.0, _flash_burst_life / FLASH_BURST_LIFE) * 16.0
 		if _flash_burst_life <= 0.0:
 			_flash_burst.visible = false
+	for i in BEAM_POOL:
+		if _beam_life[i] > 0.0:
+			_beam_life[i] -= delta
+			var root := _beams[i]
+			if _beam_life[i] <= 0.0:
+				root.visible = false
+				continue
+			var f := _beam_life[i] / BEAM_LIFE
+			for mi: MeshInstance3D in [root.get_child(0), root.get_child(1)]:
+				mi.set_instance_shader_parameter(&"fade", f)
+			# The glow swells a little as it fades; the core thins out.
+			var core := BEAM_CORE * (0.4 + 0.6 * f)
+			var glow := BEAM_GLOW * (1.6 - 0.6 * f)
+			(root.get_child(0) as Node3D).scale = Vector3(core, core, 1.0)
+			(root.get_child(1) as Node3D).scale = Vector3(glow, glow, 1.0)
+
+
+## A Rail Cube shot: a straight cyan beam from `from` to `to` (where it stopped) that every peer
+## sees, bright at first and fading over BEAM_LIFE.
+func rail_beam(from: Vector3, to: Vector3) -> void:
+	var length := from.distance_to(to)
+	if length < 0.2:
+		return
+	var root := _beams[_i_beam]
+	_beam_life[_i_beam] = BEAM_LIFE
+	_i_beam = (_i_beam + 1) % BEAM_POOL
+	var dir := (to - from) / length
+	root.global_transform = Transform3D(Basis.looking_at(dir, Vector3.UP if absf(dir.y) < 0.99 else Vector3.RIGHT), (from + to) * 0.5)
+	root.scale = Vector3(1.0, 1.0, length)
+	for mi: MeshInstance3D in [root.get_child(0), root.get_child(1)]:
+		mi.set_instance_shader_parameter(&"fade", 1.0)
+	root.visible = true
 
 
 func tracer(from: Vector3, to: Vector3) -> void:

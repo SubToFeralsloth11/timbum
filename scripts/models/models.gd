@@ -76,11 +76,70 @@ static func build_gun(weapon_id: String, skin_id: String, charm_id := "none") ->
 	_add_marker(root, "Sight", info.sight)
 	if info.support != null:
 		_add_marker(root, "Support", info.support)
+	if info.has("coil"):
+		root.add_child(_charge_glow(info.coil, info.coil_size))
 	if charm_id != "none" and CATALOG.CHARMS.has(charm_id) and CATALOG.WEAPONS[weapon_id].slot != "melee":
 		var charm := GunCharm.create(charm_id)
 		charm.position = charm_anchor(weapon_id)
 		root.add_child(charm)
 	return root
+
+
+## Charge glow of a charge weapon (the Rail Cube): an additive box over its coils, hidden until
+## the owner charges. Viewmodel and Player set its `charge` instance parameter (0..1) and
+## visibility; the Viewmodel swaps in the depth-squashed material (charge_glow_material(true)).
+static func _charge_glow(center: Vector3, box_size: Vector3) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	mi.name = "ChargeGlow"
+	var box := _cached_mesh("charge_glow_%s" % box_size, func() -> ArrayMesh:
+		var b := BoxMesh.new()
+		b.size = box_size
+		var am := ArrayMesh.new()
+		am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, b.get_mesh_arrays())
+		return am)
+	mi.mesh = box
+	mi.position = center
+	mi.material_override = charge_glow_material(false)
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mi.visible = false
+	return mi
+
+
+const CHARGE_GLOW_SHADER := """
+shader_type spatial;
+render_mode unshaded, blend_add, cull_back, depth_draw_never, shadows_disabled;
+instance uniform float charge = 0.0;
+uniform bool viewmodel = false;
+void vertex() {
+	POSITION = PROJECTION_MATRIX * MODELVIEW_MATRIX * vec4(VERTEX, 1.0);
+	if (viewmodel) {
+		POSITION.z = mix(POSITION.w, POSITION.z, 0.03);
+	}
+}
+void fragment() {
+	float c = clamp(charge, 0.0, 1.0);
+	float pulse = 0.75 + 0.25 * sin(TIME * (8.0 + 30.0 * c));
+	vec3 col = mix(vec3(0.2, 0.55, 1.0), vec3(0.75, 0.97, 1.0), c * c);
+	ALBEDO = col * c * pulse * (c >= 0.999 ? 1.6 : 1.0);
+}
+"""
+static var _charge_glow_mats: Array[ShaderMaterial] = [null, null]
+
+
+## The charge glow's material: the world one, or (`viewmodel`) the depth-squashed first-person one.
+static func charge_glow_material(viewmodel: bool) -> ShaderMaterial:
+	var i := 1 if viewmodel else 0
+	if _charge_glow_mats[i] == null:
+		if _charge_glow_mats[1 - i] == null:
+			var sh := Shader.new()
+			sh.code = CHARGE_GLOW_SHADER
+			_charge_glow_mats[i] = ShaderMaterial.new()
+			_charge_glow_mats[i].shader = sh
+		else:
+			_charge_glow_mats[i] = ShaderMaterial.new()
+			_charge_glow_mats[i].shader = _charge_glow_mats[1 - i].shader
+		_charge_glow_mats[i].set_shader_parameter("viewmodel", viewmodel)
+	return _charge_glow_mats[i]
 
 
 ## Where a charm hangs on `weapon_id` (gun space): the left face of the gun, a little below the
@@ -523,6 +582,23 @@ static func build_rocket() -> Node3D:
 	return root
 
 
+## Cube Lobber grenade: a 0.12 m olive cube banded in steel, with a glowing red fuse light on
+## each side and a brass nose cap; origin at its centre.
+static func build_lobber_shell() -> Node3D:
+	var root := Node3D.new()
+	root.name = "LobberShell"
+	_add_mesh(root, _cached_mesh("lobber_shell", func() -> ArrayMesh:
+		var k := MeshKit.new()
+		k.box(0, Vector3.ZERO, Vector3(0.12, 0.12, 0.12))
+		k.box(1, Vector3.ZERO, Vector3(0.126, 0.03, 0.126))
+		for d: Vector3 in [Vector3.RIGHT, Vector3.LEFT, Vector3.FORWARD, Vector3.BACK]:
+			k.box(2, d * 0.064, Vector3(0.03, 0.032, 0.03) - d.abs() * 0.026)
+		k.box(3, Vector3(0, 0.066, 0), Vector3(0.05, 0.012, 0.05))
+		return k.build([flat_material(Color("56603a")), flat_material(Color(0.36, 0.37, 0.4), 0.35, 0.7),
+			flat_material(Color("ff3a2a"), 0.5, 0.0, 3.0), flat_material(Color("c9a646"), 0.3, 0.8)])))
+	return root
+
+
 ## First-person forearms posed around a gun whose grip is at the origin, forward -Z.
 ## Put the gun under child "GunMount" via ViewmodelArms.attach_gun(); the left hand then
 ## moves to the gun's "Support" marker. Meshes do not cast shadows.
@@ -824,6 +900,9 @@ static func _gun_info(weapon_id: String) -> Dictionary:
 		"block_axe": info = _melee_block_axe(k)
 		"cube_hammer": info = _melee_cube_hammer(k)
 		"pixel_katana": info = _melee_pixel_katana(k)
+		"rail_cube": info = _gun_rail_cube(k)
+		"cube_lobber": info = _gun_cube_lobber(k)
+		"pixel_scythe": info = _melee_pixel_scythe(k)
 		_: info = _gun_knife(k)
 	info.mesh = k.build(_gun_accent_materials())
 	_guns[weapon_id] = info
@@ -1327,6 +1406,74 @@ static func _gun_minigun(k: MeshKit) -> Dictionary:
 		"support": Vector3(0, -0.015, -0.21)}
 
 
+## Rail Cube: a squat receiver with a glowing power cube on top, two steel rails running out to a
+## heavy muzzle block with four glowing coil cubes between them, and a short stock. "coil" /
+## "coil_size": the box its charge glow covers.
+static func _gun_rail_cube(k: MeshKit) -> Dictionary:
+	k.box(DARK, Vector3(0, -0.045, 0.03), Vector3(0.032, 0.095, 0.042), Vector3(-0.25, 0, 0))
+	k.box(BODY, Vector3(0, 0.03, 0.0), Vector3(0.07, 0.08, 0.22))
+	k.box(DARK, Vector3(0, 0.03, -0.115), Vector3(0.076, 0.086, 0.014))
+	k.box(BODY, Vector3(0, 0.025, 0.19), Vector3(0.05, 0.065, 0.16))
+	k.box(DARK, Vector3(0, 0.02, 0.28), Vector3(0.056, 0.085, 0.02))
+	# Power cube in a dark cage on the receiver.
+	k.box(DARK, Vector3(0, 0.075, 0.02), Vector3(0.074, 0.012, 0.074))
+	k.box(LENS, Vector3(0, 0.1, 0.02), Vector3(0.05, 0.04, 0.05))
+	for x: float in [-0.031, 0.031]:
+		for z: float in [-0.011, 0.051]:
+			k.box(DARK, Vector3(x, 0.1, z), Vector3(0.008, 0.042, 0.008))
+	# Rails above and below the coils, the coils with dark spacer plates.
+	k.box(METAL, Vector3(0, 0.068, -0.33), Vector3(0.05, 0.016, 0.42))
+	k.box(METAL, Vector3(0, -0.008, -0.33), Vector3(0.05, 0.016, 0.42))
+	for i in 4:
+		k.box(LENS, Vector3(0, 0.03, -0.17 - i * 0.09), Vector3(0.034, 0.034, 0.05))
+		k.box(DARK, Vector3(0, 0.03, -0.205 - i * 0.09), Vector3(0.062, 0.09, 0.012))
+	k.box(BODY, Vector3(0, 0.03, -0.55), Vector3(0.078, 0.1, 0.05))
+	k.box(DARK, Vector3(0, 0.03, -0.5755), Vector3(0.03, 0.03, 0.002))
+	k.box(RED, Vector3(0.0395, 0.06, -0.55), Vector3(0.002, 0.012, 0.03))
+	k.box(RED, Vector3(-0.0395, 0.06, -0.55), Vector3(0.002, 0.012, 0.03))
+	k.box(DARK, Vector3(0, -0.03, -0.25), Vector3(0.03, 0.06, 0.04))
+	# Open notch sight behind the power cube, a post on the muzzle block.
+	k.box(METAL, Vector3(0.013, 0.13, 0.07), Vector3(0.006, 0.02, 0.01))
+	k.box(METAL, Vector3(-0.013, 0.13, 0.07), Vector3(0.006, 0.02, 0.01))
+	k.box(METAL, Vector3(0, 0.12, 0.07), Vector3(0.032, 0.006, 0.01))
+	k.box(METAL, Vector3(0, 0.106, -0.55), Vector3(0.006, 0.052, 0.008))
+	_trigger(k, -0.012)
+	return {"muzzle": Vector3(0, 0.03, -0.58), "sight": Vector3(0, 0.13, 0.075),
+		"support": Vector3(0, -0.035, -0.25), "coil": Vector3(0, 0.03, -0.3), "coil_size": Vector3(0.05, 0.05, 0.38)}
+
+
+## Cube Lobber: a fat square barrel over a six-chamber hexagonal drum, banded in steel, with a
+## red stripe, a wooden stock and a ladder sight.
+static func _gun_cube_lobber(k: MeshKit) -> Dictionary:
+	k.box(DARK, Vector3(0, -0.045, 0.04), Vector3(0.034, 0.095, 0.044), Vector3(-0.25, 0, 0))
+	k.box(BODY, Vector3(0, 0.035, 0.0), Vector3(0.072, 0.08, 0.18))
+	k.box(WOOD, Vector3(0, 0.015, 0.19), Vector3(0.046, 0.07, 0.2))
+	k.box(DARK, Vector3(0, 0.01, 0.295), Vector3(0.05, 0.085, 0.02))
+	# Drum: a hexagonal prism around the bore axis, chamber mouths on its front face.
+	for i in 3:
+		k.box(BODY, Vector3(0, 0.0, -0.14), Vector3(0.15, 0.087, 0.12), Vector3(0, 0, i * PI / 3.0))
+	for i in 6:
+		var a := i * TAU / 6.0
+		k.box(DARK, Vector3(sin(a) * 0.048, cos(a) * 0.048, -0.2005), Vector3(0.026, 0.026, 0.002))
+	k.box(BRASS, Vector3(0, 0.0, -0.201), Vector3(0.02, 0.02, 0.004))
+	k.box(METAL, Vector3(0, 0.0, -0.14), Vector3(0.152, 0.02, 0.124))
+	# Barrel: a square tube with two steel bands and a red stripe on top.
+	k.box(BODY, Vector3(0, 0.05, -0.34), Vector3(0.09, 0.09, 0.26))
+	k.box(DARK, Vector3(0, 0.05, -0.4705), Vector3(0.062, 0.062, 0.002))
+	k.box(METAL, Vector3(0, 0.05, -0.27), Vector3(0.096, 0.096, 0.02))
+	k.box(METAL, Vector3(0, 0.05, -0.455), Vector3(0.096, 0.096, 0.02))
+	k.box(RED, Vector3(0, 0.0955, -0.36), Vector3(0.022, 0.002, 0.15))
+	k.box(DARK, Vector3(0, -0.04, -0.33), Vector3(0.032, 0.085, 0.036))
+	# Ladder sight on the receiver, a post on the front band.
+	k.box(METAL, Vector3(0.014, 0.09, 0.05), Vector3(0.006, 0.032, 0.01))
+	k.box(METAL, Vector3(-0.014, 0.09, 0.05), Vector3(0.006, 0.032, 0.01))
+	k.box(METAL, Vector3(0, 0.1, 0.05), Vector3(0.034, 0.005, 0.01))
+	k.box(METAL, Vector3(0, 0.112, -0.455), Vector3(0.006, 0.028, 0.008))
+	_trigger(k, -0.012)
+	return {"muzzle": Vector3(0, 0.05, -0.475), "sight": Vector3(0, 0.116, 0.055),
+		"support": Vector3(0, -0.05, -0.33)}
+
+
 # --- Melee weapons (origin = grip, the head or blade towards -Z; "muzzle" marks the tip) ---------
 
 ## Brick Bat: a taped grip, a plank and a brick strapped to its end.
@@ -1389,6 +1536,27 @@ static func _melee_pixel_katana(k: MeshKit) -> Dictionary:
 	k.box(LENS, Vector3(0, -0.009, -0.735), Vector3(0.0085, 0.004, 0.03))
 	k.box(BODY, Vector3(0, -0.004, -0.76), Vector3(0.008, 0.012, 0.02))
 	return {"muzzle": Vector3(0, -0.004, -0.77), "sight": Vector3(0, 0.04, 0.0), "support": null}
+
+
+## Pixel Scythe: a long wooden snath with a side grip, a steel collar and a stepped curved blade
+## reaching out to the left and sweeping back, its inner edge glowing.
+static func _melee_pixel_scythe(k: MeshKit) -> Dictionary:
+	k.box(WOOD, Vector3(0, 0, -0.29), Vector3(0.028, 0.03, 0.78))
+	k.box(DARK, Vector3(0, 0, 0.04), Vector3(0.034, 0.036, 0.12))
+	k.box(DARK, Vector3(0.04, 0, -0.3), Vector3(0.07, 0.022, 0.022))
+	k.box(DARK, Vector3(0.07, 0, -0.3), Vector3(0.02, 0.022, 0.05))
+	k.box(METAL, Vector3(0, 0, -0.66), Vector3(0.04, 0.042, 0.05))
+	# Blade: segments stepping out to -X and curving back towards the grip.
+	var tip := Vector3.ZERO
+	for i in 6:
+		var x := -0.05 - i * 0.062
+		var z := -0.67 + i * i * 0.0075
+		var depth := 0.06 - i * 0.007
+		k.box(BODY, Vector3(x, 0, z), Vector3(0.066, 0.012, depth))
+		k.box(LENS, Vector3(x, 0, z + depth * 0.5 + 0.003), Vector3(0.066, 0.0125, 0.008))
+		tip = Vector3(x - 0.033, 0, z)
+	k.box(METAL, Vector3(-0.025, 0, -0.67), Vector3(0.03, 0.016, 0.07))
+	return {"muzzle": tip, "sight": Vector3(0, 0.04, 0.0), "support": null}
 
 
 static func _gun_knife(k: MeshKit) -> Dictionary:

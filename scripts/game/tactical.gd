@@ -19,11 +19,12 @@ const PLAYERS := 50
 const TEAM_SIZE := 25
 const PLANNING_TIME := 30.0
 ## Relative chance of each gun on a weapon spot (default 1): launchers and snipers are rare.
-const WEAPON_WEIGHTS := {"rocket": 0.15, "sniper": 0.45, "crossbow": 0.4, "minigun": 0.3, "lmg": 0.7, "dmr": 0.8}
+const WEAPON_WEIGHTS := {"rocket": 0.15, "cube_lobber": 0.3, "sniper": 0.45, "crossbow": 0.4, "rail_cube": 0.35,
+	"minigun": 0.3, "lmg": 0.7, "dmr": 0.8}
 ## How much bots want each gun when deciding whether to swap what they carry for it.
 const BOT_RATING := {
 	"rifle": 6, "burst_rifle": 6, "lmg": 5, "minigun": 4, "smg": 5, "dmr": 4, "shotgun": 4, "drum_shotgun": 3,
-	"sniper": 2, "crossbow": 2, "rocket": 1,
+	"sniper": 2, "crossbow": 2, "rail_cube": 3, "cube_lobber": 2, "rocket": 1,
 	"machine_pistol": 4, "revolver": 3, "burst_pistol": 3, "sawed_off": 3, "suppressed": 2, "pistol": 2,
 	"carbine": 5, "burst_smg": 4,
 }

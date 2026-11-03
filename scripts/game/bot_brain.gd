@@ -41,8 +41,16 @@ const DRIFT_ERROR_SCALE := 1.12
 ## Long guns (the Snipers Only / Rocket Party primaries) are for range: inside this distance (m)
 ## a bot switches to its secondary, the backup gun, and back once the target is this far plus
 ## LONG_GUN_SLACK away (so it doesn't flip-flop at the edge).
-const LONG_GUN_CLOSE := {"sniper": 12.0, "crossbow": 12.0, "rocket": 9.0}
+const LONG_GUN_CLOSE := {"sniper": 12.0, "crossbow": 12.0, "rocket": 9.0, "rail_cube": 8.0, "cube_lobber": 6.0}
 const LONG_GUN_SLACK := 3.0
+## Launchers whose splash would hurt the bot itself: below LAUNCHER_MIN m it holds fire (and
+## takes out its melee weapon if it has no backup gun).
+const LAUNCHERS: Array[String] = ["rocket", "cube_lobber"]
+const LAUNCHER_MIN := 4.0
+## Charge weapons (the Rail Cube): the charge (0..1) a bot waits for before releasing, by
+## difficulty, lowered to CHARGE_CLOSE when the target is within 10 m.
+const CHARGE_GOAL: Array[Vector2] = [Vector2(0.4, 0.75), Vector2(0.7, 1.0), Vector2(0.95, 1.0)]
+const CHARGE_CLOSE := 0.55
 ## Flinch on taking damage: aim error jumps by FLINCH_PEAK (x2.1) and settles linearly over
 ## FLINCH_TIME, so the bot recovers its aim instead of snapping back.
 const FLINCH_TIME := 0.5
@@ -150,6 +158,8 @@ var _strafe_timer := 0.0
 var _burst_timer := 0.0
 var _burst_pause := 0.0
 var _semi_wait := 0.0
+## Charge (0..1) the bot releases its current Rail Cube charge at (CHARGE_GOAL).
+var _charge_goal := 1.0
 var _grenade_timer := 4.0
 var _tactical_timer := 2.5
 var _stuck_timer := 0.0
@@ -237,7 +247,9 @@ func think(delta: float) -> void:
 	else:
 		_tracking_time = 0.0
 		_peek_side = 0
-		# Nothing to shoot at: get up and move.
+		# Nothing to shoot at: drop a held charge (releasing it would fire at nothing), get up and move.
+		if p.charging:
+			p.cancel_charge()
 		if p.prone:
 			_press_prone()
 		_roam(delta)
@@ -420,7 +432,7 @@ func _choose_weapon() -> void:
 		# A backup that is itself a long gun (a rocket behind the sniper) is no better up close.
 		if dist < close and sa.x + sa.y > 0 and not LONG_GUN_CLOSE.has(secondary):
 			want = 1
-		elif dist < 6.0 and primary == "rocket":
+		elif dist < LAUNCHER_MIN + 2.0 and primary in LAUNCHERS:
 			want = 2
 	var reacted := target != null and _target_visible and _reaction_left <= 0.0
 	if reacted and dist < 2.2 and difficulty > 0 and p.current_slot != 2 and target.protection_left() <= 0.0:
@@ -450,6 +462,8 @@ func _preferred_range() -> Vector2:
 		"sniper": return Vector2(18.0, 60.0)
 		"crossbow": return Vector2(16.0, 55.0)
 		"rocket": return Vector2(9.0, 30.0)
+		"rail_cube": return Vector2(12.0, 45.0)
+		"cube_lobber": return Vector2(8.0, 22.0)
 	return Vector2(8.0, 30.0)
 
 
@@ -467,8 +481,12 @@ func _fight(delta: float) -> void:
 	_aim_offset = _aim_offset.lerp(_aim_offset_goal, 1.0 - exp(-AIM_DRIFT_RATE * delta))
 	_head_blend = move_toward(_head_blend, 1.0 if _aim_head else 0.0, delta * 3.0)
 	var aim_point := target.global_position + Vector3.UP * target.body_center_height()
-	if wid == "rocket":
+	if wid in LAUNCHERS:
 		aim_point = target.global_position + Vector3.UP * 0.2 + _target_velocity() * (dist / float(w.speed))
+		if w.has("fuse"):
+			# Lobbed: aim above the target by the drop over the flight time, less the launch lift.
+			var flight := dist / float(w.speed)
+			aim_point.y += maxf(0.0, 0.5 * Projectile.LOBBER_GRAVITY * flight * flight - Player.LOB_LIFT * flight)
 	elif _head_blend > 0.0:
 		aim_point = aim_point.lerp(target.head.global_position, _head_blend)
 	var error_scale := maxf(MIN_ERROR[difficulty], 1.0 - _tracking_time * 0.25)
@@ -540,19 +558,37 @@ func _fight(delta: float) -> void:
 		_crouch_timer = randf_range(1.0, 2.5)
 
 	# Fire control.
-	var want_aim := not Data.is_melee(wid) and wid not in ["shotgun", "sawed_off", "drum_shotgun"] \
-		and (dist > 14.0 or wid in ["sniper", "crossbow", "minigun"])
+	var want_aim := not Data.is_melee(wid) and wid not in ["shotgun", "sawed_off", "drum_shotgun", "cube_lobber"] \
+		and (dist > 14.0 or wid in ["sniper", "crossbow", "minigun", "rail_cube"])
 	p.in_aim = want_aim and (difficulty > 0 or wid == "sniper")
+	var aim_dir := -Basis.from_euler(Vector3(p.pitch, p.yaw, 0.0)).z
+	var needed := (aim_point - p.head.global_position).normalized()
+	var tolerance := rad_to_deg(atan2(0.55, maxf(dist, 0.5))) + 1.0
+	var on_target := rad_to_deg(aim_dir.angle_to(needed)) <= tolerance
+	# A charge in progress is held until it reaches the bot's goal with the aim on, then released.
+	if p.charging:
+		p.in_fire = not (on_target and p.charge_fraction() >= _charge_goal and target.protection_left() <= 0.0)
+		return
 	# The server ignores damage to a spawn-protected player, and firing would end the bot's own
 	# protection, so hold fire (keep tracking) until the shimmer is gone.
 	if _reaction_left > 0.0 or thrown or target.protection_left() > 0.0:
 		return
 	if wid in ["sniper", "crossbow", "minigun"] and (p.aim_blend < 0.95 or _tracking_time < SNIPER_SETTLE[difficulty]):
 		return
-	var aim_dir := -Basis.from_euler(Vector3(p.pitch, p.yaw, 0.0)).z
-	var needed := (aim_point - p.head.global_position).normalized()
-	var tolerance := rad_to_deg(atan2(0.55, maxf(dist, 0.5))) + 1.0
-	if rad_to_deg(aim_dir.angle_to(needed)) > tolerance:
+	# Never a launcher at point blank: the blast would catch the bot too.
+	if wid in LAUNCHERS and dist < LAUNCHER_MIN:
+		return
+	if not on_target:
+		return
+	if w.has("charge_time"):
+		_semi_wait -= delta
+		if _semi_wait <= 0.0 and p.fire_cooldown <= 0.0:
+			p.in_fire = true
+			var goal := CHARGE_GOAL[difficulty]
+			_charge_goal = randf_range(goal.x, goal.y)
+			if dist < 10.0:
+				_charge_goal = minf(_charge_goal, CHARGE_CLOSE)
+			_semi_wait = SEMI_INTERVAL[difficulty] * randf_range(0.8, 1.4)
 		return
 	if Data.is_melee(wid):
 		p.in_fire = dist < float(w.range) + 0.2
@@ -938,7 +974,7 @@ func _decide_prone(delta: float, dist: float, wid: String) -> void:
 	if _prone_timer > 0.0:
 		return
 	_prone_timer = randf_range(1.5, 3.0)
-	var long_gun := not Data.is_melee(wid) and wid not in ["shotgun", "sawed_off", "drum_shotgun", "rocket"]
+	var long_gun := not Data.is_melee(wid) and wid not in ["shotgun", "sawed_off", "drum_shotgun"] + LAUNCHERS
 	if long_gun and dist > PRONE_MIN_DIST and not hurt and p.is_on_floor() and not p.grappling \
 			and randf() < PRONE_CHANCE[difficulty]:
 		_press_prone()

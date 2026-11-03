@@ -270,7 +270,7 @@ func on_local_shot(p: Player, wid: String, ends: PackedVector3Array, hits: Dicti
 		readout.burst_wid = wid
 	readout.burst_shot = t
 	readout.shots += 1
-	if wid == "rocket":
+	if w.get("projectile", false):
 		_rockets_pending += 1
 		return
 	if hits.is_empty():
@@ -324,7 +324,7 @@ func on_local_hit(_head: bool, killed: bool, amount: float, pos: Vector3, wid: S
 	if not Data.WEAPONS.has(wid):
 		return
 	var t := World.now()
-	if wid == "rocket" and _rockets_pending > 0:
+	if Data.WEAPONS[wid].get("projectile", false) and _rockets_pending > 0:
 		_rockets_pending -= 1
 		readout.hits += 1
 		readout.last_wid = wid
@@ -347,8 +347,9 @@ func hit_percent() -> float:
 	return -1.0 if int(readout.shots) == 0 else 100.0 * float(readout.hits) / float(readout.shots)
 
 
-## Shots of `w` that kill `hp` at `dist` metres, every pellet landing (body, or all headshots).
-## `range_mult` is the shooter's Long Barrel multiplier (Player.mod("barrel")).
+## Shots of `w` that kill `hp` at `dist` metres, every pellet landing (body, or all headshots); a
+## charge weapon's shots fully charged. `range_mult` is the shooter's Long Barrel multiplier
+## (Player.mod("barrel")).
 static func shots_to_kill(w: Dictionary, dist: float, range_mult := 1.0, head := false, hp := 0.0) -> int:
 	if hp <= 0.0:
 		hp = Data.MAX_HEALTH
@@ -357,7 +358,7 @@ static func shots_to_kill(w: Dictionary, dist: float, range_mult := 1.0, head :=
 
 
 ## Time from the first to the `shots`-th shot of `w` at its full rate (bursts at their burst rate,
-## with the pause between bursts).
+## with the pause between bursts; a charge weapon charging fully before each shot after the first).
 static func time_to_kill(w: Dictionary, shots: int) -> float:
 	var n := shots - 1
 	if n <= 0:
@@ -365,4 +366,4 @@ static func time_to_kill(w: Dictionary, shots: int) -> float:
 	var burst := int(w.get("burst", 1))
 	if burst > 1:
 		return float(n / burst) * burst * 60.0 / float(w.rpm) + float(n % burst) * 60.0 / float(w.burst_rpm)
-	return n * 60.0 / float(w.rpm)
+	return n * (60.0 / float(w.rpm) + float(w.get("charge_time", 0.0)))

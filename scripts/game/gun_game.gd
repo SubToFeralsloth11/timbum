@@ -14,13 +14,13 @@ extends MatchMode
 ## (`weapon_allowed`) accepts the step's gun, the knife, and for SWAP_GRACE seconds after a
 ## promotion the gun just replaced (shots and rockets already in flight).
 
-## The guns in ladder order: automatics first, then the long guns and the rocket, then the
-## sidearms; the knife always follows as the last step.
+## The guns in ladder order: automatics first, then the long guns, the Rail Cube and the
+## launchers, then the sidearms; the knife always follows as the last step.
 const FULL_LADDER: Array[String] = ["smg", "burst_smg", "rifle", "carbine", "burst_rifle", "lmg", "minigun", "shotgun",
-	"drum_shotgun", "dmr", "crossbow", "sniper", "rocket",
+	"drum_shotgun", "dmr", "crossbow", "sniper", "rail_cube", "cube_lobber", "rocket",
 	"machine_pistol", "sawed_off", "burst_pistol", "revolver", "suppressed", "pistol"]
 ## Ladder lengths offered in match setup (the last is the full ladder).
-const LENGTHS: Array[int] = [6, 10, 15, 20]
+const LENGTHS: Array[int] = [6, 10, 15, 22]
 const SWAP_GRACE := 0.6
 
 ## Weapon id per step; the last is "knife" (every peer, from Net.config).

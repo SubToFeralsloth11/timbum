@@ -48,7 +48,9 @@ const GAME_ID := "timbum"
 ## 22: the Demolition mutator ("demolition" in config.mutator, Demolition._s_remove).
 ## 23: custom maps (config.map "custom:<name>", the map hash on _rpc_load_match, the
 ##     _rpc_request_map / _rpc_map_chunk download).
-const PROTOCOL_VERSION := 23
+## 24: Rail Cube, Cube Lobber, Pixel Scythe (new weapon ids and indices, "cube_lobber" projectiles,
+##     Player.FLAG_CHARGE in the state flags, several hit targets per Rail Cube shot).
+const PROTOCOL_VERSION := 24
 const CONNECT_TIMEOUT := 8.0
 ## A room-code join first tries a direct (NAT punch-through) link this long, then the relay.
 const NAT_CONNECT_TIMEOUT := 6.0

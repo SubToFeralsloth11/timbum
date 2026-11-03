@@ -158,6 +158,34 @@ class BomberIcon extends Control:
 		draw_circle(c + Vector2(-2, -2), 1.8, Color(1, 0.9, 0.7))
 		draw_line(c + Vector2(0, 7), c + Vector2(0, 9), Color(1, 0.9, 0.5), 2.0)
 
+
+## Kill-feed icon of a weapon with a Data `icon`: "beam" (the Rail Cube's cyan beam through a
+## cube), "lobber" (a cube grenade on its arc), "scythe" (a curved blade on a long handle).
+class FeedIcon extends Control:
+	var kind := ""
+
+	func _init(p_kind: String) -> void:
+		kind = p_kind
+		custom_minimum_size = Vector2(26, 20)
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		size_flags_vertical = Control.SIZE_SHRINK_CENTER
+
+	func _draw() -> void:
+		match kind:
+			"beam":
+				draw_rect(Rect2(8, 5, 10, 10), Color(0.3, 0.75, 1.0), false, 2.0)
+				draw_line(Vector2(1, 10), Vector2(25, 10), Color(0.35, 0.85, 1.0, 0.5), 5.0)
+				draw_line(Vector2(1, 10), Vector2(25, 10), Color(0.85, 0.97, 1.0), 2.0)
+			"lobber":
+				draw_arc(Vector2(13, 18), 11.0, PI * 1.05, PI * 1.95, 12, Color(1, 1, 1, 0.45), 1.5, true)
+				draw_rect(Rect2(17, 4, 7, 7), Color(0.45, 0.52, 0.3))
+				draw_rect(Rect2(19, 6, 3, 3), Color(1.0, 0.3, 0.2))
+			"scythe":
+				draw_line(Vector2(6, 19), Vector2(16, 2), Color(0.6, 0.42, 0.25), 2.5)
+				draw_polyline(PackedVector2Array([Vector2(16, 2), Vector2(9, 3), Vector2(4, 6), Vector2(2, 10)]), Color(0.85, 0.9, 0.95), 2.5)
+				draw_polyline(PackedVector2Array([Vector2(15, 4), Vector2(9, 5), Vector2(5, 8)]), Color(0.3, 0.75, 1.0), 1.0)
+
+
 var world: World
 
 var _root: Control
@@ -1202,6 +1230,7 @@ func _process(delta: float) -> void:
 	_crosshair.visible = p.alive and not _results.visible
 	_crosshair.show_lines = (not scoped and p.aim_blend < 0.6) or Data.is_melee(wid)
 	_crosshair.spread = p.current_spread()
+	_crosshair.charge = p.charge_fraction() if w.has("charge_time") else -1.0
 	_crosshair.fov = p.camera.fov if p.camera != null else 85.0
 	_crosshair.queue_redraw()
 	_damage_ring.update_view(p)
@@ -1502,6 +1531,8 @@ static func _fire_mode(w: Dictionary) -> String:
 		return "MELEE"
 	if int(w.get("burst", 1)) > 1:
 		return "BURST"
+	if w.has("charge_time"):
+		return "CHARGE"
 	if w.get("projectile", false):
 		return "LAUNCHER"
 	if w.auto:
@@ -1564,6 +1595,8 @@ func add_killfeed(killer: String, weapon: String, victim: String, head: bool, su
 		h.add_child(_label(Teams.tagged(killer_team, killer), 15, Color(1, 0.9, 0.4) if killer == me else killer_color, true))
 		if wid == Streaks.WEAPON:
 			h.add_child(BomberIcon.new())
+		elif Data.WEAPONS.has(wid) and Data.WEAPONS[wid].has("icon"):
+			h.add_child(FeedIcon.new(str(Data.WEAPONS[wid].icon)))
 		var how := _label("%s%s" % [weapon, "  HS" if head else ""], 12, Color(1, 0.7, 0.4) if wid == Streaks.WEAPON else Color(0.72, 0.74, 0.8))
 		how.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		h.add_child(how)

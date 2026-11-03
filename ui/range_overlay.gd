@@ -233,7 +233,11 @@ func _refresh_card(p: Player) -> void:
 	if Data.is_melee(wid):
 		_falloff.text = "%d damage per hit  ·  %.1f m reach  ·  %d swings/min" % [roundi(float(w.damage)), float(w.range), roundi(float(w.rpm))]
 	elif w.get("projectile", false):
-		_falloff.text = "%d direct  ·  %.1f m splash" % [roundi(float(w.damage)), float(w.splash_radius)]
+		_falloff.text = "%d direct  ·  %.1f m splash%s" % [roundi(float(w.damage)), float(w.splash_radius),
+			"  ·  %.1f s fuse, bounces" % float(w.fuse) if w.has("fuse") else ""]
+	elif w.has("charge_time"):
+		_falloff.text = "%d dmg full charge (%.1f s), %d instant  ·  no falloff  ·  pierces %d" % [roundi(float(w.damage)),
+			float(w.charge_time), roundi(float(w.damage) * float(w.charge_min)), int(w.get("pierce", 1))]
 	else:
 		_falloff.text = "%s%d dmg, falls off %d-%d m to %d%%%s" % ["%d x " % int(w.pellets) if int(w.pellets) > 1 else "",
 			roundi(float(w.damage)), roundi(float(w.falloff_start) * barrel), roundi(float(w.falloff_end) * barrel),

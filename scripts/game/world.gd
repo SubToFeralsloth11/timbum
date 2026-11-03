@@ -29,6 +29,9 @@ const MULTI_KILL_WINDOW := 3.5
 const MAX_CHAT_LENGTH := 100
 ## Mutator id -> the gun it hands everyone as their primary (`_apply_loadout_mutator`).
 const LOADOUT_MUTATORS := {"rocket_party": "rocket", "snipers": "sniper"}
+## Seconds of bunching allowed between two charge-weapon shots before the server caps the
+## second one's charge (_charge_cap).
+const CHARGE_LAG_SLACK := 0.25
 
 var map_info: MapInfo
 ## entity id -> Player. Humans use their peer id; bots use negative ids.
@@ -81,7 +84,8 @@ var _my_damage_taken := {}
 ## hitscan/knife hits when the shot is fired, rocket hits, damage, kills and headshots from the
 ## server's hit confirms and kill events. Added to the profile at the match end.
 var my_weapon_stats := {}
-## Frame of the last rocket hit counted, so one blast hitting several players is one hit.
+## Frame of the last launcher blast hit counted (rocket, Cube Lobber), so one blast hitting several
+## players is one hit.
 var _my_rocket_hit_frame := -1
 ## The local player's movement/range kill facts this match (MatchFacts), with the scoreboard row
 ## and my_weapon_stats the result challenges read. Counted on this peer.
@@ -111,6 +115,8 @@ var _results_until := 0.0
 var _respawn_at := {}
 ## Shooter key ("<entity>" for guns, "<entity>:knife") -> [debt seconds, time]; see _take_fire_token.
 var _fire_tokens := {}
+## Server: entity id -> World.now() of its last accepted charge-weapon shot (_charge_cap).
+var _charge_shot_at := {}
 ## Entity id -> time of last server respawn; client state is ignored briefly afterwards so stale
 ## pre-respawn positions can't drag the player back (or below kill_y again).
 var _respawned_at := {}
@@ -216,8 +222,8 @@ func _ready() -> void:
 ## projectile meshes (Models caches each on its first build) and the local player's spray art
 ## (SprayArt caches it). The Hud warms its fonts the same way (Hud.GlyphWarmer).
 func _warm_first_use() -> void:
-	for model: Node3D in [Models.build_rocket(), Models.build_grenade(), Models.build_tactical("smoke"),
-			Models.build_tactical("flash")]:
+	for model: Node3D in [Models.build_rocket(), Models.build_lobber_shell(), Models.build_grenade(),
+			Models.build_tactical("smoke"), Models.build_tactical("flash")]:
 		model.free()
 	var spray := str(Profile.peer_info().get("spray", ""))
 	if Data.SPRAYS.has(spray):
@@ -745,14 +751,20 @@ func _server_shot(shooter_id: int, wid: String, ends: PackedVector3Array, normal
 	if not rate_ok:
 		return
 	_server_unprotect(shooter_id)
-	# One shot can never deal more to a single target than every pellet landing as a headshot.
-	var max_dmg := float(w.damage) * float(w.head_mult) * float(w.pellets) + 0.01
+	# One shot can never deal more to a single target than every pellet landing as a headshot (a
+	# charge weapon: at the most charge its fire rate allows, see _charge_cap).
+	var max_dmg := float(w.damage) * float(w.head_mult) * float(w.pellets) * _charge_cap(shooter_id, wid) + 0.01
+	# Players one shot may hit: one per pellet (a shotgun can hit two players), a piercing beam
+	# its `pierce`, a melee swing one. Hits past that are dropped (first reported first kept).
+	var max_targets := 1 if Data.is_melee(wid) else maxi(int(w.pellets), int(w.get("pierce", 1)))
 	var per_target := {}
 	var head_hit := {}
 	for h: Variant in hit_list:
 		if typeof(h) != TYPE_ARRAY or (h as Array).size() != 3:
 			continue
 		var tid := int(h[0])
+		if not per_target.has(tid) and per_target.size() >= max_targets:
+			continue
 		per_target[tid] = minf(float(per_target.get(tid, 0.0)) + clampf(float(h[1]), 0.0, max_dmg), max_dmg)
 		head_hit[tid] = bool(head_hit.get(tid, false)) or bool(h[2])
 	var melee := Data.is_melee(wid)
@@ -778,10 +790,25 @@ func _server_shot(shooter_id: int, wid: String, ends: PackedVector3Array, normal
 				continue
 			var near := maxf(0.0, eye_dist - slack)
 			var cap := Player.damage_at(w, near, shooter.mod("barrel")) * float(w.pellets) \
-				* (float(w.head_mult) if head_hit[tid] else 1.0) + 0.01
+				* (float(w.head_mult) if head_hit[tid] else 1.0) * _charge_cap(shooter_id, wid) + 0.01
 			dmg = minf(dmg, cap)
 		_server_damage(target, dmg, shooter_id, wid, head_hit[tid], shooter.global_position)
 	admin.after_shot(shooter, wid, ends)
+	if w.has("charge_time"):
+		_charge_shot_at[shooter_id] = now()
+
+
+## Server: the most a charge weapon's (Data `charge_time`) shot may deal, as a charge_mult of its
+## full damage: the shooter can only have charged for the time since its previous shot of that
+## weapon minus the refire interval (the trigger must be released and pressed again), with
+## CHARGE_LAG_SLACK seconds for shots that arrive bunched. A first shot may be fully charged.
+## Other weapons: 1.
+func _charge_cap(shooter_id: int, wid: String) -> float:
+	var w: Dictionary = Data.WEAPONS[wid]
+	if not w.has("charge_time") or not _charge_shot_at.has(shooter_id):
+		return 1.0
+	var held := now() - float(_charge_shot_at[shooter_id]) - 60.0 / float(w.rpm) + CHARGE_LAG_SLACK
+	return Player.charge_mult(w, held / float(w.charge_time))
 
 
 ## Server: metres a gun hit's distance may shrink before the falloff cap. The server sees a
@@ -902,11 +929,11 @@ func _server_projectile(owner_id: int, kind: String, origin: Vector3, vel: Vecto
 		return
 	if origin.distance_to(shooter.global_position + Vector3.UP * 1.4) > 3.0:
 		return
-	if kind == "rocket":
-		var w: Dictionary = Data.WEAPONS.rocket
-		if not rules.weapon_allowed(shooter, "rocket") or not _take_fire_token(owner_id, "rocket"):
+	if Data.WEAPONS.has(kind) and Data.WEAPONS[kind].get("projectile", false):
+		var w: Dictionary = Data.WEAPONS[kind]
+		if not rules.weapon_allowed(shooter, kind) or not _take_fire_token(owner_id, kind):
 			return
-		vel = vel.limit_length(float(w.speed))
+		vel = vel.limit_length(float(w.speed) + (Player.LOB_LIFT if w.has("fuse") else 0.0))
 	elif kind == "grenade":
 		if int(_grenades.get(owner_id, 0)) <= 0:
 			return
@@ -925,7 +952,8 @@ func _server_projectile(owner_id: int, kind: String, origin: Vector3, vel: Vecto
 	_broadcast(&"_s_spawn_projectile", [pid, kind, owner_id, origin, vel])
 
 
-## Called by a Projectile on the server when it detonates.
+## Called by a Projectile on the server when it detonates. A launcher's blast (rocket, Cube
+## Lobber) is its weapon's `splash_radius` and `damage`; a frag's is Data.GRENADE's.
 func server_explode(proj: Projectile, pos: Vector3) -> void:
 	if not projectiles.has(proj.pid):
 		return
@@ -933,8 +961,9 @@ func server_explode(proj: Projectile, pos: Vector3) -> void:
 	# Smoke and flash do no damage; every peer applies them in _s_explode.
 	if match_over or Data.TACTICALS.has(proj.kind):
 		return
-	if proj.kind == "rocket":
-		server_blast(pos, float(Data.WEAPONS.rocket.splash_radius), float(Data.WEAPONS.rocket.damage), proj.owner_id, proj.kind)
+	if Data.WEAPONS.has(proj.kind):
+		var w: Dictionary = Data.WEAPONS[proj.kind]
+		server_blast(pos, float(w.splash_radius), float(w.damage), proj.owner_id, proj.kind)
 	else:
 		server_blast(pos, float(Data.GRENADE.radius), float(Data.GRENADE.damage), proj.owner_id, proj.kind)
 
@@ -1134,15 +1163,21 @@ func _count_my_shot(wid: String, hit: bool) -> void:
 
 
 func request_projectile(p: Player, kind: String, origin: Vector3, vel: Vector3) -> void:
+	var launcher := Data.WEAPONS.has(kind)
 	if p.mode == Player.Mode.LOCAL:
-		Sfx.play(&"shot_rocket" if kind == "rocket" else &"grenade_throw", null, -2.0)
-		if kind == "rocket":
-			_count_my_shot("rocket", false)
+		Sfx.play(launch_sound(kind), null, -2.0)
+		if launcher:
+			_count_my_shot(kind, false)
 		rules.on_local_shot(p, kind, PackedVector3Array(), {})
 	if multiplayer.is_server():
 		_server_projectile(p.id, kind, origin, vel)
 	else:
 		_c_projectile.rpc_id(1, kind, origin, vel)
+
+
+## The sound of launching projectile `kind`: a launcher's own shot (Data `sound`) or a throw.
+static func launch_sound(kind: String) -> StringName:
+	return StringName(Data.WEAPONS[kind].sound) if Data.WEAPONS.has(kind) else &"grenade_throw"
 
 
 func send_chat(text: String) -> void:
@@ -1194,13 +1229,16 @@ func _play_shot_fx(p: Player, wid: String, ends: PackedVector3Array, normals: Pa
 			fx.impact(ends[0], normals[0])
 		return
 	var suppressed: bool = w.get("suppressed", false)
+	var beam: bool = w.get("beam", false)
 	Sfx.play(StringName(w.sound), null if is_local else muzzle, -3.0 if is_local else 0.0, float(w.get("pitch", 1.0)))
 	# A suppressed gun gives nothing away to anyone else: no flash, no tracer, no flyby.
 	if not is_local and not suppressed:
 		fx.muzzle_flash(muzzle)
 	var tracer_every := 3 if int(w.pellets) > 1 else 1
 	for i in ends.size():
-		if i % tracer_every == 0 and (is_local or not suppressed):
+		if beam:
+			fx.rail_beam(muzzle, ends[i])
+		elif i % tracer_every == 0 and (is_local or not suppressed):
 			fx.tracer(muzzle, ends[i])
 		if normals[i] != Vector3.ZERO:
 			fx.impact(ends[i], normals[i])
@@ -1419,7 +1457,7 @@ func _s_hit_confirm(head: bool, killed: bool, amount: float, pos: Vector3, wid: 
 		return
 	var s := _my_stats(wid)
 	s.damage += amount
-	if wid == "rocket" and Engine.get_process_frames() != _my_rocket_hit_frame:
+	if Data.WEAPONS.has(wid) and Data.WEAPONS[wid].get("projectile", false) and Engine.get_process_frames() != _my_rocket_hit_frame:
 		_my_rocket_hit_frame = Engine.get_process_frames()
 		s.hits = mini(s.hits + 1, s.shots)
 
@@ -1542,10 +1580,10 @@ func _s_spawn_projectile(pid: int, kind: String, owner_id: int, origin: Vector3,
 	killcam.record_launch(owner_id, kind)
 	spectator.on_launch(owner_id, kind)
 	if owner_id != my_id():
-		Sfx.play(&"shot_rocket" if kind == "rocket" else &"grenade_throw", origin)
+		Sfx.play(launch_sound(kind), origin)
 	var thrower: Player = entities.get(owner_id)
 	if thrower != null and thrower.mode == Player.Mode.REMOTE:
-		if kind == "rocket":
+		if Data.WEAPONS.has(kind):
 			thrower.avatar.play_shoot()
 		else:
 			thrower.avatar.play_throw()

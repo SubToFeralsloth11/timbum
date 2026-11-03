@@ -17,7 +17,16 @@ const CATEGORIES: Array[String] = ["weapons", "skins", "hats", "outfits", "charm
 ##   ads_fov: field of view while aiming; scope: draws scope overlay (and hides the gun);
 ##     scope_style: "sniper" (default) or "marksman" (wider low-power lens, chevron)
 ##   move_mult: movement speed multiplier while held
-##   projectile: fires a rocket instead of hitscan; splash_radius / speed
+##   projectile: fires a projectile (its kind = the weapon id) instead of hitscan; splash_radius /
+##     speed; damage is the blast's most (falling off to the edge, half on yourself). `fuse`
+##     (seconds) makes it a bouncing grenade that goes off when the fuse runs out or at once on
+##     touching a player (Cube Lobber); without one it explodes on contact (rocket)
+##   charge_time: hold the trigger to charge for up to this many seconds, release to fire;
+##     damage scales from charge_min (an instant release) to 1 (full charge) (Rail Cube)
+##   pierce: players one shot may hit, nearest first, until a world block stops it (default 1;
+##     the server accepts at most this many targets per shot, a shotgun at most its pellets)
+##   beam: the shot draws a lasting beam (Fx.rail_beam) instead of a bullet tracer
+##   icon: kill-feed icon drawn before the weapon name (Hud.FeedIcon: "beam", "lobber", "scythe")
 ##   burst / burst_rpm: shots per trigger pull and their rate inside the burst (rpm stays the
 ##     average rate, which the server's fire-rate check enforces)
 ##   suppressed: no tracer or muzzle flash for other players, and a quiet report
@@ -25,7 +34,8 @@ const CATEGORIES: Array[String] = ["weapons", "skins", "hats", "outfits", "charm
 ##   Melee (slot "melee", carried in the third slot and used for the quick melee): range (m of
 ##     reach), rpm (swing rate), damage per hit, move_mult; swing: "slash" (alternating fore- and
 ##     backhand), "chop" (overhead) or "sweep" (wide flat swing) picks the first- and third-person
-##     animation. The knife is the default; Gun Game always ends on it.
+##     animation. The knife is the default; Gun Game always ends on it. sweep_radius: radius (m)
+##     of the forgiving hit sphere when the aim ray misses (default 0.55; the Pixel Scythe's is wider).
 const WEAPONS := {
 	"pistol": {
 		"name": "Block 9", "slot": "secondary", "price": 0,
@@ -243,6 +253,38 @@ const WEAPONS := {
 		"spread_hip": 0.0, "spread_ads": 0.0, "recoil": 0.0,
 		"falloff_start": 999.0, "falloff_end": 999.0, "min_mult": 1.0,
 		"ads_fov": 75.0, "move_mult": 1.08, "sound": "swing_blade", "range": 3.1, "swing": "slash",
+	},
+	# The three below came with 2.0; new weapons go at the end so Player.weapon_index keeps the
+	# older ids' indices (state flags, kill cam tapes).
+	"rail_cube": {
+		"name": "Rail Cube", "slot": "primary", "price": 900,
+		"desc": "Charge railgun. Hold to charge, release to fire a beam that passes through up to three players. Full charge: 90 to the body, a kill to the head.",
+		"damage": 90.0, "head_mult": 1.5, "rpm": 75.0, "auto": false,
+		"charge_time": 0.8, "charge_min": 0.3, "pierce": 3, "beam": true, "icon": "beam",
+		"mag": 4, "reserve": 16, "reload": 2.9, "pellets": 1,
+		"spread_hip": 1.2, "spread_ads": 0.0, "recoil": 4.0,
+		"falloff_start": 999.0, "falloff_end": 999.0, "min_mult": 1.0,
+		"ads_fov": 42.0, "move_mult": 0.92, "sound": "shot_rail",
+	},
+	"cube_lobber": {
+		"name": "Cube Lobber", "slot": "primary", "price": 800,
+		"desc": "Grenade launcher. Lobs bouncing cube grenades that blow after 1.6 s, or at once on hitting a player. Keep your distance.",
+		"damage": 85.0, "head_mult": 1.0, "rpm": 80.0, "auto": false,
+		"mag": 6, "reserve": 18, "reload": 2.6, "pellets": 1,
+		"spread_hip": 1.0, "spread_ads": 0.4, "recoil": 3.0,
+		"falloff_start": 999.0, "falloff_end": 999.0, "min_mult": 1.0,
+		"ads_fov": 60.0, "move_mult": 0.93, "sound": "shot_lobber",
+		"projectile": true, "splash_radius": 3.5, "speed": 22.0, "fuse": 1.6, "icon": "lobber",
+	},
+	"pixel_scythe": {
+		"name": "Pixel Scythe", "slot": "melee", "price": 700,
+		"desc": "A long, slow reaping sweep that catches anyone in front of you. Two hits.",
+		"damage": 75.0, "head_mult": 1.0, "rpm": 68.0, "auto": true,
+		"mag": 0, "reserve": 0, "reload": 0.0, "pellets": 1,
+		"spread_hip": 0.0, "spread_ads": 0.0, "recoil": 0.0,
+		"falloff_start": 999.0, "falloff_end": 999.0, "min_mult": 1.0,
+		"ads_fov": 75.0, "move_mult": 1.0, "sound": "swing_scythe", "range": 2.9, "swing": "sweep",
+		"sweep_radius": 0.9, "icon": "scythe",
 	},
 }
 

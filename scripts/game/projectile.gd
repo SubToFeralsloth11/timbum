@@ -1,12 +1,16 @@
 class_name Projectile
 extends Node3D
-## A rocket, frag grenade or tactical grenade (smoke/flash). Every peer simulates the same
-## deterministic flight for visuals; only the server decides when and where it goes off
-## (World.server_explode). Rockets and frags explode on contact; tacticals bounce until their fuse.
+## A rocket, frag grenade, Cube Lobber grenade or tactical grenade (smoke/flash). Every peer
+## simulates the same deterministic flight for visuals; only the server decides when and where it
+## goes off (World.server_explode). Rockets and frags explode on contact; tacticals bounce until
+## their fuse; Lobber grenades bounce off the world until their fuse but go off on touching a player.
 
 const GRENADE_GRAVITY := 18.0
 const GRENADE_BOUNCE := 0.42
 const GRENADE_FRICTION := 0.75
+## Cube Lobber grenades: lighter drop than a thrown frag (they leave the tube fast) and livelier bounces.
+const LOBBER_GRAVITY := 15.0
+const LOBBER_BOUNCE := 0.5
 const ROCKET_MAX_LIFE := 6.0
 ## Clients hide a projectile that hit something; this frees it if the server's explode never arrives.
 const ORPHAN_TIMEOUT := 2.0
@@ -42,6 +46,7 @@ func _ready() -> void:
 	match kind:
 		"rocket": _model = Models.build_rocket()
 		"grenade": _model = Models.build_grenade()
+		"cube_lobber": _model = Models.build_lobber_shell()
 		_: _model = Models.build_tactical(kind)
 	add_child(_model)
 	_orient()
@@ -99,6 +104,8 @@ func _physics_process(delta: float) -> void:
 		_step_rocket(delta, space)
 	elif kind == "grenade":
 		_step_grenade(delta, space)
+	elif kind == "cube_lobber":
+		_step_lobber(delta, space)
 	else:
 		_step_tactical(delta, space)
 
@@ -133,6 +140,36 @@ func _step_grenade(delta: float, space: PhysicsDirectSpaceState3D) -> void:
 	_model.rotate_x(delta * vel.length() * 2.0)
 	if age >= float(Data.GRENADE.fuse):
 		_detonate(global_position)
+
+
+## Cube Lobber grenades bounce off the world and go off when the weapon's fuse runs out, or at
+## once on touching a player's hitbox (not their thrower's).
+func _step_lobber(delta: float, space: PhysicsDirectSpaceState3D) -> void:
+	vel.y -= LOBBER_GRAVITY * delta
+	var from := _sweep_start()
+	var to := global_position + vel * delta
+	var q := PhysicsRayQueryParameters3D.create(from, to, Player.MASK_WORLD | Player.MASK_HITBOX, _owner_exclude())
+	q.collide_with_areas = true
+	var r := space.intersect_ray(q)
+	if r.is_empty():
+		global_position = to
+	elif r.collider is Area3D:
+		_detonate(r.position - vel.normalized() * 0.1)
+		return
+	else:
+		var n: Vector3 = r.normal
+		global_position = r.position + n * 0.07
+		vel = vel.bounce(n) * LOBBER_BOUNCE
+		if n.y > 0.6:
+			vel.x *= GRENADE_FRICTION
+			vel.z *= GRENADE_FRICTION
+		if vel.length() > 1.5 and _bounce_sound_cd <= 0.0:
+			_bounce_sound_cd = 0.15
+			Sfx.play(&"grenade_bounce", global_position, -2.0, 0.8)
+	_model.rotate_x(delta * vel.length() * 2.5)
+	_model.rotate_z(delta * vel.length() * 1.1)
+	if age >= float(Data.WEAPONS.cube_lobber.fuse):
+		_detonate(global_position + Vector3.UP * 0.1)
 
 
 ## Smoke and flash grenades bounce off the world and go off when their fuse runs out.

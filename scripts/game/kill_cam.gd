@@ -54,8 +54,8 @@ const SNAP_DIST := 4.0
 const BIT_ALIVE := 1 << 24
 const BIT_REMOTE := 1 << 25
 const BIT_GRAPPLE := 1 << 26
-## Projectile and explosion kinds (index stored in the tape).
-const KINDS: Array[String] = ["rocket", "grenade", "smoke", "flash", "bomber"]
+## Projectile and explosion kinds (index stored in the tape; new kinds go at the end).
+const KINDS: Array[String] = ["rocket", "grenade", "smoke", "flash", "bomber", "cube_lobber"]
 
 enum Ev { SHOT, PELLET, SLASH, THROW, ROCKET, EXPLODE, HIT }
 
@@ -242,6 +242,8 @@ var _vm_key := ""
 var _ads := 0.0
 var _cam_weapon := ""
 var _cam_reloading := false
+## Seconds the replayed killer has been charging a charge weapon (Player.FLAG_CHARGE), for its glow.
+var _cam_charge := 0.0
 var _cam_ads_fov := 60.0
 var _cam_scoped := false
 var _cam_scope_style := "sniper"
@@ -404,10 +406,10 @@ func record_shot(p: Player, wid: String, ends: PackedVector3Array, normals: Pack
 		_tape.add_event(t, Ev.SHOT, p.id, wi, p.head.global_position, Vector3.ZERO)
 
 
-## World._s_spawn_projectile: `owner_id` fired a rocket or threw a grenade.
+## World._s_spawn_projectile: `owner_id` fired a launcher (rocket, Cube Lobber) or threw a grenade.
 func record_launch(owner_id: int, kind: String) -> void:
 	if _recording:
-		_tape.add_event(World.now(), Ev.ROCKET if kind == "rocket" else Ev.THROW, owner_id, KINDS.find(kind), Vector3.ZERO, Vector3.ZERO)
+		_tape.add_event(World.now(), Ev.ROCKET if Data.WEAPONS.has(kind) else Ev.THROW, owner_id, KINDS.find(kind), Vector3.ZERO, Vector3.ZERO)
 
 
 ## World._s_explode and Streaks' Block Bomber blasts (`kind` "bomber").
@@ -683,6 +685,9 @@ func _pose_killer(t: float, delta: float) -> void:
 	elif _cam_reloading and not reloading:
 		_viewmodel.stop_reload()
 	_cam_reloading = reloading
+	var charge_time := float(Data.WEAPONS[wid].get("charge_time", 0.0))
+	_cam_charge = minf(_cam_charge + delta, charge_time) if charge_time > 0.0 and (fl & Player.FLAG_CHARGE) != 0 else 0.0
+	_viewmodel.set_charge(_cam_charge / charge_time if charge_time > 0.0 else 0.0)
 	var alive := (fl & BIT_ALIVE) != 0
 	_viewmodel.visible = alive
 	var local_vel := Basis(Vector3.UP, _s_yaw).inverse() * _s_vel
@@ -830,10 +835,11 @@ func _pose_projectiles(t: float) -> void:
 		if node == null or _proj_node_kind[n] != kind:
 			if node != null:
 				node.queue_free()
-			match kind:
-				0: node = Models.build_rocket()
-				1: node = Models.build_grenade()
-				_: node = Models.build_tactical(KINDS[clampi(kind, 2, 3)])
+			match KINDS[clampi(kind, 0, KINDS.size() - 1)]:
+				"rocket": node = Models.build_rocket()
+				"grenade": node = Models.build_grenade()
+				"cube_lobber": node = Models.build_lobber_shell()
+				var tactical: node = Models.build_tactical(tactical)
 			_root3d.add_child(node)
 			_proj_nodes[n] = node
 			_proj_node_kind[n] = kind
@@ -875,7 +881,9 @@ func _fire_event(e: int) -> void:
 					Sfx.play(StringName(w.sound), muzzle, 0.0, float(w.get("pitch", 1.0)))
 					if not suppressed:
 						fx.muzzle_flash(muzzle)
-			if mine or (g != null and not suppressed):
+			if w.get("beam", false):
+				fx.rail_beam(muzzle, a)
+			elif mine or (g != null and not suppressed):
 				fx.tracer(muzzle, a)
 			if b != Vector3.ZERO:
 				fx.impact(a, b)
@@ -892,18 +900,20 @@ func _fire_event(e: int) -> void:
 				fx.impact(a, b)
 		Ev.THROW, Ev.ROCKET:
 			var rocket := kind == Ev.ROCKET
+			var launcher: String = KINDS[clampi(_play.ev_arg[e], 0, KINDS.size() - 1)]
+			var sound := World.launch_sound(launcher) if rocket else &"grenade_throw"
 			if mine:
 				if rocket:
-					_viewmodel.play_fire(float(Data.WEAPONS.rocket.recoil))
+					_viewmodel.play_fire(float(Data.WEAPONS[launcher].recoil))
 				else:
 					_viewmodel.play_throw()
-				Sfx.play(&"shot_rocket" if rocket else &"grenade_throw", null, -2.0)
+				Sfx.play(sound, null, -2.0)
 			elif g != null:
 				if rocket:
 					g.play_shoot()
 				else:
 					g.play_throw()
-				Sfx.play(&"shot_rocket" if rocket else &"grenade_throw", g.global_position)
+				Sfx.play(sound, g.global_position)
 		Ev.EXPLODE:
 			match KINDS[clampi(_play.ev_arg[e], 0, KINDS.size() - 1)]:
 				"smoke":

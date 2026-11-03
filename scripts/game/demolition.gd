@@ -26,7 +26,7 @@ signal nav_rebaked(bake_ms: float, main_ms: float)
 
 const MUTATOR := "demolition"
 ## Removal radius (m, blocks are 1 m) per explosion kind (World.server_blast's `wid`).
-const RADIUS := {"rocket": 2.2, "grenade": 2.6, Streaks.WEAPON: 2.8}
+const RADIUS := {"rocket": 2.2, "grenade": 2.6, "cube_lobber": 1.8, Streaks.WEAPON: 2.8}
 ## Columns this close to the grid's side are the map edge / outer walls: never removed.
 const EDGE := 2
 ## Floor cells within this many cells (Chebyshev) of a spawn or a jump pad's take-off / landing

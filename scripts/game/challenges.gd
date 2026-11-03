@@ -39,8 +39,8 @@ static func param_pool(param: String, owned: Array) -> Array:
 	match param:
 		"gun", "gun_hs":
 			for id: String in Data.WEAPONS:
-				# The rocket's blast never lands a headshot.
-				if owned.has(id) and Data.WEAPONS[id].slot != "melee" and not (param == "gun_hs" and id == "rocket"):
+				# A launcher's blast (rocket, Cube Lobber) never lands a headshot.
+				if owned.has(id) and Data.WEAPONS[id].slot != "melee" and not (param == "gun_hs" and Data.WEAPONS[id].get("projectile", false)):
 					out.append(id)
 		"mode":
 			out.assign(Data.MODES.keys())

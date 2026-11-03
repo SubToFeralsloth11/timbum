@@ -316,6 +316,8 @@ func _update_follow(delta: float) -> void:
 	elif _inspecting and not inspecting:
 		_viewmodel.stop_inspect()
 	_inspecting = inspecting
+	# The followed player's Rail Cube charge (their Player ramps it from the flag).
+	_viewmodel.set_charge(p.charge_fraction())
 	if delta > 0.0:
 		_vel = _vel.lerp((p.global_position - _last_pos) / delta, minf(1.0, delta * 10.0))
 	_last_pos = p.global_position
@@ -337,12 +339,12 @@ func on_shot(p: Player, wid: String) -> void:
 		_viewmodel.play_fire(float(Data.WEAPONS[wid].recoil))
 
 
-## World._s_spawn_projectile: the followed player fired a rocket or threw a grenade.
+## World._s_spawn_projectile: the followed player fired a launcher or threw a grenade.
 func on_launch(owner_id: int, kind: String) -> void:
 	if view != View.FOLLOW or target == null or owner_id != target.id or _viewmodel == null:
 		return
-	if kind == "rocket":
-		_viewmodel.play_fire(float(Data.WEAPONS.rocket.recoil))
+	if Data.WEAPONS.has(kind):
+		_viewmodel.play_fire(float(Data.WEAPONS[kind].recoil))
 	else:
 		_viewmodel.play_throw()
 

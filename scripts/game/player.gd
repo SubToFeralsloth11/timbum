@@ -37,6 +37,8 @@ const GRENADE_COOLDOWN := 0.9
 ## ends; earlier presses are dropped so a stale throw never goes off mid-fight.
 const GRENADE_BUFFER := 0.25
 const HITSCAN_RANGE := 300.0
+## Extra upward launch speed (m/s) of a grenade launcher's shot (Data `fuse`, the Cube Lobber).
+const LOB_LIFT := 2.0
 const MASK_WORLD := 1
 const MASK_HITBOX := 4
 const INTERP_DELAY := 0.1
@@ -57,9 +59,11 @@ const FLAG_NEEDS_AMMO := 32
 const FLAG_SLIDE := 64
 const FLAG_PRONE := 128
 ## Bits 8-15: weapon index. Bits 16-19: lean, quantised to -7..7 and stored + 8. Bit 20: inspecting.
+## Bit 21: charging a charge weapon (the Rail Cube), so everyone sees the glow and hears the whine.
 const FLAG_WEAPON_SHIFT := 8
 const FLAG_LEAN_SHIFT := 16
 const FLAG_INSPECT := 1 << 20
+const FLAG_CHARGE := 1 << 21
 
 ## Sliding: crouch while sprinting. Entry needs this much ground speed; the slide starts at
 ## SLIDE_SPEED (or the current speed plus SLIDE_BOOST), bleeds SLIDE_FRICTION m/s per second
@@ -268,6 +272,16 @@ var _rope: MeshInstance3D
 var _rope_out := 0.0
 ## Shots still to come in the current burst (burst weapons).
 var _burst_left := 0
+## Charge weapons (Data `charge_time`): true while the trigger holds a charge, and the seconds
+## charged so far (LOCAL and BOT; a REMOTE player ramps `charge` from FLAG_CHARGE for the glow).
+var charging := false
+var charge := 0.0
+## Charge (0..1) the shot being fired was released at; 1 for every other shot.
+var _shot_charge := 1.0
+## The charge whine's voice (Sfx.play), stopped when the charge ends.
+var _charge_voice: Node
+## The held gun's charge glow (Models' "ChargeGlow" on the third-person gun), or null.
+var _charge_glow: GeometryInstance3D
 ## Attachment id -> stat multiplier, from info.mods (see mod()).
 var _mods := {}
 
@@ -315,6 +329,7 @@ func apply_info(p_info: Dictionary) -> void:
 	info = p_info
 	slots = slots_from(info)
 	_cancel_reload()
+	cancel_charge()
 	_burst_left = 0
 	refill_ammo()
 	if slots[current_slot].is_empty():
@@ -1100,6 +1115,7 @@ func give_weapon(slot: int, wid: String) -> void:
 	if wid.is_empty() and current_slot == slot:
 		current_slot = _first_armed_slot()
 		_cancel_reload()
+		cancel_charge()
 		_refresh_weapon_visual()
 	elif mode != Mode.REMOTE and not wid.is_empty() and (current_slot == slot or current_slot == 2):
 		var prev := previous_slot
@@ -1158,6 +1174,7 @@ func _tick_weapon(delta: float) -> void:
 		in_melee = false
 		in_slot = -1
 		_burst_left = 0
+		cancel_charge()
 		return
 
 	if in_slot >= 0:
@@ -1207,8 +1224,61 @@ func _tick_weapon(delta: float) -> void:
 		start_reload()
 	if _burst_left > 0:
 		_continue_burst(wid, w)
+	elif w.has("charge_time"):
+		_tick_charge(delta, wid, w)
 	elif in_fire:
 		_try_fire(wid, w)
+
+
+## Charge weapons (Data `charge_time`, the Rail Cube): a trigger press starts a charge (an empty
+## magazine clicks and reloads instead), holding builds it up to `charge_time` (it holds there),
+## and releasing fires one shot whose damage scales with the charge (`charge_mult`). Other actions
+## (switch, reload, melee, a throw, death) drop the charge without firing.
+func _tick_charge(delta: float, wid: String, w: Dictionary) -> void:
+	if charging:
+		if in_fire:
+			charge = minf(charge + delta, float(w.charge_time))
+			return
+		_shot_charge = charge_fraction()
+		cancel_charge()
+		fire_cooldown = 60.0 / float(w.rpm) / world.admin.fire_rate_for(self)
+		_shoot(wid, w)
+		_shot_charge = 1.0
+		return
+	if not in_fire or reloading or fire_cooldown > 0.0 or _trigger_down:
+		return
+	_trigger_down = true
+	if (ammo[wid] as Vector2i).x <= 0:
+		if mode == Mode.LOCAL:
+			Sfx.play(&"dry_fire", null, -4.0)
+		start_reload()
+		return
+	charging = true
+	charge = 0.0
+	_charge_voice = Sfx.play(&"rail_charge", null if mode == Mode.LOCAL else global_position, -2.0 if mode == Mode.LOCAL else 0.0)
+
+
+## Charge built up so far, 0..1 (0 when not charging).
+func charge_fraction() -> float:
+	if not charging:
+		return 0.0
+	return clampf(charge / float(weapon_data().get("charge_time", 1.0)), 0.0, 1.0)
+
+
+## Ends a charge without firing (and its whine).
+func cancel_charge() -> void:
+	charging = false
+	charge = 0.0
+	Sfx.stop(_charge_voice, &"rail_charge")
+	_charge_voice = null
+
+
+## Damage multiplier of a charge weapon's shot released at `frac` (0..1) of a full charge; 1 for
+## other weapons.
+static func charge_mult(w: Dictionary, frac: float) -> float:
+	if not w.has("charge_time"):
+		return 1.0
+	return lerpf(float(w.charge_min), 1.0, clampf(frac, 0.0, 1.0))
 
 
 # ---------------------------------------------------------------- weapon inspect
@@ -1255,6 +1325,7 @@ func switch_to(slot: int) -> void:
 	switch_timer = switch_time()
 	_burst_left = 0
 	_cancel_reload()
+	cancel_charge()
 	_trigger_down = true
 	if mode == Mode.LOCAL:
 		Sfx.play(&"weapon_switch", null, -8.0)
@@ -1271,6 +1342,7 @@ func start_reload() -> void:
 		var take := mini(mag_size(wid) - a.x, a.y)
 		ammo[wid] = Vector2i(a.x + take, a.y - take)
 		return
+	cancel_charge()
 	reloading = true
 	reload_timer = reload_time(wid)
 	# Shotguns replay the animation per shell in _tick_reload.
@@ -1381,8 +1453,9 @@ func _continue_burst(wid: String, w: Dictionary) -> void:
 	_shoot(wid, w)
 
 
-## Spends a round and fires it (hitscan or rocket), with recoil and an automatic reload when the
-## magazine runs dry.
+## Spends a round and fires it (hitscan, or a projectile whose kind is the weapon id), with recoil
+## and an automatic reload when the magazine runs dry. Grenade launchers (a `fuse`) lob theirs
+## with LOB_LIFT m/s of extra rise.
 func _shoot(wid: String, w: Dictionary) -> void:
 	var a: Vector2i = ammo[wid]
 	if not world.admin.ammo_free(self):
@@ -1392,7 +1465,8 @@ func _shoot(wid: String, w: Dictionary) -> void:
 	if w.get("projectile", false):
 		var spread := lerpf(float(w.spread_hip) * mod("laser"), float(w.spread_ads), aim_blend) * world.admin.spread_mult(self)
 		var dir := _spread_dir(aim.basis, spread)
-		world.request_projectile(self, "rocket", _launch_origin(aim.origin, dir, 0.6), dir * float(w.speed))
+		var vel := dir * float(w.speed) + (Vector3.UP * LOB_LIFT if w.has("fuse") else Vector3.ZERO)
+		world.request_projectile(self, wid, _launch_origin(aim.origin, dir, 0.6), vel)
 	else:
 		_fire_hitscan(wid, w, aim)
 	_apply_kick(w)
@@ -1427,38 +1501,54 @@ func _spread_dir(b: Basis, spread_deg: float) -> Vector3:
 	return (b * Vector3(tan(r) * cos(t), tan(r) * sin(t), -1.0)).normalized()
 
 
+## Hitscan pellets from `aim`. A pellet stops at the first world block or player; a `pierce`
+## weapon (the Rail Cube) passes through players, nearest first, until it has hit `pierce` of them
+## or a block stops it, and reports one end per pellet (where the beam stopped). A charge
+## weapon's damage scales with the charge the shot was released at (_shot_charge).
 func _fire_hitscan(wid: String, w: Dictionary, aim: Transform3D) -> void:
 	var spread := current_spread()
 	var space := get_world_3d().direct_space_state
 	var ends := PackedVector3Array()
 	var normals := PackedVector3Array()
 	var hits := {}
+	var pierce := int(w.get("pierce", 1))
+	var mult := charge_mult(w, _shot_charge)
+	var mask := MASK_HITBOX if world.admin.pierce_for(self) else MASK_WORLD | MASK_HITBOX
 	for i in int(w.pellets):
 		var dir := _spread_dir(aim.basis, spread)
-		var mask := MASK_HITBOX if world.admin.pierce_for(self) else MASK_WORLD | MASK_HITBOX
-		var q := PhysicsRayQueryParameters3D.create(aim.origin, aim.origin + dir * HITSCAN_RANGE, mask, _exclude)
-		q.collide_with_areas = true
-		var r := space.intersect_ray(q)
-		if r.is_empty():
-			ends.append(aim.origin + dir * HITSCAN_RANGE)
-			normals.append(Vector3.ZERO)
-			continue
-		ends.append(r.position)
-		var col: Object = r.collider
-		if col is Area3D and col.has_meta("player"):
-			normals.append(Vector3.ZERO)
+		var skip := _exclude
+		var struck := 0
+		while true:
+			var q := PhysicsRayQueryParameters3D.create(aim.origin, aim.origin + dir * HITSCAN_RANGE, mask, skip)
+			q.collide_with_areas = true
+			var r := space.intersect_ray(q)
+			if r.is_empty():
+				ends.append(aim.origin + dir * HITSCAN_RANGE)
+				normals.append(Vector3.ZERO)
+				break
+			var col: Object = r.collider
+			if not (col is Area3D and col.has_meta("player")):
+				ends.append(r.position)
+				normals.append(r.normal)
+				break
 			var target: Player = col.get_meta("player")
-			if target == self or not target.alive:
-				continue
-			var is_head: bool = col.get_meta("part") == "head" or world.admin.head_for(self)
-			var dist: float = aim.origin.distance_to(r.position)
-			var dmg := damage_at(w, dist, mod("barrel")) * (float(w.head_mult) if is_head else 1.0)
-			var entry: Array = hits.get(target.id, [0.0, false])
-			entry[0] += dmg
-			entry[1] = entry[1] or is_head
-			hits[target.id] = entry
-		else:
-			normals.append(r.normal)
+			if target != self and target.alive:
+				var is_head: bool = col.get_meta("part") == "head" or world.admin.head_for(self)
+				var dist: float = aim.origin.distance_to(r.position)
+				var dmg := damage_at(w, dist, mod("barrel")) * mult * (float(w.head_mult) if is_head else 1.0)
+				var entry: Array = hits.get(target.id, [0.0, false])
+				entry[0] += dmg
+				entry[1] = entry[1] or is_head
+				hits[target.id] = entry
+				struck += 1
+			if struck >= pierce or pierce <= 1:
+				ends.append(r.position)
+				normals.append(Vector3.ZERO)
+				break
+			# Pierce on: the beam goes on past this player (both their hitboxes).
+			if skip == _exclude:
+				skip = _exclude.duplicate()
+			skip.append_array(target.exclude_rids())
 	bloom = minf(bloom + (float(w.spread_hip) * 0.22 + 0.25) * mod("stabilizer"), float(w.spread_hip) * 1.6)
 	world.report_shot(self, wid, ends, normals, hits)
 
@@ -1493,6 +1583,7 @@ func _melee_attack(quick: bool) -> void:
 	# Never shortens a gun's refire time: the server keeps one fire-rate budget per shooter.
 	fire_cooldown = maxf(fire_cooldown, interval)
 	_cancel_reload()
+	cancel_charge()
 	var aim := aim_transform()
 	var reach := float(w.range)
 	var space := get_world_3d().direct_space_state
@@ -1512,7 +1603,7 @@ func _melee_attack(quick: bool) -> void:
 		# Forgiving sweep so slashes connect without pixel-perfect aim (never through walls).
 		var params := PhysicsShapeQueryParameters3D.new()
 		var sphere := SphereShape3D.new()
-		sphere.radius = 0.55
+		sphere.radius = float(w.get("sweep_radius", 0.55))
 		params.shape = sphere
 		params.collide_with_areas = true
 		params.collide_with_bodies = false
@@ -1548,6 +1639,7 @@ func _throw_grenade(kind: String) -> void:
 		tacticals -= 1
 	grenade_cooldown = GRENADE_COOLDOWN
 	_burst_left = 0
+	cancel_charge()
 	var aim := aim_transform()
 	var dir := -aim.basis.z
 	var vel := dir * float(Data.GRENADE.throw_speed) + Vector3.UP * 3.0 + Vector3(velocity.x, 0.0, velocity.z) * 0.4
@@ -1602,6 +1694,8 @@ func state_flags() -> int:
 	f |= (roundi(lean * _lean_reach * 7.0) + 8) << FLAG_LEAN_SHIFT
 	if inspecting():
 		f |= FLAG_INSPECT
+	if charging:
+		f |= FLAG_CHARGE
 	return f
 
 
@@ -1824,6 +1918,7 @@ func _update_visuals(delta: float) -> void:
 		avatar.animate(delta, anim_speed, on_floor_visual, crouching, prone)
 		_footsteps(delta)
 	_update_rope(delta)
+	_update_charge(delta)
 	if camera != null and not alive and camera.top_level:
 		_update_death_cam(delta)
 	elif camera != null and alive:
@@ -1844,6 +1939,29 @@ func _update_visuals(delta: float) -> void:
 	# A spectator following this player drives the beam after posing its viewmodel.
 	if laser_viewmodel == null:
 		update_laser(delta)
+
+
+## Charge weapons: a REMOTE player's charge follows its FLAG_CHARGE (the whine starts and stops
+## with it, the glow ramps over the weapon's charge time); every player's third-person gun glow
+## and the local first-person one show the charge.
+func _update_charge(delta: float) -> void:
+	if mode == Mode.REMOTE:
+		var on := alive and (_remote_flags & FLAG_CHARGE) != 0 and weapon_data().has("charge_time")
+		if on and not charging:
+			charging = true
+			charge = 0.0
+			_charge_voice = Sfx.play(&"rail_charge", global_position)
+		elif not on and charging:
+			cancel_charge()
+		if charging:
+			charge = minf(charge + delta, float(weapon_data().charge_time))
+	var c := charge_fraction()
+	if _charge_glow != null and is_instance_valid(_charge_glow):
+		_charge_glow.visible = c > 0.0
+		if c > 0.0:
+			_charge_glow.set_instance_shader_parameter(&"charge", c)
+	if viewmodel != null and mode == Mode.LOCAL:
+		viewmodel.set_charge(c)
 
 
 ## Laser Sight attachment: the beam always leaves the muzzle of the gun model on screen: the
@@ -1924,6 +2042,7 @@ func _refresh_weapon_visual() -> void:
 	_shown_weapon = wid
 	avatar.hold_weapon(wid, Data.gun_skin_for(info, wid))
 	_muzzle = avatar.find_child("Muzzle", true, false) as Node3D
+	_charge_glow = avatar.find_child("ChargeGlow", true, false) as GeometryInstance3D
 	if viewmodel != null:
 		viewmodel.set_weapon(wid, switch_time())
 
@@ -1954,6 +2073,7 @@ func die(killer: Player = null) -> void:
 	shield = 0.0
 	set_protection(0.0)
 	_cancel_reload()
+	cancel_charge()
 	_clear_intent()
 	aim_blend = 0.0
 	sprinting = false
@@ -2017,6 +2137,7 @@ func respawn(pos: Vector3, p_yaw: float) -> void:
 	_reset_movement_state()
 	_clear_intent()
 	_cancel_reload()
+	cancel_charge()
 	_remote_flags = FLAG_FLOOR
 	fire_cooldown = 0.0
 	switch_timer = switch_time()
