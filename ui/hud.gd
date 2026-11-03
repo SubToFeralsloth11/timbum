@@ -860,6 +860,15 @@ func pick_preset(index: int) -> void:
 	Net.update_my_info()
 
 
+## "MODE  ·  MAP  ·  MUTATOR  ·  TIME OF DAY  ·  WEATHER" for this match: the Tab scoreboard's
+## title and the line under the results title.
+func _match_line() -> String:
+	var mut: Dictionary = Data.MUTATORS[str(Net.config.mutator)]
+	var mode: Dictionary = Data.MODES.get(str(Net.config.mode), Data.MODES.ffa)
+	return "%s  ·  %s  ·  %s  ·  %s  ·  %s" % [str(mode.name).to_upper(), MapBuilder.map_name(Net.current_map).to_upper(),
+		str(mut.name).to_upper(), str(Net.config.time_of_day).to_upper(), Weather.label(str(Net.config.weather))]
+
+
 func _build_scoreboard() -> void:
 	_scoreboard = _panel(0.85, 16)
 	_scoreboard.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
@@ -871,10 +880,7 @@ func _build_scoreboard() -> void:
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 4)
 	_scoreboard.add_child(v)
-	var mut: Dictionary = Data.MUTATORS[str(Net.config.mutator)]
-	var mode: Dictionary = Data.MODES.get(str(Net.config.mode), Data.MODES.ffa)
-	var title := _label("%s  ·  %s  ·  %s  ·  %s" % [str(mode.name).to_upper(), MapBuilder.map_name(Net.current_map).to_upper(),
-		str(mut.name).to_upper(), str(Net.config.time_of_day).to_upper()], 18, Color(1, 0.85, 0.4), true)
+	var title := _label(_match_line(), 18, Color(1, 0.85, 0.4), true)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(title)
 	v.add_child(_score_row(["#", "PLAYER"] + world.rules.score_columns(), Color(0.7, 0.75, 0.85), false))
@@ -952,11 +958,18 @@ func _build_results() -> void:
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	_results.add_child(panel)
 	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 10)
+	v.add_theme_constant_override("separation", 7)
 	panel.add_child(v)
+	# The title with this match's line (mode, map, mutator, time of day, weather) tucked under it.
+	var head := VBoxContainer.new()
+	head.add_theme_constant_override("separation", -4)
+	v.add_child(head)
 	_results_title = _label("", 38, Color(1, 0.82, 0.25), true)
 	_results_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	v.add_child(_results_title)
+	head.add_child(_results_title)
+	var match_line := _label(_match_line(), 14, Color(0.7, 0.75, 0.85), true)
+	match_line.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	head.add_child(match_line)
 	v.add_child(_score_row(["#", "PLAYER"] + world.rules.score_columns(), Color(0.7, 0.75, 0.85), false))
 	# A full 12-player lobby plus the highlights would overflow 720 px, so the table scrolls
 	# past RESULTS_VISIBLE_ROWS rows (show_results sizes it).
