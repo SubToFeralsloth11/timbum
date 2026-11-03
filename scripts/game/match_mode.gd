@@ -330,6 +330,12 @@ func race_limit() -> int:
 	return int(Net.config.kill_limit)
 
 
+## What every row's race value is before anything happened (the HUD calls no lead until some row
+## has moved off it).
+func race_start() -> int:
+	return 0
+
+
 func race_text(value: int) -> String:
 	return "%d kill%s" % [value, "" if value == 1 else "s"]
 

@@ -342,6 +342,10 @@ func race_limit() -> int:
 	return start_lives()
 
 
+func race_start() -> int:
+	return start_lives()
+
+
 func race_text(value: int) -> String:
 	return "%d li%s" % [value, "fe" if value == 1 else "ves"]
 

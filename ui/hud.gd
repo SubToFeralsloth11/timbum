@@ -1331,8 +1331,15 @@ func refresh_scores() -> void:
 	elif Net.is_spectator(me):
 		_you_bar.value = 0.0
 		_rank_label.text = "Spectating  ·  %d players" % rows.size()
-	# Only an outright lead counts, so ties don't flicker the callout.
-	if top > runner_up:
+	# Only an outright lead over someone counts, so ties don't flicker the callout, and only once the
+	# race has moved off its start (a lone first row at spawn, or One in the Chamber's full lives,
+	# is nobody's lead).
+	var moved := false
+	for r: Dictionary in rows:
+		if rules.race_value(r) != rules.race_start():
+			moved = true
+			break
+	if rows.size() > 1 and moved and top > runner_up:
 		var leader := int(rows[0].id)
 		if leader != _last_leader:
 			if leader == me:

@@ -218,6 +218,10 @@ func race_limit() -> int:
 	return steps.size()
 
 
+func race_start() -> int:
+	return 1
+
+
 func race_text(value: int) -> String:
 	return "level %d" % value
 
