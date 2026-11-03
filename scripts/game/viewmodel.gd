@@ -300,8 +300,9 @@ func play_fire(kick_deg: float) -> void:
 	_kick = minf(_kick + 0.35 + kick_deg * 0.12, 1.4)
 	_kick_roll = clampf(_kick_roll + randf_range(-0.06, 0.06) * (1.0 + kick_deg * 0.2), -0.18, 0.18)
 	_flash_t = 0.05
-	# A suppressor swallows the flash; a beam weapon flashes cyan.
-	var w: Dictionary = Data.WEAPONS[_weapon]
+	# A suppressor swallows the flash; a beam weapon flashes cyan. (A spectator's viewmodel may not
+	# hold a gun yet when the followed player's first shot arrives.)
+	var w: Dictionary = Data.WEAPONS.get(_weapon, {})
 	var suppressed: bool = w.get("suppressed", false)
 	_flash.visible = not suppressed
 	_flash.rotation.z = randf() * TAU
