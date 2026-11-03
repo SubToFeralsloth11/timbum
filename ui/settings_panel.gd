@@ -244,6 +244,7 @@ func _ready() -> void:
 	_check_row(video, "reflections", "Reflections")
 	_check_row(video, "block_detail", "Block shader effects")
 	_check_row(video, "post_fx", "Colour grading and vignette")
+	_option_row(video, "weather_fx", "Weather effects", Video.WEATHER_FX_NAMES)
 
 	video.add_child(UIKit.label("IMAGE", &"SubheaderLabel"))
 	_slider_row(video, "brightness", "Brightness", 0.5, 1.5, 0.05, "pct")

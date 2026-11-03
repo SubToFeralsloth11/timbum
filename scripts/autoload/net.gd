@@ -55,7 +55,8 @@ const GAME_ID := "timbum"
 ##     _s_final_two RPCs, `lives` / `out_at` / `one_round` in a player's info).
 ## 27: Moon Base and Volcano Forge (map ids "moon" / "volcano", new block ids, the "lava" kill
 ##     cause in _s_killed).
-const PROTOCOL_VERSION := 27
+## 28: Weather (`weather_pick` / `weather` in the config).
+const PROTOCOL_VERSION := 28
 const CONNECT_TIMEOUT := 8.0
 ## A room-code join first tries a direct (NAT punch-through) link this long, then the relay.
 const NAT_CONNECT_TIMEOUT := 6.0
@@ -90,6 +91,11 @@ const DEFAULT_CONFIG := {
 	## Rolled per match by the server and sent to clients with the config.
 	"mutator": "none",
 	"time_of_day": "day",
+	## The match setup's WEATHER pick: "auto" (each match rolls one of the map's weathers_for)
+	## or a Data.WEATHERS id, played on every map that allows it (others roll their own).
+	"weather_pick": "auto",
+	## This match's weather (Data.WEATHERS id), rolled by the server from weather_pick (_roll_weather).
+	"weather": "clear",
 	## A Data.SESSIONS id: "match", or an offline practice session ("range": FiringRange,
 	## "tutorial": Tutorial) on Data.RANGE_MAP.
 	"session": "match",
@@ -118,8 +124,8 @@ var webrtc: NetLinkWebRtc
 
 ## Maps left in the current shuffled rotation.
 var _rotation: Array[String] = []
-## Server: the next match ({map, mutator, time_of_day}), decided when a match ends so the results
-## screen can announce it; empty while a match is in progress.
+## Server: the next match ({map, mutator, time_of_day, weather}), decided when a match ends so the
+## results screen can announce it; empty while a match is in progress.
 var _next_match := {}
 var _connect_timer: SceneTreeTimer
 ## Set when we leave on purpose so the disconnect handler stays quiet.
@@ -745,6 +751,10 @@ static func sanitize_config(cfg: Dictionary) -> Dictionary:
 	out.mutator = mut if Data.MUTATORS.has(mut) else "none"
 	var tod := str(cfg.get("time_of_day", out.time_of_day))
 	out.time_of_day = tod if tod in Data.TIMES_OF_DAY else "day"
+	var pick := str(cfg.get("weather_pick", out.weather_pick))
+	out.weather_pick = pick if pick == "auto" or Data.WEATHERS.has(pick) else "auto"
+	var weather := str(cfg.get("weather", out.weather))
+	out.weather = weather if Data.WEATHERS.has(weather) else "clear"
 	var session := str(cfg.get("session", out.session))
 	out.session = session if session in Data.SESSIONS else "match"
 	if out.session != "match":
@@ -756,6 +766,8 @@ static func sanitize_config(cfg: Dictionary) -> Dictionary:
 		out.mutator = "none"
 		out.streaks = false
 		out.time_of_day = "day"
+		out.weather_pick = "auto"
+		out.weather = "clear"
 		return out
 	if out.mode == "tactical":
 		# Tactical is always 25 v 25 in the building, with no mutators.
@@ -808,9 +820,9 @@ func _roll_match_variety(previous: String) -> Dictionary:
 # ---------------------------------------------------------------- server: map flow
 
 ## Server only: send every peer (including us) into a fresh match on map_id. `variety` is the
-## {mutator, time_of_day} already announced for it; empty rolls a fresh one. A custom map
-## (CustomMaps) is read from its file and always plays its own time of day; clients missing it
-## download it first (_rpc_load_match).
+## {mutator, time_of_day, weather} already announced for it; empty rolls a fresh one (a missing
+## or unknown `weather` too). A custom map (CustomMaps) is read from its file and always plays its
+## own time of day; clients missing it download it first (_rpc_load_match).
 func load_map(map_id: String, variety := {}) -> void:
 	assert(multiplayer.is_server())
 	if CustomMaps.is_custom(map_id) and not CustomMaps.activate_file(map_id):
@@ -822,6 +834,8 @@ func load_map(map_id: String, variety := {}) -> void:
 		variety = _roll_match_variety(config.mutator)
 	config.mutator = variety.mutator
 	config.time_of_day = _time_of_day_for(map_id, variety.time_of_day)
+	var weather := str(variety.get("weather", ""))
+	config.weather = weather if Data.WEATHERS.has(weather) else _roll_weather(map_id)
 	_next_match = {}
 	var map_hash := _map_hash(map_id)
 	for id: int in players:
@@ -838,6 +852,35 @@ func _time_of_day_for(map_id: String, rolled: String) -> String:
 	return str(map.time_of_day) if not map.is_empty() else rolled
 
 
+## The weathers map `map_id` may roll, id -> weight (Data.MAP_WEATHER, CUSTOM_WEATHER for a custom
+## map, else DEFAULT_WEATHER). Here rather than in Data, which compiles before the classes CustomMaps
+## pulls in.
+static func weathers_for(map_id: String) -> Dictionary:
+	if CustomMaps.is_custom(map_id):
+		return Data.CUSTOM_WEATHER
+	return Data.MAP_WEATHER.get(map_id, Data.DEFAULT_WEATHER)
+
+
+## The weather of a match on `map_id`: clear in practice sessions; the setup's `weather_pick`
+## when the map allows it (weathers_for); otherwise a weighted roll of the map's weathers.
+func _roll_weather(map_id: String) -> String:
+	if config.session != "match":
+		return "clear"
+	var allowed := weathers_for(map_id)
+	var pick := str(config.get("weather_pick", "auto"))
+	if pick == "clear" or allowed.has(pick):
+		return pick
+	var total := 0
+	for w: String in allowed:
+		total += int(allowed[w])
+	var r := randi() % maxi(total, 1)
+	for w: String in allowed:
+		r -= int(allowed[w])
+		if r < 0:
+			return w
+	return "clear"
+
+
 ## The hash clients check their copy of a custom map against ("" for a built-in map).
 func _map_hash(map_id: String) -> String:
 	if CustomMaps.is_custom(map_id) and not CustomMaps.active.is_empty() and CustomMaps.active.id == map_id:
@@ -845,13 +888,14 @@ func _map_hash(map_id: String) -> String:
 	return ""
 
 
-## Server only: decides (once per match) which map, mutator and lighting come next, so the
-## results screen can show it. next_match() then plays exactly this.
+## Server only: decides (once per match) which map, mutator, lighting and weather come next, so
+## the results screen can show it. next_match() then plays exactly this.
 func plan_next_match() -> Dictionary:
 	if _next_match.is_empty():
 		var variety := _roll_match_variety(config.mutator)
 		_next_match = {"map": _pick_next_map(), "mutator": variety.mutator, "time_of_day": variety.time_of_day}
 		_next_match.time_of_day = _time_of_day_for(_next_match.map, variety.time_of_day)
+		_next_match.weather = _roll_weather(_next_match.map)
 	return _next_match
 
 
@@ -863,6 +907,7 @@ func next_map_options() -> Array:
 
 ## Server only: the results screen's map vote picked `map_id` over the planned map. In a rotation
 ## the picked map leaves the rotation and the planned one goes to its end, so neither is lost.
+## The weather is rolled again for the picked map.
 func vote_next_map(map_id: String) -> void:
 	var plan := plan_next_match()
 	if not Data.MAP_ROTATION.has(map_id) or map_id == plan.map:
@@ -871,6 +916,7 @@ func vote_next_map(map_id: String) -> void:
 		_rotation.erase(map_id)
 		_rotation.append(plan.map)
 	plan.map = map_id
+	plan.weather = _roll_weather(map_id)
 
 
 ## Server only: called by the World when a match has ended and the results delay is over (or

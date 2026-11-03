@@ -47,8 +47,10 @@ var time_left := 0.0
 ## entity id -> {name, kills, deaths, headshots, streak, best_streak, bot}
 var scores := {}
 var results: Array = []
-## The next match the results screen announces: {map, mutator, time_of_day}.
+## The next match the results screen announces: {map, mutator, time_of_day, weather}.
 var next_up: Dictionary = {}
+## The match's weather (World's child "Weather"; Weather, `Net.config.weather`).
+var weather: Weather
 ## Active smoke clouds on every peer: [centre, radius, World.now() when it clears].
 var smokes: Array = []
 ## The mode's rules (MatchMode subclass, child of World; plain Deathmatch for "ffa").
@@ -148,6 +150,9 @@ func _ready() -> void:
 	add_child(map_root)
 	map_info = MapBuilder.build(Net.current_map, map_root, int(Profile.get_setting("quality")), Demolition.enabled())
 	_apply_time_of_day(map_root, str(Net.config.time_of_day))
+	weather = Weather.new()
+	weather.setup(map_root, str(Net.config.weather), str(Net.config.time_of_day))
+	add_child(weather)
 	var post := PostProcess.new()
 	post.name = "PostProcess"
 	add_child(post)

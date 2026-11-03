@@ -127,6 +127,8 @@ var _lives_row: HBoxContainer
 var _time_row: HBoxContainer
 var _mutator_row: HBoxContainer
 var _streak_row: HBoxContainer
+## WEATHER chips: AUTO, CLEAR and the weathers the picked map allows (_fill_weather_row).
+var _weather_row: HBoxContainer
 ## Map preview rects still waiting for their texture.
 var _preview_queue: Array[TextureRect] = []
 ## Mode cards in MODE_IDS order (a ButtonGroup of toggles).
@@ -161,7 +163,7 @@ static func default_choice() -> Dictionary:
 		"ladder": GunGame.max_length(), "oitc_lives": OneInTheChamber.DEFAULT_LIVES,
 		"koth_limit": KingOfTheBlock.DEFAULT_SCORE_LIMIT, "time_minutes": 8,
 		"mutators": true, "link": Net.Link.DIRECT,
-		"streaks": {}}
+		"streaks": {}, "weather": "auto"}
 
 
 ## A full, valid set of setup choices from saved data (a preset from an old or edited save): each
@@ -188,6 +190,9 @@ static func sanitize_choice(raw: Variant) -> Dictionary:
 	if typeof(d.get("mutators")) == TYPE_BOOL:
 		out.mutators = d.mutators
 	var link := _int(d.get("link"), -1)
+	var weather := str(d.get("weather", ""))
+	if weather == "auto" or Data.WEATHERS.has(weather):
+		out.weather = weather
 	if link in [Net.Link.DIRECT, Net.Link.STEAM, Net.Link.WEBRTC]:
 		out.link = link
 	var streaks: Variant = d.get("streaks", {})
@@ -382,6 +387,8 @@ func _ready() -> void:
 		func(i: int) -> void: _choice.streaks[_choice.mode] = i == 0)
 	_rule(rules, "STREAKS", _streak_row)
 	_mode_rule(rules, ["ffa", "tdm", "ctf", "gungame", "koth", "infected", "tactical"])
+	_weather_row = UIKit.hbox(4)
+	_rule(rules, "WEATHER", _weather_row)
 	_rules_hint = UIKit.label(MODE_HINTS.ffa, &"DimLabel")
 	_rules_hint.add_theme_font_size_override("font_size", 13)
 	_rules_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -523,6 +530,38 @@ func _apply_mode() -> void:
 		_map_desc.text = Data.MAPS[Data.TACTICAL_MAP].desc
 	else:
 		_select_map(_choice.map)
+	_fill_weather_row()
+
+
+## The WEATHER choices on `map_id` (ROTATION: AUTO, CLEAR, RAIN, STORM; a map in the rotation
+## that doesn't allow the pick rolls its own weather, see Net._roll_weather).
+static func weather_options(map_id: String) -> Array[String]:
+	var out: Array[String] = ["auto", "clear"]
+	var allowed: Dictionary = Data.DEFAULT_WEATHER if map_id == ROTATION else Net.weathers_for(map_id)
+	for w: String in allowed:
+		if w != "clear":
+			out.append(w)
+	return out
+
+
+## Rebuilds the WEATHER chips for the picked map (Tactical: its own map). A pick the map doesn't
+## offer shows as AUTO, which is what it plays there; the pick itself is kept for other maps.
+func _fill_weather_row() -> void:
+	var map_id: String = Data.TACTICAL_MAP if _choice.mode == "tactical" else _choice.map
+	var options := weather_options(map_id)
+	for c: Node in _weather_row.get_children():
+		c.free()
+	var group := ButtonGroup.new()
+	var selected := maxi(options.find(str(_choice.weather)), 0)
+	for i in options.size():
+		var id := options[i]
+		var b := UIKit.button("AUTO" if id == "auto" else str(Data.WEATHERS[id].short), &"ChipButton")
+		b.toggle_mode = true
+		b.button_group = group
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.button_pressed = i == selected
+		b.pressed.connect(func() -> void: _choice.weather = id)
+		_weather_row.add_child(b)
 
 
 func _pick_segment(row: Container, selected: int) -> void:
@@ -647,6 +686,8 @@ func _select_map(id: String) -> void:
 		b.set_pressed_no_signal(on)
 		if on:
 			_map_desc.text = b.get_meta(&"desc")
+	if _weather_row != null:
+		_fill_weather_row()
 
 
 func _build_host_section(parent: VBoxContainer) -> void:
@@ -920,6 +961,8 @@ static func describe_config(cfg: Dictionary) -> Array:
 	if mode != "tactical" and mode != "oitc":
 		rows.append(["MUTATORS", "Random mutators" if cfg.mutators else "No mutators"])
 	rows.append(["KILLSTREAKS", "Killstreaks on" if cfg.streaks else "Killstreaks off"])
+	var pick := str(cfg.get("weather_pick", "auto"))
+	rows.append(["WEATHER", "Random weather" if pick == "auto" else str(Data.WEATHERS[pick].name)])
 	return rows
 
 
@@ -935,6 +978,7 @@ static func config_from(choice: Dictionary) -> Dictionary:
 		"time_limit": int(choice.time_minutes) * 60,
 		"mutators": choice.mutators,
 		"streaks": bool(choice.streaks.get(choice.mode, Streaks.default_for(choice.mode))),
+		"weather_pick": choice.weather,
 	}
 
 

@@ -1458,7 +1458,7 @@ func _update_damage_numbers(delta: float) -> void:
 		l.modulate.a = clampf((DAMAGE_NUMBER_LIFE - entry[2]) / 0.3, 0.0, 1.0)
 
 
-## Rounded card announcing the map, mode, mutator and time of day; fades after a few seconds.
+## Rounded card announcing the map, mode, mutator, time of day and weather; fades after a few seconds.
 func _show_match_intro() -> void:
 	var practice := world.rules.practice_intro()
 	var mut: Dictionary = Data.MUTATORS[str(Net.config.mutator)]
@@ -1486,7 +1486,8 @@ func _show_match_intro() -> void:
 		var mode_label := _label("%s  ·  %s" % [str(mode.name).to_upper(), str(mode.desc)], 14, Color(0.75, 1.0, 0.7))
 		mode_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		box.add_child(mode_label)
-	var sub := "%s  ·  %s" % [str(mut.name).to_upper(), str(Net.config.time_of_day).to_upper()]
+	var sub := "%s  ·  %s  ·  %s" % [str(mut.name).to_upper(), str(Net.config.time_of_day).to_upper(),
+		Weather.label(str(Net.config.weather))]
 	var sub_label := _label(sub, 15, Color(0.6, 0.9, 1.0) if Net.config.mutator != "none" else Color.WHITE, true)
 	sub_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(sub_label)
@@ -1850,15 +1851,15 @@ func show_results(rows: Array, placement: int, rewards: Dictionary, wait: float,
 	(_results_skip if _results_skip.visible else _results_leave).grab_focus.call_deferred()
 
 
-## Map, mutator and time of day of the coming match, with what the mutator does.
+## Map, mutator, time of day and weather of the coming match, with what the mutator does.
 func _fill_next(next: Dictionary) -> void:
 	if not next.has("map"):
 		_results_next.text = ""
 		_results_next_desc.text = ""
 		return
 	var mut: Dictionary = Data.MUTATORS.get(str(next.mutator), Data.MUTATORS.none)
-	_results_next.text = "%s  ·  %s  ·  %s" % [MapBuilder.map_name(str(next.map)).to_upper(),
-		str(mut.name).to_upper(), str(next.time_of_day).to_upper()]
+	_results_next.text = "%s  ·  %s  ·  %s  ·  %s" % [MapBuilder.map_name(str(next.map)).to_upper(),
+		str(mut.name).to_upper(), str(next.time_of_day).to_upper(), Weather.label(str(next.get("weather", "clear")))]
 	_results_next_desc.text = str(mut.desc)
 
 

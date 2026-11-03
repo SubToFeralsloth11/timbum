@@ -21,15 +21,17 @@ const DYNAMIC_TARGETS: Array[int] = [0, 60, 90, 120, 144]
 const LEVEL_NAMES: Array[String] = ["Off", "Low", "Medium", "High", "Ultra"]
 const ANISO_NAMES: Array[String] = ["Off", "2x", "4x", "8x", "16x"]
 const QUALITY_NAMES: Array[String] = ["Low", "Medium", "High", "Ultra"]
+## "weather_fx": Weather's particles (Off keeps the weather's fog, sky and sound).
+const WEATHER_FX_NAMES: Array[String] = ["Off", "Low", "High"]
 ## Settings each quality preset (QUALITY_NAMES) switches to when picked. Low also turns HiDPI
 ## off (from the next start): on a Retina or scaled display that quarters the pixels the GPU fills
 ## and upscales, which is what holds 60 fps there (A18 Pro, 2560 x 1440 display at 2x: Low with
 ## HiDPI 44 fps with MetalFX, 55-60 bilinear; without HiDPI 60, the display's refresh rate).
 const PRESETS: Array[Dictionary] = [
-	{"shadow_quality": 1, "ssao_quality": 0, "ssil": false, "bloom": false, "reflections": false, "anti_aliasing": 1, "anisotropic": 1, "render_resolution": 1, "hidpi": false},
-	{"shadow_quality": 2, "ssao_quality": 2, "ssil": false, "bloom": true, "reflections": false, "anti_aliasing": 2, "anisotropic": 2, "render_resolution": 1, "hidpi": true},
-	{"shadow_quality": 3, "ssao_quality": 3, "ssil": true, "bloom": true, "reflections": true, "anti_aliasing": 3, "anisotropic": 3, "render_resolution": 2, "hidpi": true},
-	{"shadow_quality": 4, "ssao_quality": 4, "ssil": true, "bloom": true, "reflections": true, "anti_aliasing": 3, "anisotropic": 4, "render_resolution": 3, "hidpi": true},
+	{"shadow_quality": 1, "ssao_quality": 0, "ssil": false, "bloom": false, "reflections": false, "anti_aliasing": 1, "anisotropic": 1, "render_resolution": 1, "hidpi": false, "weather_fx": 1},
+	{"shadow_quality": 2, "ssao_quality": 2, "ssil": false, "bloom": true, "reflections": false, "anti_aliasing": 2, "anisotropic": 2, "render_resolution": 1, "hidpi": true, "weather_fx": 2},
+	{"shadow_quality": 3, "ssao_quality": 3, "ssil": true, "bloom": true, "reflections": true, "anti_aliasing": 3, "anisotropic": 3, "render_resolution": 2, "hidpi": true, "weather_fx": 2},
+	{"shadow_quality": 4, "ssao_quality": 4, "ssil": true, "bloom": true, "reflections": true, "anti_aliasing": 3, "anisotropic": 4, "render_resolution": 3, "hidpi": true, "weather_fx": 2},
 ]
 ## Windows with more pixels than this (2560 x 1600) get bilinear from the Auto upscaler: FSR 1 and
 ## MetalFX cost a full pass at the window's size, 7-10 ms at 5120 x 2880 on an A18 Pro.
@@ -84,6 +86,8 @@ static func apply(p: Node, vp: Viewport) -> void:
 		_once(&"ssao", ssao, func() -> void: RenderingServer.environment_set_ssao_quality(q[0], q[1], 0.5, 2, 50.0, 300.0))
 	BlockAtlas.set_detail(bool(p.get_setting("block_detail")))
 	MapBuilder.apply_graphics(p.get_tree())
+	# Weather.GROUP, by name: Video compiles with Profile, before the autoloads Weather uses exist.
+	p.get_tree().call_group(&"weather", &"apply_setting")
 
 
 ## Runs `fn` only when `value` differs from the last one applied under `key`, so a slider drag

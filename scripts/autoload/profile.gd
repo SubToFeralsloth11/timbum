@@ -65,6 +65,8 @@ const DEFAULT_SETTINGS := {
 	"bloom": true,
 	"reflections": false,
 	"block_detail": true,
+	## Weather particles (Video.WEATHER_FX_NAMES index: 0 off, 1 low, 2 high).
+	"weather_fx": 2,
 	"debanding": false,
 	## Environment brightness multiplier (0.5-1.5).
 	"brightness": 1.0,
@@ -1245,7 +1247,7 @@ func load_from_dict(d: Dictionary) -> void:
 	# Saves from before the per-effect settings take them from their quality preset (the render
 	# resolution and texture filtering keep their defaults: older versions had no choice there).
 	var preset: Dictionary = Video.PRESETS[settings.quality]
-	for key: String in ["shadow_quality", "ssao_quality", "ssil", "bloom", "reflections", "anti_aliasing"]:
+	for key: String in ["shadow_quality", "ssao_quality", "ssil", "bloom", "reflections", "anti_aliasing", "weather_fx"]:
 		if not saved.has(key):
 			settings[key] = preset[key]
 	# The on/off switches the Video tab had before it grew carry over to their new settings.
@@ -1268,6 +1270,7 @@ func load_from_dict(d: Dictionary) -> void:
 	settings.dynamic_resolution = clampi(int(settings.dynamic_resolution), 0, Video.DYNAMIC_TARGETS.size() - 1)
 	settings.shadow_quality = clampi(int(settings.shadow_quality), 0, Video.LEVEL_NAMES.size() - 1)
 	settings.ssao_quality = clampi(int(settings.ssao_quality), 0, Video.LEVEL_NAMES.size() - 1)
+	settings.weather_fx = clampi(int(settings.weather_fx), 0, Video.WEATHER_FX_NAMES.size() - 1)
 	settings.brightness = clampf(float(settings.brightness), 0.5, 1.5)
 	settings.anti_aliasing = clampi(int(settings.anti_aliasing), 0, ANTI_ALIASING_NAMES.size() - 1)
 	settings.render_scale = clampf(float(settings.render_scale), 0.5, 1.0)

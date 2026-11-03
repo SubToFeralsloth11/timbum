@@ -586,6 +586,27 @@ const MUTATORS := {
 	"demolition": {"name": "Demolition", "desc": "Rockets, frags and bomber strikes blow holes in the blocks."},
 }
 const TIMES_OF_DAY: Array[String] = ["day", "day", "sunset", "night"]
+## Weather (`Net.config.weather`, rolled per match by the server; Weather draws it). `short`
+## labels the match setup chip.
+const WEATHERS := {
+	"clear": {"name": "Clear", "short": "CLEAR"},
+	"rain": {"name": "Rain", "short": "RAIN"},
+	"storm": {"name": "Thunderstorm", "short": "STORM"},
+	"snow": {"name": "Snowfall", "short": "SNOW"},
+	"sandstorm": {"name": "Sandstorm", "short": "SAND"},
+	"ash": {"name": "Ash Fall", "short": "ASH"},
+}
+## The weathers a map may roll and their weights (clear is the common one). Maps not listed use
+## DEFAULT_WEATHER; custom maps CUSTOM_WEATHER; practice sessions are always clear.
+const MAP_WEATHER := {
+	"moon": {"clear": 1},
+	"volcano": {"clear": 3, "ash": 2},
+	"desert": {"clear": 3, "sandstorm": 2},
+	"snow": {"clear": 3, "snow": 2},
+	"range": {"clear": 1},
+}
+const DEFAULT_WEATHER := {"clear": 5, "rain": 2, "storm": 2}
+const CUSTOM_WEATHER := {"clear": 3, "rain": 1}
 
 const MAP_ROTATION: Array[String] = ["village", "desert", "factory", "sky", "snow", "harbor", "temple", "rooftops", "moon", "volcano"]
 
