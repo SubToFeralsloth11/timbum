@@ -2,6 +2,8 @@
 
 A blocky shooter made with Godot 4.7: free-for-all deathmatch, Team Deathmatch, Capture the Flag, Gun Game, One in the Chamber, King of the Block, Infected, or 25 v 25 Tactical in an office block. Play against bots offline, or host a match and have friends join from the same Wi-Fi, with a room code, through Steam, or by IP.
 
+What changed in each version: [`CHANGELOG.md`](CHANGELOG.md) (2.0.0, The Big Block Update, is the latest).
+
 ## Features
 
 - **Free-for-all deathmatch.** The first player to reach the kill limit wins, or whoever has the most kills when time runs out. When the match ends, every player's camera turns to the winner, who performs their win emote. In team modes (Team Deathmatch, Capture the Flag, Infected, Tactical) each player on the winning side who is alive sees their own character, full body, doing their emote; everyone else sees the winning side's top player. Then a results screen shows the final table, match highlights (best streak, sharpshooter, survivor), your accuracy and most-used weapon, an itemised list of the coins and XP you earned, and the next map, mutator and time of day. You can pick your loadout preset for the next match and switch its primary and secondary right there, and start it early once most of the players in the lobby press Start Next Match (everyone sees how many are ready). Hold Tab to see the scoreboard over the results screen too.
