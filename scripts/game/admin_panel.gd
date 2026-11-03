@@ -1,15 +1,18 @@
 class_name AdminPanel
 extends CanvasLayer
-## Admin panel, World's child "AdminPanel" (`World.admin`), offline only (Play vs Bots, the Firing
-## Range, the tutorial). Opened with `admin_panel` (F1) or the pause menu's ADMIN PANEL via
-## `Hud.open_admin()`; the match freezes while it is open, and Esc / F1 / CLOSE shut it (back to the
-## pause menu when it was opened from there: `closed(to_pause)`). Cheats stay on after the panel
-## closes, for this match only: every World starts with a clean AdminPanel.
+## Admin panel, World's child "AdminPanel" (`World.admin`), in every match, offline and online.
+## Opened with `admin_panel` (F1) or the pause menu's ADMIN PANEL via `Hud.open_admin()`; an
+## offline match freezes while it is open (online keeps running), and Esc / F1 / CLOSE shut it
+## (back to the pause menu when it was opened from there: `closed(to_pause)`). Cheats stay on after
+## the panel closes, for this match only: every World starts with a clean AdminPanel.
 ##
 ## Every cheat is a plain field. Player, World and BotBrain read them through the hook functions
-## below, which return the neutral value online and for anyone but the local player (bot cheats:
-## for bots), so networked play is untouched. The ESP, radar, chams and the active-cheat line draw
-## on this layer's overlay while the panel is closed; the panel itself is `_root`.
+## below, which return the neutral value for anyone but the local player. Client-side cheats
+## (movement, aim, ESP, ammo, recoil, spread, wallbang, headshots, fake lag) work as a client;
+## server-side ones (god mode, damage, one-shot, fire rate past the host's check, explosive
+## bullets, bots, clock, kills, respawns) only on the machine running the match (offline or host).
+## The ESP, radar, chams and the active-cheat line draw on this layer's overlay while the panel is
+## closed; the panel itself is `_root`.
 
 ## Closed; `to_pause`: it was opened from the pause menu, which should come back.
 signal closed(to_pause: bool)
@@ -132,6 +135,7 @@ var _note_until := -100.0
 var _lag_hold := Transform3D()
 var _lag_next := 0.0
 var _lagged: Player
+var _send_next := 0.0
 
 var _root: Control
 var _overlay: Overlay
@@ -178,9 +182,9 @@ func _exit_tree() -> void:
 	Engine.time_scale = 1.0
 
 
-## Whether the panel may open now: offline, in a running match, no photo mode or kill cam replay.
+## Whether the panel may open now: in a running match, no photo mode or kill cam replay.
 func can_open() -> bool:
-	return Net.offline and not _open and not world.match_over and not world.photo.is_open() \
+	return not _open and not world.match_over and not world.photo.is_open() \
 		and not world.killcam.is_playing()
 
 
@@ -260,7 +264,7 @@ func _flash_note(text: String) -> void:
 # ================================================================ hooks (Player, World, BotBrain)
 
 func _mine(p: Player) -> bool:
-	return Net.offline and p != null and p == world.local_player
+	return p != null and p == world.local_player
 
 
 ## 0 walks, 1 flies (collides, no gravity), 2 noclips (through walls along the view), 3 is frozen
@@ -339,11 +343,11 @@ func hidden_from_bots(p: Player) -> bool:
 
 
 func bots_frozen() -> bool:
-	return freeze_bots and Net.offline
+	return freeze_bots
 
 
 func bots_passive() -> bool:
-	return passive_bots and Net.offline
+	return passive_bots
 
 
 ## Server: the local player's shots skip the fire-rate budget while they fire faster than a gun can.
@@ -354,7 +358,7 @@ func skip_rate_check(shooter: Player) -> bool:
 ## Server: what a hit of `amount` from `attacker_id` does to `target` (god mode, damage
 ## multiplier, one-shot kills).
 func damage_for(target: Player, amount: float, attacker_id: int) -> float:
-	if not Net.offline:
+	if not multiplayer.is_server():
 		return amount
 	var me := world.local_player
 	if me == null:
@@ -423,7 +427,7 @@ func after_shot(shooter: Player, wid: String, ends: PackedVector3Array) -> void:
 # ================================================================ per frame
 
 func _physics_process(delta: float) -> void:
-	if not Net.offline or world.is_frozen() or world.match_over:
+	if world.is_frozen() or world.match_over or not world.net_live():
 		return
 	if freeze_clock:
 		world.time_left = _held_clock
@@ -432,7 +436,7 @@ func _physics_process(delta: float) -> void:
 		return
 	_tick_fake_lag(me)
 	if not me.alive:
-		if instant_respawn:
+		if instant_respawn and multiplayer.is_server():
 			if _dead_since < 0.0:
 				_dead_since = World.now()
 			elif World.now() - _dead_since >= INSTANT_RESPAWN_DELAY:
@@ -440,7 +444,7 @@ func _physics_process(delta: float) -> void:
 				world.server_respawn_now(me.id)
 		return
 	_dead_since = -1.0
-	if infinite_grenades:
+	if infinite_grenades and multiplayer.is_server():
 		world.server_admin_equipment(me.id)
 	if aimbot != AIM_OFF and not world.input_blocked():
 		_run_aimbot(me, delta)
@@ -525,7 +529,7 @@ func _process(delta: float) -> void:
 			_refresh_chams()
 	if _open and _coins_label != null:
 		_coins_label.text = "Coins %s  ·  Level %d  ·  Prestige %d" % [UIKit.format_int(Profile.coins), Profile.level, Profile.prestige]
-	_overlay.visible = Net.offline and not _open
+	_overlay.visible = not _open
 	if _overlay.visible:
 		_overlay.queue_redraw()
 
@@ -761,7 +765,36 @@ func _kill_weapon() -> String:
 	return "fall"
 
 
+## Server-side cheats (kills, health, bots, clock, respawns) need this machine to run the match:
+## offline or hosting. A client gets told so.
+func _host() -> bool:
+	if multiplayer.is_server():
+		return true
+	_say("Host only: that one runs on the host's machine.")
+	return false
+
+
+## Fake lag online, client side: the local player's position goes out only once per interval.
+func lag_send(p: Player) -> bool:
+	if fake_lag <= 0.0 or not _mine(p):
+		return true
+	var t := World.now()
+	if t < _send_next:
+		return false
+	_send_next = t + fake_lag * 0.001
+	return true
+
+
+## Fake lag online, host side: the host's own position in snapshots is the held hitbox spot.
+func net_position(p: Player) -> Vector3:
+	if fake_lag > 0.0 and _lagged == p and is_instance_valid(p):
+		return _lag_hold.origin
+	return p.global_position
+
+
 func _kill_all() -> void:
+	if not _host():
+		return
 	var list := _enemies()
 	var me := world.local_player
 	for o in list:
@@ -770,6 +803,8 @@ func _kill_all() -> void:
 
 
 func _kill_nearest() -> void:
+	if not _host():
+		return
 	var me := _me_alive()
 	if me == null:
 		return
@@ -785,6 +820,8 @@ func _kill_nearest() -> void:
 
 
 func _heal() -> void:
+	if not _host():
+		return
 	var me := _me_alive()
 	if me != null:
 		world.server_set_health(me.id, me.max_health())
@@ -792,6 +829,8 @@ func _heal() -> void:
 
 
 func _reward(kind: String) -> void:
+	if not _host():
+		return
 	var me := _me_alive()
 	if me == null:
 		return
@@ -803,6 +842,8 @@ func _reward(kind: String) -> void:
 
 
 func _respawn_me() -> void:
+	if not _host():
+		return
 	var me := world.local_player
 	if me == null:
 		_say("You are spectating: press PLAY in the pause menu.")
@@ -815,6 +856,8 @@ func _respawn_me() -> void:
 
 
 func _suicide() -> void:
+	if not _host():
+		return
 	var me := _me_alive()
 	if me != null:
 		world.server_admin_kill(me, me.id, "fall")
@@ -869,6 +912,8 @@ func _teleport_enemy() -> void:
 
 
 func _bring_bots() -> void:
+	if not _host():
+		return
 	var me := _me_alive()
 	if me == null:
 		return
@@ -884,11 +929,15 @@ func _bring_bots() -> void:
 
 
 func _add_bot() -> void:
+	if not _host():
+		return
 	world.server_add_bot(world.rules.server_team_for(true))
 	_say("A bot joined.")
 
 
 func _remove_bot() -> void:
+	if not _host():
+		return
 	for eid: int in world.entities:
 		if (world.entities[eid] as Player).is_bot:
 			var who := world.display_name(eid)
@@ -899,12 +948,16 @@ func _remove_bot() -> void:
 
 
 func _clock(seconds: float) -> void:
+	if not _host():
+		return
 	world.time_left = maxf(5.0, world.time_left + seconds)
 	_held_clock = world.time_left
 	_say("Clock: %d:%02d left." % [int(world.time_left) / 60, int(world.time_left) % 60])
 
 
 func _add_kills(n: int) -> void:
+	if not _host():
+		return
 	var me := world.local_player
 	if me == null:
 		_say("You are spectating.")
@@ -914,6 +967,8 @@ func _add_kills(n: int) -> void:
 
 
 func _end_match() -> void:
+	if not _host():
+		return
 	close()
 	world.server_end_match()
 
@@ -1005,7 +1060,7 @@ func _input(event: InputEvent) -> void:
 	if not _open:
 		# H (admin_panic) with cheats on or remembered: switch them off / on, and don't throw the
 		# tactical grenade that shares the key.
-		if Net.offline and event.is_action_pressed(&"admin_panic") and not event.is_echo() \
+		if event.is_action_pressed(&"admin_panic") and not event.is_echo() \
 				and not world.hud.is_chatting() and not world.hud.is_blocking() and panic_toggle():
 			get_viewport().set_input_as_handled()
 		return
@@ -1046,7 +1101,7 @@ func _build_ui() -> void:
 	var head := UIKit.hbox(12)
 	v.add_child(head)
 	head.add_child(UIKit.label("ADMIN PANEL", &"HeaderLabel"))
-	var sub := UIKit.label("Offline only · this match · %s or Esc closes · %s in a match switches every cheat off / back on" \
+	var sub := UIKit.label("Online too (god, damage, bots: host only) · %s or Esc closes · %s switches every cheat off / back on" \
 		% [Profile.key_text("admin_panel"), Profile.key_text("admin_panic")], &"DimLabel")
 	sub.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	sub.size_flags_vertical = Control.SIZE_SHRINK_END
@@ -1181,6 +1236,8 @@ func _build_world(p: Control) -> void:
 	_action(p, "KILL NEAREST ENEMY", _kill_nearest)
 	_action(p, "BRING BOTS TO ME", _bring_bots)
 	_action(p, "RESPAWN EVERY PICKUP", func() -> void:
+		if not _host():
+			return
 		world.server_reset_pickups()
 		_say("Every pickup is back."))
 	_action(p, "ADD A BOT", _add_bot)

@@ -389,7 +389,7 @@ func _server_send_snapshots() -> void:
 	var snap := []
 	for eid: int in entities:
 		var p: Player = entities[eid]
-		snap.append([eid, p.global_position, p.yaw, p.pitch, p.net_flags()])
+		snap.append([eid, admin.net_position(p), p.yaw, p.pitch, p.net_flags()])
 		if snap.size() == SNAPSHOT_CHUNK:
 			_send_snapshot_chunk(snap)
 			snap = []
@@ -1094,7 +1094,7 @@ func _server_chat_system(text: String) -> void:
 
 ## Called by the local player's controller at the network send rate.
 func submit_local_state(p: Player) -> void:
-	if net_live() and not multiplayer.is_server():
+	if net_live() and not multiplayer.is_server() and admin.lag_send(p):
 		_c_state.rpc_id(1, p.global_position, p.yaw, p.pitch, p.state_flags())
 
 
