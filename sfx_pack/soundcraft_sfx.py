@@ -396,6 +396,40 @@ def shot_rocket(s, v, rng):
 		limit())
 
 
+@sfx("shot_rail", 1.1)
+def shot_rail(s, v, rng):
+	# Rail Cube: a sharp electric crack, a falling zap down the rails and a humming ring-out.
+	s.drums([(KICK, 0.0, 120)], db=-4, kick_tune=-4, kick_decay=220)
+	s.noise(0.0, 0.04, db=-2, fx=[hp(3500)])
+	s.synth(synth(SAW, 380, wave2=SQUARE, semis=7, detune=18, mix=35, cutoff=6000, filter_env=40,
+		glide_ms=260), [((hz(2400), hz(180)), 0.0, 0.32, 120)], db=-3, fx=[ring(1300, 30)])
+	s.synth(synth(SINE, 700, wave2=SINE, semis=12, mix=25, release_ms=400), [(hz(620), 0.03, 0.6, 90)],
+		db=-14, fx=[("chorus", {"rate": 5.0, "depth": 60, "mix": 50})])
+	s.bus(sat(9, 9000), comp(-20, 5, 0.3, 110, 4), delay(140, 22, 16, 3500), plate(14, 1.2, 9000),
+		limit(8))
+
+
+@sfx("rail_charge", 0.9)
+def rail_charge(s, v, rng):
+	# The Rail Cube charging (0.8 s): a whine rising two octaves over a building electric buzz.
+	s.synth(synth(SAW, 900, wave2=SINE, semis=12, detune=8, mix=45, attack_ms=60, sustain=100,
+		release_ms=60, cutoff=5000, glide_ms=780), [((hz(300), hz(1250)), 0.0, 0.85, 100)], db=0,
+		fx=[("phaser", {"rate": 6.0, "mix": 35})])
+	s.noise(0.0, 0.85, db=-18, fade_in=0.7, fade_out=0.1, shape="linear", fx=[bp(2500, 2.0)],
+		auto={"a:freq": [(0.0, 1500), (0.85, 6000)]})
+	s.bus(comp(-18, 3, 2, 80, 2), room(6, 0.4, 20), limit())
+
+
+@sfx("shot_lobber", 0.7)
+def shot_lobber(s, v, rng):
+	# Cube Lobber: a hollow "thoomp" out of a fat tube and a rattle of the drum turning.
+	s.drums([(KICK, 0.0, 127)], db=0, kick_tune=-5, kick_decay=260)
+	s.drums([(TOM_LOW, 0.0, 120)], db=-4, tom_tune=-6, tom_decay=220)
+	s.noise(0.0, 0.12, color=PINK, db=-6, fx=[lp(1400), eq(PEAK, 300, 1.0, 4)])
+	s.drums([(RIM, 0.09, 90), (RIM, 0.13, 70)], db=-12)
+	s.bus(sat(8, 6000), comp(-20, 4, 1, 100, 4), room(10, 0.6, 30), limit(6))
+
+
 @sfx("explosion", 2.6)
 def explosion(s, v, rng):
 	s.drums([(KICK, 0.0, 127)], db=2, kick_tune=-12, kick_decay=1600, fx=[sub(50, 3)])
@@ -506,6 +540,16 @@ def swing_blade(s, v, rng):
 	s.synth(synth(SINE, 220, wave2=SINE, semis=7, detune=12, mix=40), [(hz(3150), 0.08, 0.2, 60)],
 		db=-22, fx=[ring(2400, 25)])
 	s.bus(plate(8, 0.6), limit())
+
+
+@sfx("swing_scythe", 0.6)
+def swing_scythe(s, v, rng):
+	# Pixel Scythe: a long, deep reaping whoosh with a thin metallic sing from the curved blade.
+	whoosh(s, dur=0.55, f0=380, f1=2600, q=1.4, peak_at=0.6)
+	whoosh(s, dur=0.35, f0=3500, f1=6500, q=2.0, db=-12, color=WHITE, peak_at=0.55)
+	s.synth(synth(SINE, 320, wave2=SINE, semis=5, detune=10, mix=40, attack_ms=60, glide_ms=300),
+		[((hz(1800), hz(2600)), 0.15, 0.3, 60)], db=-22, fx=[ring(1900, 25)])
+	s.bus(plate(10, 0.8), limit())
 
 
 @sfx("knife_hit", 0.3, takes=2)

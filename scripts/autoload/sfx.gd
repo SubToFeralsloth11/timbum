@@ -39,6 +39,7 @@ const NAMES: Array[StringName] = [
 	&"ping", &"ping_enemy", &"spray", &"jump_pad", &"pickup_grenade",
 	&"shot_crossbow", &"shot_drum_shotgun", &"shot_carbine", &"shot_burst_smg", &"shot_minigun",
 	&"swing_blunt", &"swing_heavy", &"swing_blade",
+	&"shot_rail", &"rail_charge", &"shot_lobber", &"swing_scythe",
 ]
 
 ## Sounds with several takes; one is picked at random per play.
@@ -67,6 +68,7 @@ const GAIN_DB := {
 	&"pickup_grenade": -6.0,
 	&"shot_crossbow": 0.0, &"shot_drum_shotgun": 0.0, &"shot_carbine": -1.0, &"shot_burst_smg": -4.0,
 	&"shot_minigun": 0.0, &"swing_blunt": -10.0, &"swing_heavy": -11.0, &"swing_blade": -8.0,
+	&"shot_rail": 0.0, &"rail_charge": -10.0, &"shot_lobber": 0.0, &"swing_scythe": -11.0,
 }
 
 ## Reference distance (m) for positional playback: loud sounds carry across a ~60 m map,
@@ -81,6 +83,7 @@ const UNIT_SIZE := {
 	&"bomber_warning": 30.0, &"spray": 4.0, &"jump_pad": 12.0,
 	&"shot_crossbow": 20.0, &"shot_drum_shotgun": 18.0, &"shot_carbine": 16.0, &"shot_burst_smg": 14.0, &"shot_minigun": 22.0,
 	&"swing_blunt": 4.0, &"swing_heavy": 5.0, &"swing_blade": 4.0,
+	&"shot_rail": 22.0, &"rail_charge": 5.0, &"shot_lobber": 12.0, &"swing_scythe": 5.0,
 }
 const DEFAULT_UNIT_SIZE := 7.0
 
@@ -95,6 +98,7 @@ const JITTER := {
 	&"shot_suppressed": true, &"shot_dmr": true, &"slide": true, &"grapple_fire": true,
 	&"shield_hit": true, &"shot_crossbow": true, &"shot_drum_shotgun": true, &"shot_carbine": true, &"shot_burst_smg": true, &"shot_minigun": true,
 	&"swing_blunt": true, &"swing_heavy": true, &"swing_blade": true,
+	&"shot_rail": true, &"shot_lobber": true, &"swing_scythe": true,
 }
 
 var _enabled := false
@@ -207,16 +211,17 @@ func _process(_delta: float) -> void:
 		set_process(false)
 
 
-## Plays `sound`. `pos` = Vector3 for positional 3D audio, null for a flat (UI) sound.
-func play(sound: StringName, pos: Variant = null, volume_db := 0.0, pitch := 1.0) -> void:
+## Plays `sound`. `pos` = Vector3 for positional 3D audio, null for a flat (UI) sound. Returns the
+## voice playing it (null when audio is off), for `stop` to cut a held sound short.
+func play(sound: StringName, pos: Variant = null, volume_db := 0.0, pitch := 1.0) -> Node:
 	if not _enabled or not is_inside_tree():
-		return
+		return null
 	var takes: Array = _streams.get(sound, [])
 	if takes.is_empty():
 		if not _warned.has(sound):
 			_warned[sound] = true
 			push_warning("Sfx: unknown sound '%s'" % sound)
-		return
+		return null
 	var stream: AudioStream = takes[randi() % takes.size()]
 	var vol := volume_db + float(GAIN_DB.get(sound, 0.0))
 	if ALIASES.has(sound):
@@ -232,13 +237,26 @@ func play(sound: StringName, pos: Variant = null, volume_db := 0.0, pitch := 1.0
 		p.pitch_scale = pitch
 		p.global_position = pos
 		p.play()
-	else:
-		var i := _pick_voice(_flat, _flat_started)
-		var p := _flat[i]
-		p.stream = stream
-		p.volume_db = vol
-		p.pitch_scale = pitch
-		p.play()
+		return p
+	var j := _pick_voice(_flat, _flat_started)
+	var f := _flat[j]
+	f.stream = stream
+	f.volume_db = vol
+	f.pitch_scale = pitch
+	f.play()
+	return f
+
+
+## Stops `voice` (a `play` result) if it is still playing one of `sound`'s takes; a voice that has
+## since been taken over by another sound keeps playing that one.
+func stop(voice: Node, sound: StringName) -> void:
+	if voice == null or not is_instance_valid(voice):
+		return
+	var takes: Array = _streams.get(sound, [])
+	if voice is AudioStreamPlayer and takes.has((voice as AudioStreamPlayer).stream):
+		(voice as AudioStreamPlayer).stop()
+	elif voice is AudioStreamPlayer3D and takes.has((voice as AudioStreamPlayer3D).stream):
+		(voice as AudioStreamPlayer3D).stop()
 
 
 ## Crossfades to `track` (&"menu", &"shop", &"match", &"results"). Song tracks start at once and
