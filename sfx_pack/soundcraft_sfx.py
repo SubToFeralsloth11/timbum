@@ -17,11 +17,13 @@ sfx_pack/README.md lists the sound names, takes and playback levels.
 from __future__ import annotations
 
 import argparse
+import array
 import json
 import math
 import random
 import socket
 import sys
+import wave
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -868,11 +870,77 @@ def jump_pad(s, v, rng):
 	s.bus(comp(-18, 4, 1, 80, 3), room(8, 0.5, 30), limit())
 
 
+# Weather (Weather, scripts/game/weather.gd). The two loops are made seamless after the bounce
+# (LOOPS: the last LOOP_XFADE s are crossfaded into the start), so no layer may fade at the ends.
+LOOP_XFADE = 0.75
+LOOPS = {"rain_loop", "wind_loop"}
+
+
+@sfx("rain_loop", 8.0 + LOOP_XFADE)
+def rain_loop(s, v, rng):
+	# Steady rain: a soft pink wash, a high hiss and a patter of single drops on blocks.
+	n = s.length
+	s.noise(0.0, n, color=PINK, db=0, fade_out=0.001, fx=[hp(380), lp(4200), eq(PEAK, 1400, 0.8, 2)])
+	s.noise(0.0, n, db=-13, fade_out=0.001, fx=[hp(5500), lp(11000)])
+	for k in range(36):
+		t = rng.uniform(0.0, n - 0.05)
+		s.noise(t, 0.018, db=rng.uniform(-24, -16), fade_out=0.016,
+			fx=[bp(rng.uniform(1800, 5200), 3.0)], pan=rng.uniform(-0.7, 0.7))
+	s.bus(comp(-20, 2.5, 5, 150, 2), limit())
+
+
+@sfx("wind_loop", 10.0 + LOOP_XFADE)
+def wind_loop(s, v, rng):
+	# Wind: a low rushing band that swells in slow gusts, with a faint whistle on top.
+	n = s.length
+	s.noise(0.0, n, color=PINK, db=0, fade_out=0.001, fx=[bp(420, 0.9), lp(1600)],
+		auto={"a:freq": [(0.0, 360), (2.6, 620), (5.0, 300), (7.4, 700), (n, 380)],
+			"volume": [(0.0, -4), (2.6, 0), (5.0, -6), (7.4, 0), (n, -4)]})
+	s.noise(0.0, n, color=PINK, db=-15, fade_out=0.001, fx=[bp(1400, 4.0)],
+		auto={"a:freq": [(0.0, 1200), (3.0, 1700), (6.2, 1100), (8.8, 1600), (n, 1250)]})
+	s.bus(comp(-20, 2, 10, 300, 2), limit())
+
+
+@sfx("thunder", 4.5, takes=2)
+def thunder(s, v, rng):
+	# Distant thunder: a sharp split, then rolling low rumbles that fade over four seconds.
+	s.noise(0.0, 0.25, db=-6 if v == 0 else -12, fade_out=0.22, fx=[hp(900), lp(5000)])
+	s.drums([(KICK, 0.02, 127)], db=-2, kick_tune=-12, kick_decay=1400, fx=[sub(40, 3)])
+	s.noise(0.0, 4.4, color=PINK, db=0, fade_in=0.08, fade_out=3.6, fx=[lp(260), lp(420)])
+	for k in range(6):
+		t = rng.uniform(0.15, 2.4)
+		s.noise(t, rng.uniform(0.6, 1.4), color=PINK, db=rng.uniform(-8, -2), fade_in=0.05,
+			fx=[lp(rng.uniform(200, 480))], pan=rng.uniform(-0.5, 0.5))
+	s.bus(sat(10, 3000), comp(-22, 4, 5, 400, 4), room(24, 2.6, 90, 2500, 30), limit(6))
+
+
 # --- Runner ------------------------------------------------------------------------------------
 
 
 def take_paths(name: str, takes: int) -> list[str]:
 	return [name] if takes == 1 else [f"{name}_{k}" for k in range(takes)]
+
+
+def make_seamless(path: Path, xfade: float) -> None:
+	"""Turns a bounced loop into a seamless one: its last `xfade` seconds are crossfaded (equal
+	power, the layers are noise) into its start and cut off, so the end runs straight into the start."""
+	with wave.open(str(path), "rb") as f:
+		params = f.getparams()
+		data = array.array("h", f.readframes(params.nframes))
+	ch = params.nchannels
+	n = int(xfade * params.framerate)
+	frames = len(data) // ch
+	keep = frames - n
+	out = data[:keep * ch]
+	for i in range(n):
+		a = math.sin(0.5 * math.pi * i / n)
+		b = math.cos(0.5 * math.pi * i / n)
+		for c in range(ch):
+			mixed = a * data[i * ch + c] + b * data[(keep + i) * ch + c]
+			out[i * ch + c] = max(-32768, min(32767, int(round(mixed))))
+	with wave.open(str(path), "wb") as f:
+		f.setparams(params)
+		f.writeframes(out.tobytes())
 
 
 def build(sc: SoundCraft, name: str, keep_sessions: bool) -> list[dict]:
@@ -886,6 +954,8 @@ def build(sc: SoundCraft, name: str, keep_sessions: bool) -> list[dict]:
 		if session:
 			session.parent.mkdir(parents=True, exist_ok=True)
 		results.append(s.bounce(OUT_DIR / f"{stem}.wav", session))
+		if name in LOOPS:
+			make_seamless(OUT_DIR / f"{stem}.wav", LOOP_XFADE)
 		print(f"{stem}: {results[-1]['seconds']:.2f}s peak {results[-1]['peak_db']:.1f} dB", flush=True)
 	return results
 

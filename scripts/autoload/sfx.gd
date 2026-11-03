@@ -40,10 +40,11 @@ const NAMES: Array[StringName] = [
 	&"shot_crossbow", &"shot_drum_shotgun", &"shot_carbine", &"shot_burst_smg", &"shot_minigun",
 	&"swing_blunt", &"swing_heavy", &"swing_blade",
 	&"shot_rail", &"rail_charge", &"shot_lobber", &"swing_scythe",
+	&"thunder", &"rain_loop", &"wind_loop",
 ]
 
 ## Sounds with several takes; one is picked at random per play.
-const VARIANTS := {&"footstep": 4, &"bullet_impact": 3, &"knife_hit": 2, &"grenade_bounce": 2}
+const VARIANTS := {&"footstep": 4, &"bullet_impact": 3, &"knife_hit": 2, &"grenade_bounce": 2, &"thunder": 2}
 
 ## Sounds without a file of their own: they play another sound's takes at a fixed pitch factor.
 ## `pickup_grenade` = the frag's metal clink (`grenade_bounce`) a major third higher (x1.25), so a
@@ -69,6 +70,7 @@ const GAIN_DB := {
 	&"shot_crossbow": 0.0, &"shot_drum_shotgun": 0.0, &"shot_carbine": -1.0, &"shot_burst_smg": -4.0,
 	&"shot_minigun": 0.0, &"swing_blunt": -10.0, &"swing_heavy": -11.0, &"swing_blade": -8.0,
 	&"shot_rail": 0.0, &"rail_charge": -10.0, &"shot_lobber": 0.0, &"swing_scythe": -11.0,
+	&"thunder": -6.0, &"rain_loop": -15.0, &"wind_loop": -16.0,
 }
 
 ## Reference distance (m) for positional playback: loud sounds carry across a ~60 m map,
@@ -245,6 +247,13 @@ func play(sound: StringName, pos: Variant = null, volume_db := 0.0, pitch := 1.0
 	f.pitch_scale = pitch
 	f.play()
 	return f
+
+
+## The first take of `sound` (Weather's ambience loops play it on their own players), or null
+## when audio is off.
+func stream(sound: StringName) -> AudioStream:
+	var takes: Array = _streams.get(sound, [])
+	return null if takes.is_empty() else takes[0]
 
 
 ## Stops `voice` (a `play` result) if it is still playing one of `sound`'s takes; a voice that has

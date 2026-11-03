@@ -10,7 +10,7 @@ music.
 
 | Path | What |
 |---|---|
-| `../audio/sfx/` | 68 WAVs (48 kHz, 16-bit stereo, peak-normalised to -0.1 dBFS): one file per sound in the `Sfx` contract, plus extra takes for 4 sounds. 8.6 MB total. |
+| `../audio/sfx/` | 76 WAVs (48 kHz, 16-bit stereo, peak-normalised to -0.1 dBFS): one file per sound in the `Sfx` contract, plus extra takes for 5 sounds. 15 MB total. |
 | `soundcraft_sfx.py` | Builds every sound in SoundCraft through its control server and bounces it into `audio/sfx/`. Also rebuilds any of them after a change. |
 
 Each sound is its own SoundCraft session, made from these parts:
@@ -44,6 +44,11 @@ plays the `grenade_bounce` takes at 1.25x pitch. The sounds with several takes u
 | `bullet_impact` | `bullet_impact_0` … `bullet_impact_2` |
 | `knife_hit` | `knife_hit_0`, `knife_hit_1` |
 | `grenade_bounce` | `grenade_bounce_0`, `grenade_bounce_1` |
+| `thunder` | `thunder_0`, `thunder_1` |
+
+The weather loops `rain_loop` and `wind_loop` (in `LOOPS`) are made seamless after the bounce:
+`make_seamless` crossfades the last `LOOP_XFADE` (0.75 s) into the start and cuts it off, so the
+file is 0.75 s shorter than its recipe. Their `.import` files set `edit/loop_mode=2` (Forward).
 
 ## How it is wired into the game
 
