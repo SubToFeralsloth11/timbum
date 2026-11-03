@@ -51,7 +51,18 @@ const CONTAINER_GREEN := 39
 const CONTAINER_YELLOW := 40
 const WATER := 41
 const MOSSY_BRICK := 42
-const BLOCK_COUNT := 43
+## Moon Base: grey dust, darker rock, white hull panels and solar cells.
+const REGOLITH := 43
+const MOON_ROCK := 44
+const PANEL := 45
+const SOLAR := 46
+## Volcano Forge: columnar basalt, basalt masonry, glowing cracked magma rock and lava. Lava is
+## a liquid like WATER: maps place it below their kill height, so falling in kills.
+const BASALT := 47
+const BASALT_BRICK := 48
+const MAGMA := 49
+const LAVA := 50
+const BLOCK_COUNT := 51
 
 ## Per block id: [top tile, side tile, bottom tile].
 const _FACES: Array = [
@@ -98,6 +109,14 @@ const _FACES: Array = [
 	["container_top", "container_yellow", "container_top"],
 	["water", "water", "water"],
 	["mossy_brick", "mossy_brick", "mossy_brick"],
+	["regolith", "regolith", "regolith"],
+	["moon_rock", "moon_rock", "moon_rock"],
+	["panel", "panel", "panel"],
+	["solar", "metal", "metal"],
+	["basalt_top", "basalt", "basalt_top"],
+	["basalt_brick", "basalt_brick", "basalt_brick"],
+	["magma", "magma", "magma"],
+	["lava", "lava", "lava"],
 ]
 
 const _WOOL := {
@@ -109,14 +128,15 @@ const _WOOL := {
 ## World block shader. Beyond the tile texture and vertex AO it adds: a pixel-art bump (each
 ## texel's brightness reads as height, bent in a tangent frame from screen derivatives) that fades
 ## out with distance; per-tile surface properties from `layer_props` (smoothness, metallic, wind
-## sway for foliage, water); swaying leaves; and rippling, glossy water with a fresnel sheen.
+## sway for foliage, liquid); swaying leaves; rippling, glossy water with a fresnel sheen; and
+## lava (liquid 2), which flows and bobs at a third of the speed, has no sheen and pulses its glow.
 ## `detail` 0 (the "Block shader effects" setting off) skips the bump, sway and ripples.
 const _SHADER_CODE := """
 shader_type spatial;
 render_mode %s;
 
 uniform sampler2DArray tiles : source_color, filter_nearest_mipmap_anisotropic, repeat_disable;
-// Per tile layer: x smoothness, y metallic, z wind sway, w 1 for water.
+// Per tile layer: x smoothness, y metallic, z wind sway, w liquid (1 water, 2 lava).
 uniform vec4 layer_props[MAX_LAYERS];
 uniform float bump_strength = 3.0;
 uniform float detail = 1.0;
@@ -138,7 +158,8 @@ void vertex() {
 		VERTEX.z += cos(TIME * 1.3 + w.z * 0.7 + w.x * 0.4) * 0.03 * props.z * detail;
 	}
 	if (props.w > 0.0) {
-		VERTEX.y += (sin(TIME * 1.2 + w.x * 0.9) + sin(TIME * 0.9 + w.z * 1.1)) * 0.035 * detail;
+		float flow = props.w > 1.5 ? 0.35 : 1.0;
+		VERTEX.y += (sin(TIME * 1.2 * flow + w.x * 0.9) + sin(TIME * 0.9 * flow + w.z * 1.1)) * 0.035 * detail;
 	}
 	v_world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 }
@@ -146,18 +167,20 @@ void vertex() {
 void fragment() {
 	vec4 props = layer_props[int(v_layer + 0.5)];
 	vec2 uv = UV;
+	float lava = props.w > 1.5 ? 1.0 : 0.0;
 	if (props.w > 0.0 && detail > 0.5) {
-		uv = fract(uv + vec2(TIME * 0.02, TIME * 0.013) + 0.04 * vec2(sin(TIME + v_world.z * 1.3), cos(TIME * 0.8 + v_world.x * 1.1)));
+		float tf = TIME * (1.0 - 0.65 * lava);
+		uv = fract(uv + vec2(tf * 0.02, tf * 0.013) + 0.04 * vec2(sin(tf + v_world.z * 1.3), cos(tf * 0.8 + v_world.x * 1.1)));
 	}
 	vec4 t = texture(tiles, vec3(uv, v_layer));
-	// The bump fades out by 35 m and never applies to water: past that, skip its four extra
+	// The bump fades out by 35 m and never applies to liquids: past that, skip its four extra
 	// samples (the result is identical). Derivatives are taken outside the branch, where every
 	// pixel of a quad runs them, and the samples use them explicitly.
 	vec3 dp1 = dFdx(VERTEX);
 	vec3 dp2 = dFdy(VERTEX);
 	vec2 duv1 = dFdx(UV);
 	vec2 duv2 = dFdy(UV);
-	float bump = detail > 0.5 ? clamp(1.0 - length(VERTEX) / 35.0, 0.0, 1.0) * bump_strength * (1.0 - props.w) : 0.0;
+	float bump = detail > 0.5 ? clamp(1.0 - length(VERTEX) / 35.0, 0.0, 1.0) * bump_strength * (1.0 - min(props.w, 1.0)) : 0.0;
 	if (bump > 0.0) {
 		vec3 dp2perp = cross(dp2, NORMAL);
 		vec3 dp1perp = cross(NORMAL, dp1);
@@ -179,17 +202,18 @@ void fragment() {
 	ROUGHNESS = mix(0.92, 0.12, props.x);
 	METALLIC = props.y;
 	SPECULAR = 0.25 + 0.45 * props.x;
-	if (props.w > 0.0) {
+	if (props.w > 0.0 && lava < 0.5) {
 		float fresnel = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 4.0);
 		ALBEDO = mix(ALBEDO, vec3(0.75, 0.88, 1.0), fresnel * 0.6);
 	}
-	EMISSION = t.rgb * v_emit;
+	EMISSION = t.rgb * v_emit * (1.0 + lava * 0.18 * sin(TIME * 1.4 + v_world.x * 0.45 + v_world.z * 0.3));
 	%s
 }
 """
 ## Size of the shader's per-layer property table (unique tile names must fit).
 const MAX_LAYERS := 64
-## Surface properties per tile name: [smoothness, metallic, wind sway, water]; others are matte.
+## Surface properties per tile name: [smoothness, metallic, wind sway, liquid (1 water, 2 lava)];
+## others are matte.
 const _SURFACES := {
 	"ice": [0.8, 0.0, 0.0, 0.0], "glass": [0.9, 0.0, 0.0, 0.0], "snow_top": [0.15, 0.0, 0.0, 0.0],
 	"metal": [0.55, 0.6, 0.0, 0.0], "grate": [0.45, 0.6, 0.0, 0.0], "conveyor": [0.35, 0.3, 0.0, 0.0],
@@ -199,6 +223,8 @@ const _SURFACES := {
 	"container_yellow": [0.3, 0.35, 0.0, 0.0], "concrete": [0.12, 0.0, 0.0, 0.0],
 	"leaves": [0.1, 0.0, 1.0, 0.0], "pine": [0.05, 0.0, 0.6, 0.0], "pine_snow": [0.1, 0.0, 0.6, 0.0],
 	"water": [0.95, 0.0, 0.0, 1.0],
+	"panel": [0.35, 0.15, 0.0, 0.0], "solar": [0.85, 0.35, 0.0, 0.0], "basalt_top": [0.1, 0.0, 0.0, 0.0],
+	"magma": [0.2, 0.0, 0.0, 0.0], "lava": [0.3, 0.0, 0.0, 2.0],
 }
 
 static var _texture: Texture2DArray
@@ -216,8 +242,13 @@ static func face_layers() -> PackedInt32Array:
 	return _face_layers
 
 
+## Glow strength of a block's faces (the shader's EMISSION is the texture times this).
 static func emission(block: int) -> float:
-	return 3.0 if block == LAMP else 0.0
+	match block:
+		LAMP: return 3.0
+		LAVA: return 2.4
+		MAGMA: return 1.8
+	return 0.0
 
 
 static func is_transparent(block: int) -> bool:
@@ -560,6 +591,85 @@ static func _paint(n: String, img: Image, rng: RandomNumberGenerator) -> void:
 				_dot(img, x, y, _vary(Color("4f7a33"), rng, 0.06))
 				if rng.randf() < 0.5:
 					_dot(img, x + 1, y, Color("5f8c3c"))
+		"regolith":
+			_noise(img, rng, Color("a3a19c"), 0.035)
+			_sprinkle(img, rng, Color("8a8884"), 16)
+			_sprinkle(img, rng, Color("bdbbb6"), 10)
+			# A tiny impact crater: dark rim in the north-west, light rim in the south-east.
+			var c := Vector2(rng.randi_range(3, 12), rng.randi_range(3, 12))
+			for y in TILE:
+				for x in TILE:
+					var d := Vector2(x, y).distance_to(c)
+					if d >= 1.6 and d < 2.6:
+						_dot(img, x, y, Color("7d7b77") if x + y < c.x + c.y else Color("c4c2bd"))
+					elif d < 1.6:
+						_dot(img, x, y, Color("929089"))
+		"moon_rock":
+			_noise(img, rng, Color("6f6e6b"), 0.05)
+			for i in 6:
+				var x := rng.randi_range(0, 15)
+				var y := rng.randi_range(0, 15)
+				for k in rng.randi_range(3, 6):
+					_dot(img, x + k, y + k / 2, Color("4f4e4c"))
+					_dot(img, x + k, y + k / 2 - 1, Color("8a8986"))
+			_sprinkle(img, rng, Color("57565a"), 10)
+		"panel":
+			_noise(img, rng, Color("dfe2e4"), 0.015)
+			for k in TILE:
+				_dot(img, k, 7, Color("a9aeb2"))
+				_dot(img, k, 8, Color("f4f6f7"))
+			_border(img, Color("f4f6f7"), Color("9298a0"))
+			for p: Vector2i in [Vector2i(2, 2), Vector2i(13, 2), Vector2i(2, 12), Vector2i(13, 12)]:
+				_dot(img, p.x, p.y, Color("8a9097"))
+			for k in range(10, 14):
+				_dot(img, k, 4, Color("e07a2c"))
+		"solar":
+			img.fill(Color("1c3168"))
+			for y in TILE:
+				for x in TILE:
+					if x % 4 == 0 or y % 4 == 0:
+						_dot(img, x, y, Color("aeb8c4"))
+					elif (x % 4 == 1 and y % 4 == 1):
+						_dot(img, x, y, Color("4d6cb0"))
+					else:
+						_dot(img, x, y, _vary(Color("23407e"), rng, 0.04))
+		"basalt":
+			# Hexagonal columns seen from the side: vertical bands with dark joints.
+			for x in TILE:
+				var band := Color("57504c").darkened(0.08 * float((x / 4 * 5) % 3))
+				for y in TILE:
+					var c := _vary(band, rng, 0.03)
+					if x % 4 == 3:
+						c = Color("2c2725")
+					elif x % 4 == 0:
+						c = c.lightened(0.1)
+					_dot(img, x, y, c)
+			for i in 4:
+				var x := rng.randi_range(0, 15)
+				_dot(img, x, rng.randi_range(0, 15), Color("2e2927"))
+		"basalt_top":
+			_cells(img, rng, [Color("5a524e"), Color("514945"), Color("615854"), Color("4a433f")], Color("2a2523"), 7)
+		"basalt_brick":
+			_bricks(img, rng, 8, 5, [Color("5e544f"), Color("544a45"), Color("665b55")], Color("2a2220"))
+		"magma":
+			_cells(img, rng, [Color("2e2523"), Color("362b28"), Color("2a201e")], Color("ff7a1c"), 7)
+			for y in TILE:
+				for x in TILE:
+					if img.get_pixel(x, y).r > 0.9 and rng.randf() < 0.35:
+						_dot(img, x, y, Color("ffd04a"))
+		"lava":
+			_noise(img, rng, Color("f2621a"), 0.04)
+			for i in 5:
+				# Dark crust blobs and bright yellow seams.
+				var cx := rng.randi_range(0, 15)
+				var cy := rng.randi_range(0, 15)
+				for k in rng.randi_range(3, 6):
+					_dot(img, cx + k, cy, Color("9e2a0c"))
+					_dot(img, cx + k, cy + 1, Color("b8360f"))
+			for y in TILE:
+				for x in TILE:
+					if (x * 3 + y * 2) % 13 == 0:
+						_dot(img, x, y, Color("ffc43c"))
 		_:
 			push_error("BlockAtlas: unknown tile %s" % n)
 

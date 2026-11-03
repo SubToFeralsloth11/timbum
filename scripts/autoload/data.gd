@@ -568,6 +568,8 @@ const MAPS := {
 	"harbor": {"name": "Harbor Docks", "desc": "Stacked containers, cranes and warehouses by the water."},
 	"temple": {"name": "Jungle Temple", "desc": "A stepped pyramid, vine-choked ruins and a river gorge."},
 	"rooftops": {"name": "City Rooftops", "desc": "High-rise roofs linked by bridges. Mind the drop."},
+	"moon": {"name": "Moon Base", "desc": "Domes, craters and a rocket on its pad under a black sky. The edge drops into space."},
+	"volcano": {"name": "Volcano Forge", "desc": "Basalt forge halls around a lava lake. Lava kills."},
 	"building": {"name": "Block HQ", "desc": "A three-storey office block: room lattice, stairwells, an atrium and flanking alleys."},
 	"range": {"name": "Firing Range", "desc": "Practice lanes at 10, 25, 50 and 75 m with target dummies and a weapon console."},
 }
@@ -585,7 +587,7 @@ const MUTATORS := {
 }
 const TIMES_OF_DAY: Array[String] = ["day", "day", "sunset", "night"]
 
-const MAP_ROTATION: Array[String] = ["village", "desert", "factory", "sky", "snow", "harbor", "temple", "rooftops"]
+const MAP_ROTATION: Array[String] = ["village", "desert", "factory", "sky", "snow", "harbor", "temple", "rooftops", "moon", "volcano"]
 
 ## Game modes (`Net.config.mode`), in match-setup order. `short` labels the setup button;
 ## `teams` marks the two-team modes (Teams.is_team_mode), which may name and colour their sides

@@ -53,7 +53,9 @@ const GAME_ID := "timbum"
 ## 25: Capture the Flag (config.mode "ctf", the CaptureTheFlag node's _s_flag / _s_flags RPCs).
 ## 26: One in the Chamber (config.mode "oitc", the OneInTheChamber node's _s_lives / _s_round /
 ##     _s_final_two RPCs, `lives` / `out_at` / `one_round` in a player's info).
-const PROTOCOL_VERSION := 26
+## 27: Moon Base and Volcano Forge (map ids "moon" / "volcano", new block ids, the "lava" kill
+##     cause in _s_killed).
+const PROTOCOL_VERSION := 27
 const CONNECT_TIMEOUT := 8.0
 ## A room-code join first tries a direct (NAT punch-through) link this long, then the relay.
 const NAT_CONNECT_TIMEOUT := 6.0

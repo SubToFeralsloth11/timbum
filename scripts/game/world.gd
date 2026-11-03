@@ -888,7 +888,7 @@ func _server_damage(target: Player, amount: float, attacker_id: int, wid: String
 
 func _server_force_kill(p: Player) -> void:
 	_broadcast(&"_s_damaged", [p.id, 0.0, p.id, p.global_position, 0.0])
-	_server_kill(p.id, p.id, "fall", false)
+	_server_kill(p.id, p.id, map_info.kill_cause, false)
 
 
 func _server_kill(victim_id: int, killer_id: int, wid: String, head: bool) -> void:
@@ -1855,6 +1855,8 @@ static func _apply_loadout_mutator(info: Dictionary) -> Dictionary:
 
 
 ## Re-lights the built map for sunset or night. Every peer gets the same value from Net.config.
+## A map whose ATMOSPHERE has `times` (Moon Base, Volcano Forge) uses its own sunset / night
+## settings (MapBuilder.apply_atmosphere); the others get the shared tweak below.
 static func _apply_time_of_day(map_root: Node3D, time_of_day: String) -> void:
 	if time_of_day == "day":
 		return
@@ -1863,8 +1865,18 @@ static func _apply_time_of_day(map_root: Node3D, time_of_day: String) -> void:
 	if sun.is_empty() or envs.is_empty():
 		return
 	var light := sun[0] as DirectionalLight3D
-	var env := (envs[0] as WorldEnvironment).environment
+	var env_node := envs[0] as WorldEnvironment
+	var base: Dictionary = env_node.get_meta(&"atmosphere", {})
+	var times: Dictionary = base.get("times", {})
+	if times.has(time_of_day):
+		var atm := base.duplicate()
+		atm.merge(times[time_of_day], true)
+		MapBuilder.apply_atmosphere(env_node, light, atm)
+		return
+	var env := env_node.environment
 	var sky := env.sky.sky_material as ProceduralSkyMaterial
+	if sky == null:
+		return
 	if time_of_day == "sunset":
 		light.rotation_degrees.x = -12.0
 		light.light_color = Color(1.0, 0.62, 0.38)
@@ -1890,6 +1902,7 @@ static func weapon_label(wid: String) -> String:
 	match wid:
 		"grenade": return "Grenade"
 		"fall": return "Gravity"
+		"lava": return "Lava"
 		Streaks.WEAPON: return "Block Bomber"
 	return str(Data.WEAPONS[wid].name) if Data.WEAPONS.has(wid) else wid
 

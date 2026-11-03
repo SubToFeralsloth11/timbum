@@ -39,6 +39,9 @@ const PALETTE := [
 	[BlockAtlas.LAMP, "Lamp"], [BlockAtlas.GOLD, "Gold"], [BlockAtlas.WATER, "Water"], [BlockAtlas.WHITE, "White"],
 	[BlockAtlas.RED, "Red"], [BlockAtlas.ORANGE, "Orange"], [BlockAtlas.YELLOW, "Yellow"], [BlockAtlas.GREEN, "Green"],
 	[BlockAtlas.TEAL, "Teal"], [BlockAtlas.BLUE, "Blue"],
+	[BlockAtlas.REGOLITH, "Regolith"], [BlockAtlas.MOON_ROCK, "Moon rock"], [BlockAtlas.PANEL, "Hull panel"],
+	[BlockAtlas.SOLAR, "Solar panel"], [BlockAtlas.BASALT, "Basalt"], [BlockAtlas.BASALT_BRICK, "Basalt brick"],
+	[BlockAtlas.MAGMA, "Magma rock"], [BlockAtlas.LAVA, "Lava"],
 ]
 const DEFAULT_HOTBAR: Array[int] = [BlockAtlas.GRASS, BlockAtlas.DIRT, BlockAtlas.STONE, BlockAtlas.COBBLE,
 	BlockAtlas.PLANKS, BlockAtlas.BRICK, BlockAtlas.CONCRETE, BlockAtlas.GLASS, BlockAtlas.LAMP]

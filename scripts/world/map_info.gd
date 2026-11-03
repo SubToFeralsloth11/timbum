@@ -10,6 +10,9 @@ var spawns: Array[Vector3] = []
 var pickups: Array[Dictionary] = []
 ## Anything below this height dies.
 var kill_y := -20.0
+## The kill feed's weapon id for a death below `kill_y` (World.weapon_label): "fall" (Gravity:
+## the void, water, a drop) or "lava" (a generator's KILL_CAUSE).
+var kill_cause := "fall"
 var bounds := AABB()
 ## Navigation map of the baked NavigationRegion3D.
 var nav_map := RID()

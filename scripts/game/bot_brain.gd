@@ -939,11 +939,13 @@ func _set_move_world(dir: Vector3) -> void:
 	p.in_move = Vector2(local.x, -local.z).limit_length(1.0)
 
 
-## True when there is floor about a metre ahead (stops strafing off ledges and islands).
+## True when there is floor about a metre ahead (stops strafing off ledges and islands). Floor
+## below the map's kill height doesn't count: water or lava a couple of metres down is not ground.
 func _ground_ahead(dir: Vector3) -> bool:
 	var from := p.global_position + dir * 1.0 + Vector3.UP * 0.5
 	var q := PhysicsRayQueryParameters3D.create(from, from + Vector3.DOWN * 3.0, Player.MASK_WORLD)
-	return not p.get_world_3d().direct_space_state.intersect_ray(q).is_empty()
+	var hit := p.get_world_3d().direct_space_state.intersect_ray(q)
+	return not hit.is_empty() and (hit.position as Vector3).y > p.world.map_info.kill_y
 
 
 func _check_stuck(delta: float) -> void:

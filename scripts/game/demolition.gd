@@ -141,7 +141,7 @@ func _lock_cells() -> void:
 			for y in s.y:
 				var i := _grid.index(x, y, z)
 				var b := _grid.blocks[i]
-				if edge or not floor_found or b == BlockAtlas.WATER:
+				if edge or not floor_found or b == BlockAtlas.WATER or b == BlockAtlas.LAVA:
 					_locked[i] = 1
 				if b != BlockAtlas.AIR and float(y + 1) > kill:
 					floor_found = true
