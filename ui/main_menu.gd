@@ -500,11 +500,11 @@ func _build_home() -> MenuScreen:
 	])
 	home.add_child(_flyout)
 
-	# Bottom left, under the player card: the version, which opens the update log.
+	# Bottom left, under the player card: the version, which opens the update log. It is in the
+	# focus chain (down from the daily reward), so a pad or the keyboard can reopen the log too.
 	var version := UIKit.button("v%s  ·  WHAT'S NEW" % WhatsNew.current_version())
 	version.name = "VersionButton"
 	version.flat = true
-	version.focus_mode = Control.FOCUS_NONE
 	version.add_theme_font_size_override("font_size", 13)
 	version.add_theme_color_override("font_color", UITheme.TEXT_DIM)
 	version.add_theme_color_override("font_hover_color", UITheme.ACCENT)
@@ -512,7 +512,11 @@ func _build_home() -> MenuScreen:
 	version.offset_left = 30
 	version.offset_top = -34
 	version.offset_bottom = -4
-	version.pressed.connect(open_whats_new)
+	version.add_theme_color_override("font_focus_color", UITheme.ACCENT)
+	version.pressed.connect(func() -> void:
+		_home_focus = version
+		open_whats_new())
+	_home_controls.append(version)
 	home.add_child(version)
 	return home
 
