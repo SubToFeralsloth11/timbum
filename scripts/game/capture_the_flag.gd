@@ -385,7 +385,8 @@ func _process(_delta: float) -> void:
 					# Every peer keeps the carried flag's position (markers, drops) with its carrier.
 					flag_pos[f] = p.global_position
 					torso = _torso_of(p)
-				if torso == null:
+				# The kill cam replay hides the live players (its ghosts carry no flag): so does this.
+				if torso == null or world.killcam.is_playing():
 					node.visible = false
 				else:
 					# On the back (the avatar faces -Z), leaning back, at 65 % size, with the cloth
