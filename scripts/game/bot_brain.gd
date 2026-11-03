@@ -224,10 +224,14 @@ func think(delta: float) -> void:
 		return
 	# A target that died, left (despawned, freed) or turned into a teammate (Infected) since the
 	# last perception pass is dropped at once, so the bot neither shoots a corpse or a friend nor
-	# touches a freed node until the next _perceive().
-	if target != null and (not is_instance_valid(target) or not target.alive or not p.world.is_enemy(p, target)
-			or p.world.admin.hidden_from_bots(target)):
-		if is_instance_valid(target) and target.alive:
+	# touches a freed node until the next _perceive(). A freed node compares equal to null, so the
+	# validity check comes first and on its own: otherwise the stale reference survives and reaches
+	# typed hooks (bot_weapon_slot) as a "previously freed" argument.
+	if not is_instance_valid(target):
+		target = null
+		_target_visible = false
+	elif not target.alive or not p.world.is_enemy(p, target) or p.world.admin.hidden_from_bots(target):
+		if target.alive:
 			# Now a teammate: nothing to search for where it was last seen either.
 			_last_seen_time = -100.0
 		target = null
