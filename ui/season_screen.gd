@@ -5,7 +5,8 @@ extends MenuScreen
 ## name, locked / reached / claimed state, the next tier's progress) with a CLAIM button under
 ## each; and a detail panel with a live 3D preview of the selected cosmetic (as the shop shows it)
 ## and EQUIP once it is owned. Keyboard and controller: left / right walk the cards (the preview
-## follows the focus), down reaches a card's CLAIM, the right stick scrolls, Esc / B goes back.
+## follows the focus), down reaches a card's CLAIM (or, once claimed, EQUIP), up reaches CLAIM ALL
+## while there is something to claim, the right stick scrolls, Esc / B goes back (_wire_focus).
 
 const CARD_SIZE := Vector2(150, 0)
 ## Card thumbnails are taller than the shop's (Thumbnailer.size).
@@ -29,6 +30,7 @@ var _kind: Label
 var _state: Label
 var _equip: Button
 var _status: Label
+var _back: Button
 ## Per tier (1-based index - 1): {card, claim, mark, bar}.
 var _cards: Array[Dictionary] = []
 var _selected := 0
@@ -36,8 +38,10 @@ var _selected := 0
 
 func _ready() -> void:
 	var page := make_page()
-	page.add_child(make_header(Season.title(),
-		"Free for everyone. Matches and challenge claims earn season XP: every %s fills a tier. Claim each tier's reward below." % UIKit.format_int(Season.XP_PER_TIER)))
+	var header := make_header(Season.title(),
+		"Free for everyone. Matches and challenge claims earn season XP: every %s fills a tier. Claim each tier's reward below." % UIKit.format_int(Season.XP_PER_TIER))
+	_back = header.get_child(0)
+	page.add_child(header)
 	_thumbs = Thumbnailer.new()
 	_thumbs.size = THUMB_SIZE
 	add_child(_thumbs)
@@ -359,6 +363,31 @@ func _refresh_detail() -> void:
 		var need := tier * Season.XP_PER_TIER - Profile.season_xp
 		_state.text = "%s SEASON XP TO GO" % UIKit.format_int(need)
 		_state.add_theme_color_override("font_color", UITheme.TEXT_DIM)
+	_wire_focus()
+
+
+## Explicit D-pad neighbours: up from any card to CLAIM ALL when it can take focus, else to BACK
+## (down from either goes to the selected card); down from a card to its CLAIM, or (the selected
+## card, claimed) to EQUIP, else nowhere; EQUIP's up and right go back to the selected card.
+## Left / right between cards stay geometric.
+func _wire_focus() -> void:
+	var sel: Button = _cards[_selected - 1].card
+	for i in _cards.size():
+		var card: Button = _cards[i].card
+		var claim: Button = _cards[i].claim
+		card.focus_neighbor_top = card.get_path_to(_claim_all if _claim_all.focus_mode == Control.FOCUS_ALL else _back)
+		if claim.focus_mode == Control.FOCUS_ALL:
+			card.focus_neighbor_bottom = card.get_path_to(claim)
+		elif card == sel and _equip.visible:
+			card.focus_neighbor_bottom = card.get_path_to(_equip)
+		else:
+			card.focus_neighbor_bottom = card.get_path_to(card)
+	_equip.focus_neighbor_top = _equip.get_path_to(sel)
+	_equip.focus_neighbor_right = _equip.get_path_to(sel)
+	_equip.focus_neighbor_left = _equip.get_path_to(_equip)
+	_equip.focus_neighbor_bottom = _equip.get_path_to(_equip)
+	_claim_all.focus_neighbor_bottom = _claim_all.get_path_to(sel)
+	_back.focus_neighbor_bottom = _back.get_path_to(sel)
 
 
 func _focus_card(tier: int) -> void:
