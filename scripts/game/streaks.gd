@@ -251,6 +251,13 @@ func server_on_kill(victim_id: int, killer_id: int, wid: String) -> void:
 			_broadcast(&"_s_reward", [killer_id, kind, int(s.streak)])
 
 
+## Admin panel: grants `kind` (a REWARDS key) to `eid` now, as if their streak had reached it.
+func server_admin_reward(eid: int, kind: String) -> void:
+	if world.match_over or not REWARDS.has(kind):
+		return
+	_broadcast(&"_s_reward", [eid, kind, int(REWARDS[kind].at)])
+
+
 ## A late joiner gets the radars, shields, bombers and strikes in progress.
 func server_sync(pid: int) -> void:
 	if not enabled():

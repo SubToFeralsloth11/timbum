@@ -393,6 +393,7 @@ func _ready() -> void:
 	_pause.resume_requested.connect(_close_pause)
 	_pause.spectate_requested.connect(_on_spectate_requested)
 	_pause.photo_requested.connect(open_photo)
+	_pause.admin_requested.connect(open_admin)
 	# Its own canvas layer above every HUD overlay (streak and airstrike warnings, kill cam banner,
 	# Tactical / range / zone / ping overlays, tutorial and Gun Game cards, photo mode).
 	var pause_layer := CanvasLayer.new()
@@ -1245,7 +1246,8 @@ func markers_hidden() -> bool:
 func is_blocking() -> bool:
 	return _pause.visible or _chat_input.visible or _results.visible \
 		or (world.tactical != null and world.tactical.overlay.is_blocking()) \
-		or (world.photo != null and world.photo.is_open()) or world.rules.ui_blocking()
+		or (world.photo != null and world.photo.is_open()) or (world.admin != null and world.admin.is_open()) \
+		or world.rules.ui_blocking()
 
 
 func refresh_scores() -> void:
@@ -1949,7 +1951,7 @@ func _notification(what: int) -> void:
 
 func _on_focus_lost() -> void:
 	if _pause != null and is_inside_tree() and not _pause.visible and not _results.visible and not _celebrating \
-			and not world.photo.is_open():
+			and not world.photo.is_open() and not (world.admin != null and world.admin.is_open()):
 		_close_chat()
 		_open_pause()
 
@@ -1968,6 +1970,28 @@ func open_photo() -> void:
 	if not world.photo.closed.is_connected(_open_pause):
 		world.photo.closed.connect(_open_pause)
 	world.photo.open()
+
+
+## Pause menu ADMIN PANEL or the admin_panel key (offline): the match freezes while it is open;
+## closing goes back to the pause menu when it came from there, else straight back to the match.
+func open_admin() -> void:
+	if not world.admin.can_open():
+		return
+	_close_chat()
+	var from_pause := _pause.visible
+	_pause.visible = false
+	if not world.admin.closed.is_connected(_on_admin_closed):
+		world.admin.closed.connect(_on_admin_closed)
+	world.admin.open(from_pause)
+
+
+func _on_admin_closed(to_pause: bool) -> void:
+	if to_pause:
+		_open_pause()
+		return
+	world.set_frozen(false)
+	if not is_blocking():
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
 ## Pause menu SPECTATE / PLAY (offline: SPECTATE BOTS / PLAY): back to the match, then switch.

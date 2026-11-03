@@ -7,8 +7,9 @@ extends Control
 ## animates in. While visible it consumes "pause" / "ui_cancel" in `_input` (it is a
 ## child of the HUD, so it sees Esc first): Esc closes the settings sub-panel, or
 ## requests resume. `configure(world)` (before showing) sets the match buttons: SPECTATE / PLAY
-## (offline SPECTATE BOTS / PLAY; `spectate_requested`) and PHOTO MODE (offline only, not during
-## a kill cam replay or the results; `photo_requested`). In a practice session (Firing Range,
+## (offline SPECTATE BOTS / PLAY; `spectate_requested`), PHOTO MODE (offline only, not during
+## a kill cam replay or the results; `photo_requested`) and ADMIN PANEL (offline only, same
+## conditions; `admin_requested`). In a practice session (Firing Range,
 ## tutorial) there is no spectating, the mode's own buttons (`MatchMode.pause_actions`, e.g. RESET
 ## READOUT, SKIP STEP) sit above SETTINGS, and LEAVE MATCH reads LEAVE.
 
@@ -16,6 +17,7 @@ signal resume_requested
 ## SPECTATE (`on`) or PLAY.
 signal spectate_requested(on: bool)
 signal photo_requested
+signal admin_requested
 
 var _dim: ColorRect
 var _menu: PanelContainer
@@ -24,6 +26,7 @@ var _resume_button: Button
 var _settings_button: Button
 var _spectate_button: Button
 var _photo_button: Button
+var _admin_button: Button
 ## The spectate button's request: true = spectate, false = play.
 var _spectate_on := true
 var _hint: Label
@@ -69,6 +72,9 @@ func _ready() -> void:
 	_photo_button = UIKit.button("PHOTO MODE")
 	_photo_button.pressed.connect(func() -> void: photo_requested.emit())
 	v.add_child(_photo_button)
+	_admin_button = UIKit.button("ADMIN PANEL")
+	_admin_button.pressed.connect(func() -> void: admin_requested.emit())
+	v.add_child(_admin_button)
 	_actions = UIKit.vbox(12)
 	v.add_child(_actions)
 	_settings_button = UIKit.button("SETTINGS")
@@ -100,6 +106,8 @@ func configure(world: World) -> void:
 	_spectate_button.visible = not world.match_over and not world.rules.is_practice()
 	_photo_button.text = "PHOTO MODE  [%s]" % key
 	_photo_button.visible = world.photo.can_open()
+	_admin_button.text = "ADMIN PANEL  [%s]" % Profile.key_text("admin_panel")
+	_admin_button.visible = world.admin.can_open()
 	_leave_button.text = "LEAVE" if world.rules.is_practice() else "LEAVE MATCH"
 	for c in _actions.get_children():
 		c.queue_free()

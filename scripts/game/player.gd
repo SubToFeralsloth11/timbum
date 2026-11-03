@@ -361,7 +361,7 @@ func switch_time() -> float:
 
 
 func grapple_cooldown_time() -> float:
-	return GRAPPLE_COOLDOWN * mod("grapple_motor")
+	return GRAPPLE_COOLDOWN * mod("grapple_motor") * world.admin.grapple_cooldown_mult(self)
 
 
 static func weapon_index(weapon_id: String) -> int:
@@ -516,7 +516,15 @@ func _physics_process(delta: float) -> void:
 				world.submit_local_state(self)
 		Mode.BOT:
 			if brain != null and alive:
-				brain.think(delta)
+				if world.admin.bots_frozen():
+					_clear_intent()
+				else:
+					brain.think(delta)
+					if world.admin.bots_passive():
+						in_fire = false
+						in_melee = false
+						in_grenade = false
+						in_tactical = false
 			_simulate(delta)
 		Mode.REMOTE:
 			if alive:
@@ -598,7 +606,7 @@ func _read_input() -> void:
 		return
 	in_move = Input.get_vector("move_left", "move_right", "move_back", "move_forward", float(Profile.get_setting("pad_deadzone")))
 	in_jump = (buttons & 32) != 0
-	in_fire = fire_held and not _fire_gated
+	in_fire = (fire_held and not _fire_gated) or world.admin.trigger_for(self)
 	# Toggle modes: a press flips a latch that stands in for holding the button.
 	if int(Profile.get_setting("aim_mode")) == 1:
 		if pressed & 16:
@@ -676,6 +684,10 @@ func _simulate(delta: float) -> void:
 	if not alive:
 		_fall_corpse(delta)
 		return
+	var flight := world.admin.flight(self)
+	if flight != 0:
+		_admin_fly(delta, flight)
+		return
 	var w := weapon_data()
 	var on_floor := is_on_floor()
 	var horiz := Vector3(velocity.x, 0.0, velocity.z)
@@ -738,7 +750,7 @@ func _simulate(delta: float) -> void:
 		speed = CROUCH_SPEED
 	elif sprinting:
 		speed = SPRINT_SPEED
-	speed = lerpf(speed, minf(speed, ADS_SPEED * mod("stock")), aim_blend) * float(w.move_mult) * speed_scale
+	speed = lerpf(speed, minf(speed, ADS_SPEED * mod("stock")), aim_blend) * float(w.move_mult) * speed_scale * world.admin.move_mult(self)
 
 	var wish := Basis(Vector3.UP, yaw) * Vector3(in_move.x, 0.0, -in_move.y)
 	if wish.length_squared() > 1.0:
@@ -757,16 +769,17 @@ func _simulate(delta: float) -> void:
 		horiz = horiz.move_toward(wish * speed, (GROUND_ACCEL if on_floor else AIR_ACCEL) * delta)
 		velocity.x = horiz.x
 		velocity.z = horiz.z
-	if on_floor and not grappling:
+	var air_jump := not on_floor and jump_pressed and world.admin.air_jump_for(self)
+	if (on_floor or air_jump) and not grappling:
 		if in_jump and not prone and not _jump_spent and (not crouching or sliding):
 			if sliding:
 				# Slide-jump: keep the slide's speed and stand up in the air.
 				_end_slide()
 				crouching = in_crouch or not _has_headroom(STAND_HEIGHT)
-			velocity.y = JUMP_VELOCITY
+			velocity.y = JUMP_VELOCITY * world.admin.jump_mult(self)
 			Sfx.play(&"jump", global_position, -6.0)
 	elif not grappling:
-		velocity.y -= GRAVITY * gravity_scale * delta
+		velocity.y -= GRAVITY * gravity_scale * world.admin.gravity_mult(self) * delta
 	_fall_speed = -velocity.y
 	move_and_slide()
 	if pad_flight and is_on_wall():
@@ -778,6 +791,39 @@ func _simulate(delta: float) -> void:
 	_apply_head_pose()
 	if mode == Mode.LOCAL:
 		_tick_inspect(delta)
+	_tick_weapon(delta)
+
+
+## Admin panel fly, noclip and airstuck (local player; `flight`: AdminPanel.flight 1, 2, 3): fly
+## moves level with the ground (colliding), noclip along the view through walls, jump rising and
+## crouch sinking, sprint 2.5x, no gravity; airstuck holds the player still where they are.
+func _admin_fly(delta: float, flight: int) -> void:
+	var through_walls := flight == 2
+	if grappling:
+		release_grapple()
+	_end_slide()
+	prone = false
+	crouching = false
+	sprinting = false
+	pad_flight = false
+	crouch_blend = move_toward(crouch_blend, 0.0, delta * 8.0)
+	prone_blend = move_toward(prone_blend, 0.0, delta * 4.0)
+	_apply_crouch_shape()
+	var look := Basis.from_euler(Vector3(pitch if through_walls else 0.0, yaw, 0.0))
+	var wish := look * Vector3(in_move.x, 0.0, -in_move.y)
+	wish.y += float(in_jump) - float(in_crouch)
+	if wish.length_squared() > 1.0:
+		wish = wish.normalized()
+	velocity = wish * SPRINT_SPEED * (2.5 if in_sprint else 1.0) * world.admin.move_mult(self)
+	if flight == 3:
+		velocity = Vector3.ZERO
+	elif through_walls:
+		global_position += velocity * delta
+	else:
+		move_and_slide()
+	lean = move_toward(lean, 0.0, delta * LEAN_RATE)
+	_apply_head_pose()
+	_tick_inspect(delta)
 	_tick_weapon(delta)
 
 
@@ -1221,6 +1267,10 @@ func start_reload() -> void:
 	var a: Vector2i = ammo[wid]
 	if reloading or mag_size(wid) == 0 or a.x >= mag_size(wid) or a.y <= 0:
 		return
+	if world.admin.reload_free(self):
+		var take := mini(mag_size(wid) - a.x, a.y)
+		ammo[wid] = Vector2i(a.x + take, a.y - take)
+		return
 	reloading = true
 	reload_timer = reload_time(wid)
 	# Shotguns replay the animation per shell in _tick_reload.
@@ -1287,7 +1337,7 @@ func _try_fire(wid: String, w: Dictionary) -> void:
 			_cancel_reload()
 		else:
 			return
-	if fire_cooldown > 0.0 or (_trigger_down and not w.auto):
+	if fire_cooldown > 0.0 or (_trigger_down and not (w.auto or world.admin.auto_for(self))):
 		return
 	if current_slot == 2:
 		_trigger_down = true
@@ -1308,9 +1358,9 @@ func _try_fire(wid: String, w: Dictionary) -> void:
 	var burst := int(w.get("burst", 1))
 	if burst > 1:
 		_burst_left = burst - 1
-		fire_cooldown = 60.0 / float(w.burst_rpm)
+		fire_cooldown = 60.0 / float(w.burst_rpm) / world.admin.fire_rate_for(self)
 	else:
-		fire_cooldown = 60.0 / float(w.rpm) + minf(overshoot, 0.0)
+		fire_cooldown = 60.0 / float(w.rpm) / world.admin.fire_rate_for(self) + minf(overshoot, 0.0)
 	_shoot(wid, w)
 
 
@@ -1325,9 +1375,9 @@ func _continue_burst(wid: String, w: Dictionary) -> void:
 	_burst_left -= 1
 	var burst := int(w.burst)
 	if _burst_left > 0:
-		fire_cooldown = 60.0 / float(w.burst_rpm)
+		fire_cooldown = 60.0 / float(w.burst_rpm) / world.admin.fire_rate_for(self)
 	else:
-		fire_cooldown = burst * 60.0 / float(w.rpm) - (burst - 1) * 60.0 / float(w.burst_rpm)
+		fire_cooldown = (burst * 60.0 / float(w.rpm) - (burst - 1) * 60.0 / float(w.burst_rpm)) / world.admin.fire_rate_for(self)
 	_shoot(wid, w)
 
 
@@ -1335,11 +1385,12 @@ func _continue_burst(wid: String, w: Dictionary) -> void:
 ## magazine runs dry.
 func _shoot(wid: String, w: Dictionary) -> void:
 	var a: Vector2i = ammo[wid]
-	a.x -= 1
-	ammo[wid] = a
-	var aim := aim_transform()
+	if not world.admin.ammo_free(self):
+		a.x -= 1
+		ammo[wid] = a
+	var aim := world.admin.aim_for(self, aim_transform())
 	if w.get("projectile", false):
-		var spread := lerpf(float(w.spread_hip) * mod("laser"), float(w.spread_ads), aim_blend)
+		var spread := lerpf(float(w.spread_hip) * mod("laser"), float(w.spread_ads), aim_blend) * world.admin.spread_mult(self)
 		var dir := _spread_dir(aim.basis, spread)
 		world.request_projectile(self, "rocket", _launch_origin(aim.origin, dir, 0.6), dir * float(w.speed))
 	else:
@@ -1367,7 +1418,7 @@ func current_spread() -> float:
 		s *= 0.6
 	elif crouching:
 		s *= 0.8
-	return s
+	return s * world.admin.spread_mult(self)
 
 
 func _spread_dir(b: Basis, spread_deg: float) -> Vector3:
@@ -1384,7 +1435,8 @@ func _fire_hitscan(wid: String, w: Dictionary, aim: Transform3D) -> void:
 	var hits := {}
 	for i in int(w.pellets):
 		var dir := _spread_dir(aim.basis, spread)
-		var q := PhysicsRayQueryParameters3D.create(aim.origin, aim.origin + dir * HITSCAN_RANGE, MASK_WORLD | MASK_HITBOX, _exclude)
+		var mask := MASK_HITBOX if world.admin.pierce_for(self) else MASK_WORLD | MASK_HITBOX
+		var q := PhysicsRayQueryParameters3D.create(aim.origin, aim.origin + dir * HITSCAN_RANGE, mask, _exclude)
 		q.collide_with_areas = true
 		var r := space.intersect_ray(q)
 		if r.is_empty():
@@ -1398,7 +1450,7 @@ func _fire_hitscan(wid: String, w: Dictionary, aim: Transform3D) -> void:
 			var target: Player = col.get_meta("player")
 			if target == self or not target.alive:
 				continue
-			var is_head: bool = col.get_meta("part") == "head"
+			var is_head: bool = col.get_meta("part") == "head" or world.admin.head_for(self)
 			var dist: float = aim.origin.distance_to(r.position)
 			var dmg := damage_at(w, dist, mod("barrel")) * (float(w.head_mult) if is_head else 1.0)
 			var entry: Array = hits.get(target.id, [0.0, false])
@@ -1420,7 +1472,8 @@ static func damage_at(w: Dictionary, dist: float, range_mult := 1.0) -> float:
 
 
 func _apply_kick(w: Dictionary) -> void:
-	var kick := float(w.recoil) * mod("grip") * lerpf(1.0, 0.6, aim_blend) * (0.65 if prone else (0.8 if crouching else 1.0))
+	var kick := float(w.recoil) * mod("grip") * lerpf(1.0, 0.6, aim_blend) * (0.65 if prone else (0.8 if crouching else 1.0)) \
+		* world.admin.recoil_mult(self)
 	if mode == Mode.LOCAL:
 		pitch = clampf(pitch + deg_to_rad(kick * 0.55), -MAX_PITCH, MAX_PITCH)
 		yaw += deg_to_rad(randf_range(-0.35, 0.35) * kick * 0.4)
@@ -1778,7 +1831,7 @@ func _update_visuals(delta: float) -> void:
 		# Peeking rolls the view toward the lean; sliding tilts it a little.
 		var roll := -lean * _lean_reach * LEAN_ROLL + (deg_to_rad(-4.0) if sliding else 0.0)
 		camera.rotation.z = lerpf(camera.rotation.z, roll, minf(1.0, delta * 12.0))
-		var base_fov := float(Profile.get_setting("fov"))
+		var base_fov := world.admin.fov_for(self, float(Profile.get_setting("fov")))
 		var target_fov := lerpf(base_fov, minf(float(weapon_data().ads_fov), base_fov), aim_blend)
 		if sprinting:
 			target_fov += 4.0

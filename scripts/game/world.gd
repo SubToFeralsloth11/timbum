@@ -66,6 +66,8 @@ var killcam: KillCam
 var spectator: Spectator
 ## Photo mode (offline only): frozen match, free camera, filters, screenshots.
 var photo: PhotoMode
+## Admin panel (offline only): cheats for the local player, the bots and the match.
+var admin: AdminPanel
 
 var _entities_root: Node3D
 var _shake := 0.0
@@ -188,6 +190,9 @@ func _ready() -> void:
 	photo = PhotoMode.new()
 	photo.world = self
 	add_child(photo)
+	admin = AdminPanel.new()
+	admin.world = self
+	add_child(admin)
 	time_left = float(Net.config.time_limit)
 	_warm_first_use()
 	# Today's challenges exist before the first kill (live toasts compare against them).
@@ -366,7 +371,7 @@ func _physics_process(delta: float) -> void:
 		return
 	for eid: int in entities:
 		var p: Player = entities[eid]
-		if p.alive and p.global_position.y < map_info.kill_y:
+		if p.alive and p.global_position.y < map_info.kill_y and not admin.saves_from_fall(p):
 			_server_force_kill(p)
 	_server_pickups(t)
 	_regen_timer -= delta
@@ -466,6 +471,52 @@ func server_set_health(eid: int, hp: float) -> void:
 
 func server_end_match() -> void:
 	_server_end_match()
+
+
+## Admin panel: kills `target` at once (spawn protection or god mode notwithstanding), credited
+## to `killer_id` with `wid` like any kill (kill feed, scores, streaks, the mode's rules).
+func server_admin_kill(target: Player, killer_id: int, wid: String) -> void:
+	if match_over or not target.alive:
+		return
+	_broadcast(&"_s_damaged", [target.id, 0.0, killer_id, target.global_position, 0.0])
+	_server_kill(target.id, killer_id, wid, false)
+
+
+## Admin panel: a dead `eid` respawns now instead of after the mode's respawn delay.
+func server_respawn_now(eid: int) -> void:
+	var p: Player = entities.get(eid)
+	if p == null or p.alive or match_over:
+		return
+	_respawn_at.erase(eid)
+	_server_respawn(eid)
+
+
+## Admin panel: every taken pickup comes back on the next frame.
+func server_reset_pickups() -> void:
+	for i in _pickup_ready_at.size():
+		_pickup_ready_at[i] = 0.0
+
+
+## Admin panel (infinite grenades): `eid` holds a full set of frags and their tactical again, also
+## in modes that hand out none (Gun Game, Infected).
+func server_admin_equipment(eid: int) -> void:
+	var p: Player = entities.get(eid)
+	if p == null:
+		return
+	var frags := int(Data.GRENADE.per_life)
+	if p.grenades < frags or p.tacticals < Data.TACTICAL_PER_LIFE:
+		_grenades[eid] = frags
+		_tacticals[eid] = Data.TACTICAL_PER_LIFE
+		p.grenades = frags
+		p.tacticals = Data.TACTICAL_PER_LIFE
+
+
+## Admin panel: `n` kills more for `eid` on the scoreboard.
+func server_admin_add_kills(eid: int, n: int) -> void:
+	if not scores.has(eid):
+		return
+	scores[eid].kills = int(scores[eid].kills) + n
+	_broadcast(&"_s_scores", [scores])
 
 
 func _server_remove_entity(eid: int) -> void:
@@ -685,7 +736,7 @@ func _server_shot(shooter_id: int, wid: String, ends: PackedVector3Array, normal
 	if ends.size() > 16 or normals.size() != ends.size() or hit_list.size() > 16:
 		return
 	var w: Dictionary = Data.WEAPONS[wid]
-	var rate_ok := _take_fire_token(shooter_id, wid)
+	var rate_ok := _take_fire_token(shooter_id, wid) or admin.skip_rate_check(shooter)
 	for pid: int in _ready_peers:
 		if pid != shooter_id:
 			_s_shot_fx.rpc_id(pid, shooter_id, wid, ends, normals)
@@ -730,6 +781,7 @@ func _server_shot(shooter_id: int, wid: String, ends: PackedVector3Array, normal
 				* (float(w.head_mult) if head_hit[tid] else 1.0) + 0.01
 			dmg = minf(dmg, cap)
 		_server_damage(target, dmg, shooter_id, wid, head_hit[tid], shooter.global_position)
+	admin.after_shot(shooter, wid, ends)
 
 
 ## Server: metres a gun hit's distance may shrink before the falloff cap. The server sees a
@@ -779,6 +831,7 @@ func _take_fire_token(shooter_id: int, wid: String) -> bool:
 
 
 func _server_damage(target: Player, amount: float, attacker_id: int, wid: String, head: bool, from_pos: Vector3) -> void:
+	amount = admin.damage_for(target, amount, attacker_id)
 	if match_over or not target.alive or amount <= 0.0:
 		return
 	if attacker_id != target.id and _protection_left(target.id) > 0.0:
@@ -1517,6 +1570,8 @@ func _s_explode(pid: int, pos: Vector3, kind: String) -> void:
 			var flash: Dictionary = Data.TACTICALS.flash
 			for eid: int in entities:
 				var p: Player = entities[eid]
+				if p == local_player and admin.flash_proof(p):
+					continue
 				if p == local_player or p.mode == Player.Mode.BOT:
 					var amount := flash_amount(p, pos)
 					if amount <= 0.0:

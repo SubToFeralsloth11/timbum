@@ -20,7 +20,8 @@ const CONTROLS: Array = [
 	["interact", "Swap weapon (Tactical)"], ["tactical_map", "Floor plan (Tactical)"],
 	["scoreboard", "Scoreboard"], ["chat", "Chat"], ["skip_killcam", "Skip kill cam"],
 	["spectate_view", "Spectator: free camera / follow"], ["photo_mode", "Photo mode (offline)"],
-	["inspect", "Inspect weapon"], ["spray", "Spray"],
+	["inspect", "Inspect weapon"], ["spray", "Spray"], ["admin_panel", "Admin panel (offline)"],
+	["admin_panic", "Admin: all cheats off / back on"],
 ]
 ## The `index` meta of a binding button in the controller column (key columns are 0 and 1).
 const PAD_SLOT := -1

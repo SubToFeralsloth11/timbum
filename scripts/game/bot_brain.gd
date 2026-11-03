@@ -215,7 +215,8 @@ func think(delta: float) -> void:
 	# A target that died, left (despawned, freed) or turned into a teammate (Infected) since the
 	# last perception pass is dropped at once, so the bot neither shoots a corpse or a friend nor
 	# touches a freed node until the next _perceive().
-	if target != null and (not is_instance_valid(target) or not target.alive or not p.world.is_enemy(p, target)):
+	if target != null and (not is_instance_valid(target) or not target.alive or not p.world.is_enemy(p, target)
+			or p.world.admin.hidden_from_bots(target)):
 		if is_instance_valid(target) and target.alive:
 			# Now a teammate: nothing to search for where it was last seen either.
 			_last_seen_time = -100.0
@@ -324,7 +325,7 @@ func _perceive() -> void:
 	var best_score := INF
 	for eid: int in p.world.entities:
 		var other: Player = p.world.entities[eid]
-		if not p.world.is_enemy(p, other) or not other.alive:
+		if not p.world.is_enemy(p, other) or not other.alive or p.world.admin.hidden_from_bots(other):
 			continue
 		var d := p.global_position.distance_to(other.global_position)
 		if d > VIEW_DISTANCE[difficulty]:
@@ -361,7 +362,7 @@ func _perceive() -> void:
 		# Turn toward whoever hurt us even if we can't see them yet.
 		if target == null and now - p.last_hurt_time < 1.0 and p.world.entities.has(p.last_attacker):
 			var attacker: Player = p.world.entities[p.last_attacker]
-			if attacker.alive and p.world.is_enemy(p, attacker):
+			if attacker.alive and p.world.is_enemy(p, attacker) and not p.world.admin.hidden_from_bots(attacker):
 				_last_seen_pos = attacker.global_position
 				_last_seen_time = now
 				_has_goal = false
@@ -785,7 +786,8 @@ func _pick_roam_goal() -> Vector3:
 			_goal_pickup = best
 			return best.position
 	if aggression > 1.1 and randf() < 0.6:
-		var prey: Array = p.world.entities.values().filter(func(o: Player) -> bool: return o.alive and p.world.is_enemy(p, o))
+		var prey: Array = p.world.entities.values().filter(func(o: Player) -> bool:
+			return o.alive and p.world.is_enemy(p, o) and not p.world.admin.hidden_from_bots(o))
 		if not prey.is_empty():
 			return (prey.pick_random() as Player).global_position
 	if randf() < 0.35 / aggression:

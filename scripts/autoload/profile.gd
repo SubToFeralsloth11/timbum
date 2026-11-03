@@ -1420,6 +1420,8 @@ const DEFAULT_BINDINGS := {
 	"scoreboard": ["k%d" % KEY_TAB], "chat": ["k%d" % KEY_T, "k%d" % KEY_ENTER],
 	"skip_killcam": ["k%d" % KEY_K],
 	"spectate_view": ["k%d" % KEY_N], "photo_mode": ["k%d" % KEY_P], "inspect": ["k%d" % KEY_I], "spray": ["k%d" % KEY_Y],
+	"admin_panic": ["k%d" % KEY_H],
+	"admin_panel": ["k%d" % KEY_F1],
 	"pause": ["k%d" % KEY_ESCAPE],
 }
 ## Keyboard/mouse bindings per action; at most this many codes each.
