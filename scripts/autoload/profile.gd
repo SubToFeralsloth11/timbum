@@ -576,7 +576,8 @@ func claimable_challenges() -> int:
 
 
 ## Pays challenge `index` of `kind` once it is complete: {coins, xp, levels, season_xp} (XP is 0 at
-## the level cap; its season XP never is), or {} if it isn't complete or was already claimed.
+## the level cap, season_xp 0 once the pass is finished: the amounts actually added), or {} if it
+## isn't complete or was already claimed.
 func claim_challenge(kind: String, index: int) -> Dictionary:
 	var list := challenge_list(kind)
 	if index < 0 or index >= list.size():
@@ -588,11 +589,11 @@ func claim_challenge(kind: String, index: int) -> Dictionary:
 	var reward := Challenges.reward(kind)
 	var gained_xp := 0 if level >= Data.LEVEL_CAP else int(reward.xp)
 	var levels := _grant(int(reward.coins), gained_xp)
-	_add_season_xp(int(reward.xp))
+	var season := _add_season_xp(int(reward.xp))
 	_unlock_achievements()
 	save()
 	changed.emit()
-	return {"coins": int(reward.coins), "xp": gained_xp, "levels": levels, "season_xp": int(reward.xp)}
+	return {"coins": int(reward.coins), "xp": gained_xp, "levels": levels, "season_xp": int(season.xp)}
 
 
 ## Adds coins and XP outside a match (claims, carried rewards), level-up coins included. Returns
@@ -612,16 +613,17 @@ func season_tier() -> int:
 	return Season.tier_for(season_xp)
 
 
-## Adds `amount` season XP (the total stops at Season.MAX_XP). Returns {xp (the amount earned),
-## before (tier before), tier, progress (Season.tier_progress after), reached (tiers newly
-## reached)}. The caller saves.
+## Adds `amount` season XP (the total stops at Season.MAX_XP). Returns {xp (the amount actually
+## added: less than `amount` near the cap, 0 once the pass is finished), before (tier before),
+## tier, progress (Season.tier_progress after), reached (tiers newly reached)}. The caller saves.
 func _add_season_xp(amount: int) -> Dictionary:
 	var before := season_tier()
-	season_xp += clampi(amount, 0, Season.MAX_XP - season_xp)
+	var added := maxi(0, mini(amount, Season.MAX_XP - season_xp))
+	season_xp += added
 	var reached: Array = []
 	for t in range(before + 1, season_tier() + 1):
 		reached.append(t)
-	return {"xp": maxi(0, amount), "before": before, "tier": season_tier(), "progress": Season.tier_progress(season_xp),
+	return {"xp": added, "before": before, "tier": season_tier(), "progress": Season.tier_progress(season_xp),
 		"reached": reached}
 
 
