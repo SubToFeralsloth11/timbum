@@ -28,6 +28,10 @@ const JUMP_PADS := [
 ]
 
 
+## Capture the Flag stands (MapKit.flag_stands): the yards in front of the west and east halls.
+const FLAG_STANDS := [Vector3i(13, 3, 32), Vector3i(51, 3, 32)]
+
+
 static func generate(g: VoxelGrid, info: MapInfo) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = SEED
@@ -65,6 +69,7 @@ static func generate(g: VoxelGrid, info: MapInfo) -> void:
 	Kit.pickup(g, hm, info, "grenade", 39, 38)
 	Kit.pickup(g, hm, info, "health", 17, 52, F + 3)
 	Kit.jump_pads(g, info, JUMP_PADS)
+	Kit.flag_stands(g, info, FLAG_STANDS)
 
 
 ## Conveyor hall in the north-west corner (hall B is the same hall rotated

@@ -6,7 +6,8 @@ extends Node
 ## won, the HUD's score line, scoreboard rows and results, and bot goals. This base class is
 ## plain free-for-all Deathmatch; each other mode is a subclass with its own node name (so its
 ## RPCs reach the same node on every peer):
-##   - `TeamDeathmatch` (scripts/game/team_deathmatch.gd, "tdm")
+##   - `TeamDeathmatch` (scripts/game/team_deathmatch.gd, "tdm") and its subclass
+##     `CaptureTheFlag` (scripts/game/capture_the_flag.gd, "ctf")
 ##   - `GunGame` (scripts/game/gun_game.gd, "gungame")
 ##   - `KingOfTheBlock` (scripts/game/king_of_the_block.gd, "koth")
 ##   - `Infected` (scripts/game/infected.gd, "infected")
@@ -34,6 +35,7 @@ static func create(p_world: World) -> MatchMode:
 		_:
 			match str(Net.config.get("mode", "ffa")):
 				"tdm": m = TeamDeathmatch.new()
+				"ctf": m = CaptureTheFlag.new()
 				"gungame": m = GunGame.new()
 				"koth": m = KingOfTheBlock.new()
 				"infected": m = Infected.new()
@@ -96,6 +98,18 @@ func spectate_candidates() -> Array[Player]:
 			out.append(p)
 	out.sort_custom(func(a: Player, b: Player) -> bool: return a.id < b.id)
 	return out
+
+
+## Multiplies `p`'s walking, sprinting and sliding speed (Capture the Flag: the flag carrier is
+## slower). Read by whichever peer simulates `p`.
+func move_mult(_p: Player) -> float:
+	return 1.0
+
+
+## Whether `p` may fire the grapple hook now (Capture the Flag: not while carrying a flag). A
+## player holding the hook when this turns false lets go (Player._simulate).
+func grapple_allowed(_p: Player) -> bool:
+	return true
 
 
 # ================================================================ practice sessions (every peer)
@@ -314,6 +328,12 @@ func hud_rank() -> String:
 	return ""
 
 
+## A short state word or two after `team`'s bar in the score card ("": none). Capture the Flag:
+## where that team's flag is (home, taken by whom, dropped and its return timer).
+func hud_team_status(_team: int) -> String:
+	return ""
+
+
 ## Compass pips [[heading degrees, Color], ...] seen from `cam` (Tactical's team markers, King of
 ## the Block's zone).
 func compass_pips(_cam: Camera3D) -> Array:
@@ -399,6 +419,12 @@ func bot_roam_goal(_p: Player) -> Variant:
 
 ## Closest a bot lets `target` come before backing off (0: its weapon's range decides).
 func bot_min_range(_p: Player, _target: Player) -> float:
+	return 0.0
+
+
+## Metres closer than they are that `other` counts when bot `p` picks a target (Capture the
+## Flag: the enemy flag carrier is hunted first).
+func bot_target_bias(_p: Player, _other: Player) -> float:
 	return 0.0
 
 

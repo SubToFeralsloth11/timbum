@@ -28,6 +28,10 @@ const JUMP_PADS := [
 ]
 
 
+## Capture the Flag stands (MapKit.flag_stands): open sand west and east of the pyramid.
+const FLAG_STANDS := [Vector3i(13, 4, 31), Vector3i(53, 6, 31)]
+
+
 static func generate(g: VoxelGrid, info: MapInfo) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = SEED
@@ -73,6 +77,7 @@ static func generate(g: VoxelGrid, info: MapInfo) -> void:
 	Kit.pickup(g, hm, info, "ammo", 9, 9, 8)
 	Kit.pickup(g, hm, info, "grenade", 32, 47)
 	Kit.jump_pads(g, info, JUMP_PADS)
+	Kit.flag_stands(g, info, FLAG_STANDS)
 
 
 static func _pad(g: VoxelGrid, hm: PackedInt32Array, lock: PackedByteArray, x0: int, z0: int, x1: int, z1: int, h: int) -> void:

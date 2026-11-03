@@ -109,6 +109,25 @@ static func jump_pads(g: VoxelGrid, info: MapInfo, pads: Array) -> void:
 	info.marks["jump_pads"] = out
 
 
+## Capture the Flag stands (CaptureTheFlag.flag_stands reads the `flags` mark): `cells` is
+## [ALPHA cell, BRAVO cell], the feet cell of each team's stand on its own half of the map (ALPHA
+## the low end of the longer axis, as TeamDeathmatch.along splits it), each on flat 3x3 floor
+## (checked here). Every deathmatch map defines them (FLAG_STANDS); they were picked by a search
+## (open flat floor about a fifth of the way in from the team's end, near the middle, under open
+## sky, at least 4 m from any spawn and 5 m from any jump pad or landing, with a navmesh path from
+## every spawn). A new map adds its own FLAG_STANDS and calls this after its geometry is done.
+static func flag_stands(g: VoxelGrid, info: MapInfo, cells: Array) -> void:
+	var out: Array = []
+	for team in cells.size():
+		var c: Vector3i = cells[team]
+		for dz in range(-1, 2):
+			for dx in range(-1, 2):
+				if not g.standable(c.x + dx, c.y, c.z + dz):
+					push_error("MapKit: flag stand floor at %s is not flat around %d,%d" % [c, c.x + dx, c.z + dz])
+		out.append({"pos": Vector3(c.x + 0.5, c.y, c.z + 0.5), "team": team})
+	info.marks["flags"] = out
+
+
 static func _find_floor(g: VoxelGrid, hm: PackedInt32Array, x: int, z: int, y: int) -> Vector3i:
 	for r in 6:
 		for dz in range(-r, r + 1):

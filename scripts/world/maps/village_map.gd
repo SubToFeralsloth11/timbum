@@ -37,6 +37,11 @@ const JUMP_PADS := [
 ]
 
 
+## Capture the Flag stands (MapKit.flag_stands): ALPHA on the west path by the hedge, BRAVO east
+## of the square past the brick cottage.
+const FLAG_STANDS := [Vector3i(9, 6, 31), Vector3i(53, 6, 32)]
+
+
 static func generate(g: VoxelGrid, info: MapInfo) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = SEED
@@ -104,6 +109,7 @@ static func generate(g: VoxelGrid, info: MapInfo) -> void:
 	Kit.pickup(g, hm, info, "health", 52, 15)
 	Kit.pickup(g, hm, info, "grenade", 20, 44)
 	Kit.jump_pads(g, info, JUMP_PADS)
+	Kit.flag_stands(g, info, FLAG_STANDS)
 
 
 static func _mark(mask: PackedByteArray, sx: int, x0: int, z0: int, x1: int, z1: int) -> void:

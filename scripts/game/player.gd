@@ -722,11 +722,15 @@ func _simulate(delta: float) -> void:
 	_pad_on = pad
 	_slide_cooldown -= delta
 	grapple_cooldown -= delta
+	# The mode can take the hook away (Capture the Flag's carrier): a held hook lets go.
+	var hook_ok := world.rules.grapple_allowed(self)
+	if grappling and not hook_ok:
+		release_grapple()
 	if in_grapple:
 		in_grapple = false
 		if grappling:
 			release_grapple()
-		elif grapple_cooldown <= 0.0 and not world.match_over and not prone and world.tactical == null:
+		elif grapple_cooldown <= 0.0 and not world.match_over and not prone and world.tactical == null and hook_ok:
 			_fire_grapple()
 	if in_prone:
 		in_prone = false
@@ -765,7 +769,8 @@ func _simulate(delta: float) -> void:
 		speed = CROUCH_SPEED
 	elif sprinting:
 		speed = SPRINT_SPEED
-	speed = lerpf(speed, minf(speed, ADS_SPEED * mod("stock")), aim_blend) * float(w.move_mult) * speed_scale * world.admin.move_mult(self)
+	speed = lerpf(speed, minf(speed, ADS_SPEED * mod("stock")), aim_blend) * float(w.move_mult) * speed_scale \
+		* world.admin.move_mult(self) * world.rules.move_mult(self)
 
 	var wish := Basis(Vector3.UP, yaw) * Vector3(in_move.x, 0.0, -in_move.y)
 	if wish.length_squared() > 1.0:
@@ -846,7 +851,8 @@ func _start_slide(horiz: Vector3) -> void:
 	sliding = true
 	_slide_time = 0.0
 	_slide_dir = horiz.normalized()
-	_slide_speed = minf(maxf(SLIDE_SPEED * speed_scale, horiz.length() + SLIDE_BOOST), SLIDE_MAX_SPEED * speed_scale)
+	var slide_scale := speed_scale * world.rules.move_mult(self)
+	_slide_speed = minf(maxf(SLIDE_SPEED * slide_scale, horiz.length() + SLIDE_BOOST), SLIDE_MAX_SPEED * slide_scale)
 	_cancel_reload()
 	Sfx.play(&"slide", null if mode == Mode.LOCAL else global_position, -4.0 if mode == Mode.LOCAL else 0.0)
 
@@ -902,7 +908,7 @@ func _slide_step(delta: float, on_floor: bool, wish: Vector3) -> Vector3:
 		var n := get_floor_normal()
 		downhill = Vector3(n.x, 0.0, n.z).dot(_slide_dir)
 		_slide_speed += downhill * GRAVITY * 0.9 * delta - SLIDE_FRICTION * delta
-	_slide_speed = minf(_slide_speed, SLIDE_MAX_SPEED * speed_scale)
+	_slide_speed = minf(_slide_speed, SLIDE_MAX_SPEED * speed_scale * world.rules.move_mult(self))
 	if wish.length_squared() > 0.01:
 		var turn := _slide_dir.signed_angle_to(wish, Vector3.UP)
 		_slide_dir = _slide_dir.rotated(Vector3.UP, clampf(turn, -SLIDE_STEER * delta, SLIDE_STEER * delta))

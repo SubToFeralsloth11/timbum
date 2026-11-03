@@ -103,7 +103,7 @@ class Compass extends Control:
 
 
 ## Small code-drawn icon for HUD chips and callouts: "frag", "tactical", "hook", "kill", "head",
-## "streak", "info".
+## "streak", "flag", "info".
 class HudIcon extends Control:
 	var kind := ""
 	var color := Color.WHITE
@@ -140,6 +140,9 @@ class HudIcon extends Control:
 					var a := -PI * 0.5 + i * TAU / 10.0
 					pts.append(c + Vector2(cos(a), sin(a)) * (r if i % 2 == 0 else r * 0.45))
 				draw_colored_polygon(pts, color)
+			"flag":
+				draw_line(c + Vector2(-r * 0.6, -r), c + Vector2(-r * 0.6, r), Color(0.92, 0.92, 0.95), 2.5)
+				draw_colored_polygon(PackedVector2Array([c + Vector2(-r * 0.5, -r), c + Vector2(r, -r * 0.55), c + Vector2(-r * 0.5, -r * 0.1)]), color)
 			_:
 				draw_colored_polygon(PackedVector2Array([c + Vector2(0, -r * 0.8), c + Vector2(r * 0.8, 0), c + Vector2(0, r * 0.8), c + Vector2(-r * 0.8, 0)]), color)
 
@@ -220,6 +223,9 @@ var _grapple_bar: ProgressBar
 var _team_names: Array[Label] = []
 var _team_bars: Array[ProgressBar] = []
 var _team_counts: Array[Label] = []
+## Per team, the mode's state word after the count (MatchMode.hud_team_status: Capture the Flag's
+## flags); empty in the other modes (it stays visible: a GridContainer skips hidden cells).
+var _team_status: Array[Label] = []
 ## Colour mode the HUD's team colours were last drawn in (Palette.mode()).
 var _palette_mode := -1
 var _hook_box: Control
@@ -449,6 +455,7 @@ func _refresh_palette() -> void:
 		_team_names[t].add_theme_color_override("font_color", c)
 		(_team_bars[t].get_theme_stylebox("fill") as StyleBoxFlat).bg_color = c
 		_team_counts[t].add_theme_color_override("font_color", c.lightened(0.2))
+		_team_status[t].add_theme_color_override("font_color", c.lightened(0.35))
 	_shield_label.add_theme_color_override("font_color", Palette.color("shield"))
 	(_shield_bar.get_theme_stylebox("fill") as StyleBoxFlat).bg_color = Palette.color("shield")
 	_scores_dirty = true
@@ -529,7 +536,7 @@ func _build_top() -> void:
 	race.add_child(_lead_bar)
 	# Team modes replace the race with one bar per team (what it measures is the mode's).
 	var teams := GridContainer.new()
-	teams.columns = 3
+	teams.columns = 4
 	teams.add_theme_constant_override("h_separation", 8)
 	teams.add_theme_constant_override("v_separation", 3)
 	v.add_child(teams)
@@ -545,6 +552,11 @@ func _build_top() -> void:
 		count.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		teams.add_child(count)
 		_team_counts.append(count)
+		var status := _label("", 13, Color.WHITE, true)
+		# A fixed width in modes that use it, so the card doesn't jitter as the words change.
+		status.custom_minimum_size.x = 0 if world.rules.hud_team_status(t).is_empty() else 150
+		teams.add_child(status)
+		_team_status.append(status)
 	var team_mode := Teams.is_team_mode()
 	race.visible = not team_mode
 	teams.visible = team_mode
@@ -1502,6 +1514,8 @@ func _update_mode_hud() -> void:
 	for i in mini(2, bars.size()):
 		_team_bars[i].value = float(bars[i][0])
 		_team_counts[i].text = str(bars[i][1])
+	for t in 2:
+		_team_status[t].text = world.rules.hud_team_status(t)
 	# Mode lines can count down (Infected's start), so they follow every frame; same text is a no-op.
 	_goal_label.text = world.rules.hud_goal()
 	_rank_label.text = world.rules.hud_rank()
@@ -1622,12 +1636,15 @@ func announce(text: String) -> void:
 ## Adds a rounded banner (icon + bold short text) to the callout stack under the score card: it
 ## pops in, fades after CALLOUT_LIFE seconds, at most CALLOUT_MAX at a time; the same text again
 ## just restarts its timer.
-func callout(text: String, kind := "info") -> void:
+func callout(text: String, kind := "info", tint := Color(0, 0, 0, 0)) -> void:
 	for c in _callouts.get_children():
 		if c.get_meta("text", "") == text and not c.is_queued_for_deletion():
 			c.set_meta("age", 0.15)
 			return
 	var color: Color = {"kill": Color(1, 0.45, 0.4), "head": Color(1, 0.8, 0.3), "streak": Color(1, 0.8, 0.3)}.get(kind, Color(0.55, 0.85, 1.0))
+	# A mode event in its own colour (Capture the Flag: the flag's team colour).
+	if tint.a > 0.0:
+		color = tint
 	var card := PanelContainer.new()
 	card.add_theme_stylebox_override("panel", UITheme.hud_card(0.62, 5, 12, Color(color, 0.55)))
 	card.mouse_filter = Control.MOUSE_FILTER_IGNORE

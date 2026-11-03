@@ -9,14 +9,16 @@ const TIME_LIMITS: Array[int] = [5, 8, 10, 15]
 const ROTATION := "rotation"
 
 ## Last choices this session, shared by both modes. Each mode with its own limit keeps it apart
-## (sent as `kill_limit`): the team score, the Gun Game ladder length, King of the Block's points.
+## (sent as `kill_limit`): the team score, Capture the Flag's captures, the Gun Game ladder length,
+## King of the Block's points.
 ## `streaks`: mode -> killstreaks on, once picked for that mode (until then the mode's default,
 ## Streaks.default_for). A match setup preset (Profile.match_presets) holds a copy of it.
 static var _choice := default_choice()
-const MODE_IDS: Array[String] = ["ffa", "tdm", "gungame", "koth", "infected", "tactical"]
+const MODE_IDS: Array[String] = ["ffa", "tdm", "ctf", "gungame", "koth", "infected", "tactical"]
 const MODE_HINTS := {
 	"ffa": "Bots fill every empty slot up to the player count.",
 	"tdm": "Two teams, bots fill both evenly. The kill limit is the team score; friendly fire is off.",
+	"ctf": "Walk over the enemy flag to take it, then onto your own stand while your flag is home to score. Carriers are slower and can't grapple; a dropped flag goes home after 20 s or when its team touches it.",
 	"gungame": "Everyone climbs the same ladder of guns, one step per kill, and finishes on the knife. A knife kill also knocks the victim down a step. No grenades; Rocket Party and Snipers Only are off.",
 	"koth": "A glowing zone moves every minute (10 s warning). Stand in it alone for a point a second; two or more contest it. First to the score limit wins.",
 	"infected": "10 s in, one player turns Infected: melee only (their own melee weapon), faster, tougher. Everyone they kill turns too. Survivors win if any are left at the end. Rocket Party and Snipers Only are off.",
@@ -26,13 +28,14 @@ const MODE_HINTS := {
 const MODE_TAGS := {
 	"ffa": "Everyone for themselves",
 	"tdm": "Two teams, team kills count",
+	"ctf": "Steal their flag, bring it home",
 	"gungame": "A new gun with every kill",
 	"koth": "Hold the moving zone alone",
 	"infected": "Outlast the spreading horde",
 	"tactical": "25 v 25, plan, one life",
 }
 const MODE_COLORS := {
-	"ffa": Color("ff8a4c"), "tdm": Color("4fa3ff"), "gungame": Color("ffc531"),
+	"ffa": Color("ff8a4c"), "tdm": Color("4fa3ff"), "ctf": Color("ff5d73"), "gungame": Color("ffc531"),
 	"koth": Color("c58bff"), "infected": Color("7be05a"), "tactical": Color("9fb3c8"),
 }
 
@@ -61,6 +64,10 @@ class ModeIcon extends Control:
 			"tdm":
 				draw_colored_polygon(PackedVector2Array([c + Vector2(-9, -11), c + Vector2(-1, 3), c + Vector2(-17, 3)]), color)
 				draw_rect(Rect2(c + Vector2(2, -6), Vector2(14, 14)), Color("ff8a4c"))
+			"ctf":
+				draw_line(c + Vector2(-9, -13), c + Vector2(-9, 13), Color(0.92, 0.92, 0.95), w, true)
+				draw_colored_polygon(PackedVector2Array([c + Vector2(-8, -13), c + Vector2(13, -6), c + Vector2(-8, 1)]), color)
+				draw_rect(Rect2(c + Vector2(-14, 11), Vector2(10, 3)), Color(0.92, 0.92, 0.95))
 			"gungame":
 				for i in 3:
 					draw_rect(Rect2(c + Vector2(-13 + i * 9, 8 - i * 7), Vector2(7, 6 + i * 7)), color)
@@ -107,6 +114,7 @@ var _kill_row: HBoxContainer
 var _team_kill_row: HBoxContainer
 var _ladder_row: HBoxContainer
 var _koth_row: HBoxContainer
+var _ctf_row: HBoxContainer
 var _time_row: HBoxContainer
 var _mutator_row: HBoxContainer
 var _streak_row: HBoxContainer
@@ -140,8 +148,9 @@ func _init(host_mode: bool) -> void:
 ## The setup screen's starting choices (also what a preset's missing or invalid fields fall back to).
 static func default_choice() -> Dictionary:
 	return {"mode": "ffa", "map": ROTATION, "bots_fill": 8, "difficulty": 1, "kill_limit": 20,
-		"team_kill_limit": TeamDeathmatch.DEFAULT_KILL_LIMIT, "ladder": GunGame.max_length(),
-		"koth_limit": KingOfTheBlock.DEFAULT_SCORE_LIMIT, "time_minutes": 8, "mutators": true, "link": Net.Link.DIRECT,
+		"team_kill_limit": TeamDeathmatch.DEFAULT_KILL_LIMIT, "ctf_limit": CaptureTheFlag.DEFAULT_CAPTURES,
+		"ladder": GunGame.max_length(), "koth_limit": KingOfTheBlock.DEFAULT_SCORE_LIMIT, "time_minutes": 8,
+		"mutators": true, "link": Net.Link.DIRECT,
 		"streaks": {}}
 
 
@@ -160,8 +169,8 @@ static func sanitize_choice(raw: Variant) -> Dictionary:
 		out.map = map_id
 	out.bots_fill = clampi(_int(d.get("bots_fill"), out.bots_fill), 2, Data.MAX_PLAYERS)
 	out.difficulty = clampi(_int(d.get("difficulty"), out.difficulty), 0, Data.DIFFICULTY_NAMES.size() - 1)
-	for pair: Array in [["kill_limit", KILL_LIMITS], ["team_kill_limit", TEAM_KILL_LIMITS], ["ladder", GunGame.LENGTHS],
-			["koth_limit", KingOfTheBlock.LIMITS], ["time_minutes", TIME_LIMITS]]:
+	for pair: Array in [["kill_limit", KILL_LIMITS], ["team_kill_limit", TEAM_KILL_LIMITS], ["ctf_limit", CaptureTheFlag.LIMITS],
+			["ladder", GunGame.LENGTHS], ["koth_limit", KingOfTheBlock.LIMITS], ["time_minutes", TIME_LIMITS]]:
 		var v := _int(d.get(pair[0]), -1)
 		if (pair[1] as Array).has(v):
 			out[pair[0]] = v
@@ -297,7 +306,7 @@ func _ready() -> void:
 	_players_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	players_row.add_child(_players_label)
 	_rule(rules, "PLAYERS", players_row)
-	_mode_rule(rules, ["ffa", "tdm", "gungame", "koth", "infected"])
+	_mode_rule(rules, ["ffa", "tdm", "ctf", "gungame", "koth", "infected"])
 	_update_players_label()
 
 	var difficulty_names: Array[String] = []
@@ -319,6 +328,13 @@ func _ready() -> void:
 		func(i: int) -> void: _choice.team_kill_limit = TEAM_KILL_LIMITS[i])
 	_rule(rules, "TEAM KILLS", _team_kill_row)
 	_mode_rule(rules, ["tdm"])
+	var ctf_names: Array[String] = []
+	for k in CaptureTheFlag.LIMITS:
+		ctf_names.append(str(k))
+	_ctf_row = _segmented(ctf_names, CaptureTheFlag.LIMITS.find(_choice.ctf_limit),
+		func(i: int) -> void: _choice.ctf_limit = CaptureTheFlag.LIMITS[i])
+	_rule(rules, "CAPTURES", _ctf_row)
+	_mode_rule(rules, ["ctf"])
 	var ladder_names: Array[String] = []
 	for n in GunGame.LENGTHS:
 		ladder_names.append("%d" % (n - 1) if n < GunGame.max_length() else "ALL %d" % (n - 1))
@@ -343,7 +359,7 @@ func _ready() -> void:
 	_mutator_row = _segmented(mutator_names, 0 if _choice.mutators else 1,
 		func(i: int) -> void: _choice.mutators = i == 0)
 	_rule(rules, "MUTATORS", _mutator_row)
-	_mode_rule(rules, ["ffa", "tdm", "gungame", "koth", "infected"])
+	_mode_rule(rules, ["ffa", "tdm", "ctf", "gungame", "koth", "infected"])
 	_streak_row = _segmented(["ON", "OFF"] as Array[String], 0 if _streaks_on() else 1,
 		func(i: int) -> void: _choice.streaks[_choice.mode] = i == 0)
 	_rule(rules, "STREAKS", _streak_row)
@@ -454,6 +470,7 @@ func _show_choice() -> void:
 	_pick_segment(_difficulty_row, _choice.difficulty)
 	_pick_segment(_kill_row, KILL_LIMITS.find(_choice.kill_limit))
 	_pick_segment(_team_kill_row, TEAM_KILL_LIMITS.find(_choice.team_kill_limit))
+	_pick_segment(_ctf_row, CaptureTheFlag.LIMITS.find(_choice.ctf_limit))
 	_pick_segment(_ladder_row, GunGame.LENGTHS.find(_choice.ladder))
 	_pick_segment(_koth_row, KingOfTheBlock.LIMITS.find(_choice.koth_limit))
 	_pick_segment(_time_row, TIME_LIMITS.find(_choice.time_minutes))
@@ -871,6 +888,8 @@ static func describe_config(cfg: Dictionary) -> Array:
 			rows.append(["KILL LIMIT", "%d kills" % int(cfg.kill_limit)])
 		"tdm":
 			rows.append(["TEAM KILLS", "%d team kills" % int(cfg.kill_limit)])
+		"ctf":
+			rows.append(["CAPTURES", "%d capture%s" % [int(cfg.kill_limit), "" if int(cfg.kill_limit) == 1 else "s"]])
 		"gungame":
 			rows.append(["LADDER", "%d guns" % (int(cfg.kill_limit) - 1)])
 		"koth":
@@ -889,7 +908,8 @@ static func config_from(choice: Dictionary) -> Dictionary:
 		"map": choice.map,
 		"bots_fill": choice.bots_fill,
 		"difficulty": choice.difficulty,
-		"kill_limit": {"tdm": choice.team_kill_limit, "gungame": choice.ladder, "koth": choice.koth_limit}.get(choice.mode, choice.kill_limit),
+		"kill_limit": {"tdm": choice.team_kill_limit, "ctf": choice.ctf_limit, "gungame": choice.ladder,
+			"koth": choice.koth_limit}.get(choice.mode, choice.kill_limit),
 		"time_limit": int(choice.time_minutes) * 60,
 		"mutators": choice.mutators,
 		"streaks": bool(choice.streaks.get(choice.mode, Streaks.default_for(choice.mode))),

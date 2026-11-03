@@ -1391,7 +1391,12 @@ func _s_scores(all: Dictionary) -> void:
 	_welcomed = true
 	hud.refresh_scores()
 	# Every kill ends with a scores update (after its _s_killed): see whether it completed anything.
-	# Practice sessions count nothing, so they have nothing to toast.
+	check_live_feats()
+
+
+## Toasts the challenges and achievements the match so far completes (after a kill, or a mode
+## objective such as a flag capture). Practice sessions count nothing, so they have nothing to toast.
+func check_live_feats() -> void:
 	if not match_over and scores.has(my_id()) and not rules.is_practice():
 		_toast_feats(Profile.preview_feats(my_facts.result(scores[my_id()], my_weapon_stats, 0, scores.size(), false)))
 

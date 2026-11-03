@@ -28,10 +28,22 @@ func _init() -> void:
 
 # ================================================================ server
 
+## Signed metres from the map's middle along its longer axis (x on a square map): ALPHA's half is
+## below 0, BRAVO's above.
+static func along(info: MapInfo, pos: Vector3) -> float:
+	var centre := info.bounds.get_center()
+	return (pos.x - centre.x) if info.bounds.size.x >= info.bounds.size.z else (pos.z - centre.z)
+
+
+## Spawn ranking bonus for a spawn on the team's own half (Capture the Flag raises it so a team
+## always spawns on its side).
+func own_side_bonus() -> float:
+	return OWN_SIDE_BONUS
+
+
 func spawn_point(eid: int, team: int) -> Array:
 	var space := world.get_world_3d().direct_space_state
 	var centre := world.map_info.bounds.get_center()
-	var size := world.map_info.bounds.size
 	var ranked: Array = []
 	for s: Vector3 in world.map_info.spawns:
 		var enemy := INF
@@ -50,10 +62,9 @@ func spawn_point(eid: int, team: int) -> Array:
 				var q := PhysicsRayQueryParameters3D.create(s + Vector3.UP * 1.6, p.global_position + Vector3.UP * 1.6, Player.MASK_WORLD)
 				seen = space.intersect_ray(q).is_empty()
 		# ALPHA's half is the low end of the map's longer axis, BRAVO's the high end.
-		var along := (s.x - centre.x) if size.x >= size.z else (s.z - centre.z)
 		var score_s := minf(enemy, ENEMY_CAP)
-		if (along < 0.0) == (team == 0):
-			score_s += OWN_SIDE_BONUS
+		if (along(world.map_info, s) < 0.0) == (team == 0):
+			score_s += own_side_bonus()
 		if mate < MATE_RANGE:
 			score_s += MATE_BONUS
 		# Never where an enemy can see it or right on top of one, nor inside a teammate.

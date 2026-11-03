@@ -31,6 +31,10 @@ const JUMP_PADS := [
 ]
 
 
+## Capture the Flag stands (MapKit.flag_stands): the west and east islands.
+const FLAG_STANDS := [Vector3i(10, 20, 29), Vector3i(51, 20, 32)]
+
+
 static func generate(g: VoxelGrid, info: MapInfo) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = SEED
@@ -85,6 +89,7 @@ static func generate(g: VoxelGrid, info: MapInfo) -> void:
 	Kit.pickup(g, hm, info, "ammo", 51, 51)
 	Kit.pickup(g, hm, info, "health", 10, 51)
 	Kit.jump_pads(g, info, JUMP_PADS)
+	Kit.flag_stands(g, info, FLAG_STANDS)
 
 
 ## Floating island: flat grass top at the floor height, ragged rim, and a

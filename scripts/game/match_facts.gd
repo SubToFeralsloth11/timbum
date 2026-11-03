@@ -17,11 +17,16 @@ const GRAPPLE_GRACE := 1.0
 const MOVE_KEYS: Array[String] = ["slide_kills", "prone_kills", "grapple_kills", "air_kills", "long_kills"]
 ## Tally counters that are a per-match best rather than a count.
 const MAX_KEYS: Array[String] = ["best_streak", "best_multi"]
+## Mode objective counters the mode controller adds for the local player as the server announces
+## them (on_objective): Capture the Flag's captures and returns of the player's own flag.
+const OBJECTIVE_KEYS: Array[String] = ["captures", "flag_returns"]
 
 ## MOVE_KEYS -> kills this match.
 var moves := {}
 ## Most kills inside World.MULTI_KILL_WINDOW of each other.
 var best_multi := 0
+## OBJECTIVE_KEYS -> count this match.
+var objectives := {}
 var _slide_at := -100.0
 var _grapple_at := -100.0
 
@@ -29,6 +34,14 @@ var _grapple_at := -100.0
 func _init() -> void:
 	for k: String in MOVE_KEYS:
 		moves[k] = 0
+	for k: String in OBJECTIVE_KEYS:
+		objectives[k] = 0
+
+
+## The local player scored a mode objective (`key`: one of OBJECTIVE_KEYS).
+func on_objective(key: String) -> void:
+	if objectives.has(key):
+		objectives[key] += 1
 
 
 ## Every frame for the local player: remembers when they last slid or grappled.
@@ -72,14 +85,14 @@ func result(row: Dictionary, weapons: Dictionary, placement: int, players: int, 
 		"kills": int(row.get("kills", 0)), "deaths": int(row.get("deaths", 0)), "headshots": int(row.get("headshots", 0)),
 		"best_streak": int(row.get("best_streak", 0)), "placement": placement, "players": players, "won": won,
 		"draw": draw, "weapons": weapons, "mode": str(Net.config.mode), "map": Net.current_map,
-		"moves": moves.duplicate(), "best_multi": best_multi, "medals": medals,
+		"moves": moves.duplicate(), "best_multi": best_multi, "medals": medals, "objectives": objectives.duplicate(),
 	}
 
 
 ## Named counters of one match result (see result()), only those above 0:
 ## kills, headshots, deaths, matches, wins (a win needs someone to beat, as in record_match),
 ## best_streak / best_multi (per-match bests, MAX_KEYS), w_kills:<source> / w_heads:<source> (per
-## weapon, grenade and Bomber), the MOVE_KEYS, mode_kills|mode_matches|wins_mode:<mode>,
+## weapon, grenade and Bomber), the MOVE_KEYS and OBJECTIVE_KEYS, mode_kills|mode_matches|wins_mode:<mode>,
 ## map_kills|map_matches|wins_map:<map>, and medal:<id> per medal plus medals (their count).
 static func tally(result: Dictionary) -> Dictionary:
 	var t := {}
@@ -100,6 +113,11 @@ static func tally(result: Dictionary) -> Dictionary:
 	if typeof(moves) == TYPE_DICTIONARY:
 		for k: String in MOVE_KEYS:
 			var v: Variant = (moves as Dictionary).get(k, 0)
+			_put(t, k, int(v) if typeof(v) in [TYPE_INT, TYPE_FLOAT] else 0)
+	var objectives: Variant = result.get("objectives", {})
+	if typeof(objectives) == TYPE_DICTIONARY:
+		for k: String in OBJECTIVE_KEYS:
+			var v: Variant = (objectives as Dictionary).get(k, 0)
 			_put(t, k, int(v) if typeof(v) in [TYPE_INT, TYPE_FLOAT] else 0)
 	var mode := str(result.get("mode", ""))
 	if Data.MODES.has(mode):

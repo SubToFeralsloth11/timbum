@@ -40,7 +40,7 @@ const BOMBER_SPACING := 4.0
 const BOMBER_RADIUS := 5.0
 const BOMBER_DAMAGE := 140.0
 ## Modes with killstreaks on unless match setup says otherwise.
-const DEFAULT_MODES: Array[String] = ["ffa", "tdm", "koth"]
+const DEFAULT_MODES: Array[String] = ["ffa", "tdm", "ctf", "koth"]
 const REWARDS := {
 	"radar": {"name": "RADAR SWEEP", "at": RADAR_AT, "color": Color(0.45, 1.0, 0.55),
 		"desc": "Enemies on your compass for 8 s"},

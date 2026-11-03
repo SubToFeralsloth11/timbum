@@ -714,10 +714,10 @@ func _add_feats(tally: Dictionary) -> void:
 			feats[key] = int(feats.get(key, 0)) + int(tally[key])
 
 
-## Keys feats keeps: MatchFacts.MOVE_KEYS, best_multi, medals, challenges_done, and
+## Keys feats keeps: MatchFacts.MOVE_KEYS and OBJECTIVE_KEYS, best_multi, medals, challenges_done, and
 ## mode_kills|mode_matches|wins_mode:<mode>, map_kills|map_matches|wins_map:<map>, medal:<id>.
 static func _is_feat_key(key: String) -> bool:
-	if MatchFacts.MOVE_KEYS.has(key) or key in ["best_multi", "medals", "challenges_done"]:
+	if MatchFacts.MOVE_KEYS.has(key) or MatchFacts.OBJECTIVE_KEYS.has(key) or key in ["best_multi", "medals", "challenges_done"]:
 		return true
 	var parts := key.split(":")
 	if parts.size() != 2:

@@ -50,7 +50,8 @@ const GAME_ID := "timbum"
 ##     _rpc_request_map / _rpc_map_chunk download).
 ## 24: Rail Cube, Cube Lobber, Pixel Scythe (new weapon ids and indices, "cube_lobber" projectiles,
 ##     Player.FLAG_CHARGE in the state flags, several hit targets per Rail Cube shot).
-const PROTOCOL_VERSION := 24
+## 25: Capture the Flag (config.mode "ctf", the CaptureTheFlag node's _s_flag / _s_flags RPCs).
+const PROTOCOL_VERSION := 25
 const CONNECT_TIMEOUT := 8.0
 ## A room-code join first tries a direct (NAT punch-through) link this long, then the relay.
 const NAT_CONNECT_TIMEOUT := 6.0
@@ -70,7 +71,7 @@ const MAX_SPECTATORS := 4
 const MAP_CHUNK := 1000
 
 const DEFAULT_CONFIG := {
-	## A Data.MODES id: "ffa" (deathmatch), "tdm", "gungame", "koth", "infected" or "tactical"
+	## A Data.MODES id: "ffa" (deathmatch), "tdm", "ctf", "gungame", "koth", "infected" or "tactical"
 	## (see MatchMode).
 	"mode": "ffa",
 	"map": "rotation",
@@ -722,10 +723,10 @@ static func sanitize_config(cfg: Dictionary) -> Dictionary:
 	out.map = map_id if (map_id == "rotation" or Data.MAP_ROTATION.has(map_id) or map_id == Data.RANGE_MAP or CustomMaps.is_custom(map_id)) else "rotation"
 	out.bots_fill = clampi(int(cfg.get("bots_fill", out.bots_fill)), 1, Data.MAX_PLAYERS)
 	out.difficulty = clampi(int(cfg.get("difficulty", out.difficulty)), 0, 2)
-	# `kill_limit` is each mode's limit: kills (Deathmatch), the team score (Team Deathmatch), the
-	# ladder length (Gun Game) or the points to win (King of the Block).
-	var default_limit: int = {"tdm": TeamDeathmatch.DEFAULT_KILL_LIMIT, "gungame": GunGame.max_length(),
-		"koth": KingOfTheBlock.DEFAULT_SCORE_LIMIT}.get(out.mode, out.kill_limit)
+	# `kill_limit` is each mode's limit: kills (Deathmatch), the team score (Team Deathmatch, and
+	# Capture the Flag's captures), the ladder length (Gun Game) or the points to win (King of the Block).
+	var default_limit: int = {"tdm": TeamDeathmatch.DEFAULT_KILL_LIMIT, "ctf": CaptureTheFlag.DEFAULT_CAPTURES,
+		"gungame": GunGame.max_length(), "koth": KingOfTheBlock.DEFAULT_SCORE_LIMIT}.get(out.mode, out.kill_limit)
 	out.kill_limit = clampi(int(cfg.get("kill_limit", default_limit)), 1, 200)
 	if out.mode == "gungame":
 		out.kill_limit = clampi(out.kill_limit, 2, GunGame.max_length())

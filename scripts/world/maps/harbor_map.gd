@@ -39,6 +39,10 @@ const JUMP_PADS := [
 ]
 
 
+## Capture the Flag stands (MapKit.flag_stands): the west quay and the east container yard.
+const FLAG_STANDS := [Vector3i(13, 5, 38), Vector3i(51, 5, 33)]
+
+
 static func generate(g: VoxelGrid, info: MapInfo) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = SEED
@@ -84,6 +88,7 @@ static func generate(g: VoxelGrid, info: MapInfo) -> void:
 	Kit.pickup(g, hm, info, "ammo", 11, 14)
 	Kit.pickup(g, hm, info, "ammo", 61, 40)
 	Kit.jump_pads(g, info, JUMP_PADS)
+	Kit.flag_stands(g, info, FLAG_STANDS)
 
 
 static func _is_water(x: int, z: int) -> bool:

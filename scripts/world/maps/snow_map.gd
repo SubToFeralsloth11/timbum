@@ -26,6 +26,10 @@ const JUMP_PADS := [
 ]
 
 
+## Capture the Flag stands (MapKit.flag_stands): in the snow in front of the west and east forts.
+const FLAG_STANDS := [Vector3i(13, 5, 40), Vector3i(51, 5, 40)]
+
+
 static func generate(g: VoxelGrid, info: MapInfo) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = SEED
@@ -82,6 +86,7 @@ static func generate(g: VoxelGrid, info: MapInfo) -> void:
 	Kit.pickup(g, hm, info, "ammo", 44, 41, F + 3)
 	Kit.pickup(g, hm, info, "grenade", 31, 39)
 	Kit.jump_pads(g, info, JUMP_PADS)
+	Kit.flag_stands(g, info, FLAG_STANDS)
 
 
 static func _in_pond(x: int, z: int) -> bool:

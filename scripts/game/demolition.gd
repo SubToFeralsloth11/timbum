@@ -129,7 +129,7 @@ func busy() -> bool:
 ## blown away, leaving air over air; the guarantee is only that each column keeps its lowest
 ## floor, so whatever is destroyed above, a player falls onto it rather than into the kill plane
 ## (a column with no such floor, an open pit, is locked whole and stays as built).
-## Also the floor around every spawn and both ends of every jump pad.
+## Also the floor around every spawn, both ends of every jump pad and Capture the Flag's stands.
 func _lock_cells() -> void:
 	var s := _grid.size
 	_locked.resize(_grid.blocks.size())
@@ -150,6 +150,10 @@ func _lock_cells() -> void:
 	for m: Dictionary in world.map_info.marks.get("jump_pads", []):
 		_lock_floor(m.pos, PAD_GUARD)
 		_lock_floor(m.target, PAD_GUARD)
+	# Capture the Flag's stands keep their floor too (a stand over a hole couldn't be reached).
+	if str(Net.config.mode) == "ctf":
+		for stand: Vector3 in CaptureTheFlag.flag_stands(world.map_info):
+			_lock_floor(stand, PAD_GUARD)
 
 
 ## Locks the two cells under the feet position `feet` (world space) and those around them.

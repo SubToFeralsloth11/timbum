@@ -54,6 +54,10 @@ const JUMP_PADS := [
 ]
 
 
+## Capture the Flag stands (MapKit.flag_stands): on the west and east middle roofs.
+const FLAG_STANDS := [Vector3i(12, 22, 32), Vector3i(51, 28, 32)]
+
+
 static func generate(g: VoxelGrid, info: MapInfo) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = SEED
@@ -93,6 +97,7 @@ static func generate(g: VoxelGrid, info: MapInfo) -> void:
 	Kit.pickup(g, hm, info, "ammo", 55, 11)
 	Kit.pickup(g, hm, info, "ammo", 10, 55)
 	Kit.jump_pads(g, info, JUMP_PADS)
+	Kit.flag_stands(g, info, FLAG_STANDS)
 
 
 ## Asphalt with lane dashes, kerbs, parked cars and street lamps.

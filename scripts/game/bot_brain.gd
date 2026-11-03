@@ -346,9 +346,11 @@ func _perceive() -> void:
 		if not _can_see(other, not was_attacker and other != target):
 			continue
 		# Prefer close, weak, and whoever is already shooting us; lean toward whoever is ahead on
-		# kills, away from players other bots are already busy with.
+		# kills, away from players other bots are already busy with, and toward whoever the mode
+		# wants hunted (Capture the Flag: the enemy carrying our flag).
 		var score := d + other.health * 0.08 - (15.0 if was_attacker else 0.0) - (6.0 if other == target else 0.0)
 		score += _crowd_against(other) * CROWD_PENALTY - _lead_of(other) * LEADER_BIAS_PER_KILL
+		score -= p.world.rules.bot_target_bias(p, other)
 		if score < best_score:
 			best_score = score
 			best = other
@@ -1035,7 +1037,9 @@ func _maybe_slide(delta: float) -> void:
 ## toward `toward`. Once a point is chosen the bot turns onto it and fires when lined up.
 ## Returns true while it is turning onto a grapple point (the caller should not steer the view).
 func _maybe_grapple(delta: float, toward: Vector3) -> bool:
-	if p.world.tactical != null:
+	# No hook in Tactical, nor when the mode takes it away (Capture the Flag's carrier).
+	if p.world.tactical != null or not p.world.rules.grapple_allowed(p):
+		_grapple_aim = NO_POS
 		return false
 	if p.grappling:
 		_grapple_aim = NO_POS
