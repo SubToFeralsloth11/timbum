@@ -653,8 +653,11 @@ func _close_flyout(refocus: bool) -> void:
 		_play_button.grab_focus()
 
 
-## Focus for the home screen: the control used last (inside the PLAY panel too), else PLAY.
+## Focus for the home screen: the control used last (inside the PLAY panel too), else PLAY. A
+## deferred call that lands after an overlay opened again leaves the focus to the overlay.
 func _focus_home() -> void:
+	if whats_new != null or tutorial_offer != null:
+		return
 	if _home_focus != null and _home_focus.is_visible_in_tree() and _home_focus.focus_mode == Control.FOCUS_ALL:
 		_home_focus.grab_focus()
 	else:
