@@ -831,10 +831,12 @@ func load_map(map_id: String, variety := {}) -> void:
 		last_error = "The custom map %s is missing or can't be played; playing Village." % CustomMaps.name_of(map_id)
 		status.emit(last_error)
 		map_id = "village"
-	elif CustomMaps.is_custom(map_id) and str(config.mode) == "ctf" and not CustomMaps.ctf_problems(CustomMaps.active.map).is_empty():
-		last_error = "The custom map %s has no flag stands for Capture the Flag; playing Village." % CustomMaps.name_of(map_id)
-		status.emit(last_error)
-		map_id = "village"
+	elif CustomMaps.is_custom(map_id) and str(config.mode) == "ctf":
+		var problems := CustomMaps.ctf_problems(CustomMaps.active.map)
+		if not problems.is_empty():
+			last_error = "Capture the Flag can't be played on the custom map %s: %s Playing Village." % [CustomMaps.name_of(map_id), problems[0]]
+			status.emit(last_error)
+			map_id = "village"
 	current_map = map_id
 	if variety.is_empty():
 		variety = _roll_match_variety(config.mutator)

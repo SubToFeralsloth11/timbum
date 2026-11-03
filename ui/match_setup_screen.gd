@@ -112,7 +112,7 @@ var _map_group: ButtonGroup
 var _map_grid: GridContainer
 ## The CUSTOM heading and cards (saved playable Map Editor maps, _refresh_custom_maps).
 var _custom_head: Label
-## Under CUSTOM in Capture the Flag: why some custom maps are greyed out (no flag stands).
+## Under CUSTOM in Capture the Flag: why some custom maps are greyed out (CustomMaps.ctf_problems).
 var _custom_hint: Label
 var _custom_grid: GridContainer
 var _difficulty_row: HBoxContainer
@@ -472,7 +472,8 @@ func on_shown() -> void:
 
 
 ## (Re)builds the CUSTOM cards from the saved playable maps (CustomMaps.playable), each with its
-## preview and whether Capture the Flag can be played on it (`ctf_ok` meta, CustomMaps.ctf_problems);
+## preview, name (`title` meta) and why Capture the Flag can't be played on it (`ctf_why` meta, the
+## first of CustomMaps.ctf_problems, "" when it can);
 ## hidden when there are none or in Tactical. A picked custom map that is gone falls back to the
 ## rotation.
 func _refresh_custom_maps() -> void:
@@ -492,33 +493,42 @@ func _refresh_custom_maps() -> void:
 			var m := CustomMaps.load_map(names[i])
 			var g: VoxelGrid = m.grid
 			var ctf := CustomMaps.ctf_problems(m)
-			_add_map_card(_custom_grid, _map_group, ids[i], names[i], "Custom map · %d x %d · %d spawns · %s%s" % [g.size.x, g.size.z,
-				m.spawns.size(), str(m.time_of_day), "" if ctf.is_empty() else " · no flag stands for Capture the Flag"])
+			_add_map_card(_custom_grid, _map_group, ids[i], names[i], "Custom map · %d x %d · %d spawns · %s" % [g.size.x, g.size.z,
+				m.spawns.size(), str(m.time_of_day)])
 			var card: Button = _custom_grid.get_child(_custom_grid.get_child_count() - 1)
-			card.set_meta(&"ctf_ok", ctf.is_empty())
+			card.set_meta(&"base_desc", card.get_meta(&"desc"))
+			card.set_meta(&"title", names[i])
+			card.set_meta(&"ctf_why", "" if ctf.is_empty() else ctf[0])
 	if CustomMaps.is_custom(_choice.map) and not ids.has(_choice.map):
 		_choice.map = ROTATION
 	_custom_head.visible = not ids.is_empty() and _choice.mode != "tactical"
 	_apply_custom_ctf()
 
 
-## Capture the Flag greys out the custom maps it can't be played on (no flag stands, see
-## CustomMaps.ctf_problems) with a hint under CUSTOM, and moves a pick of one to the rotation.
+## Capture the Flag greys out the custom maps it can't be played on (CustomMaps.ctf_problems:
+## the first problem is the card's tooltip and goes into the hint under CUSTOM and, in this
+## mode only, the map's description), and moves a pick of one to the rotation.
 func _apply_custom_ctf() -> void:
 	var ctf: bool = _choice.mode == "ctf"
-	var blocked := 0
+	var blocked: Array[Button] = []
 	for b: Node in _custom_grid.get_children():
 		var card := b as Button
-		var off := ctf and not bool(card.get_meta(&"ctf_ok", true))
+		var why := str(card.get_meta(&"ctf_why", ""))
+		var off := ctf and not why.is_empty()
 		card.disabled = off
 		card.modulate = Color(1, 1, 1, 0.45) if off else Color.WHITE
-		card.tooltip_text = "Place two flag stands in the Map Editor (FLAGS tool) to play Capture the Flag here." if off else ""
+		card.tooltip_text = "Not for Capture the Flag: %s Fix it in the Map Editor." % why if off else ""
+		card.set_meta(&"desc", str(card.get_meta(&"base_desc")) + (" · not for Capture the Flag" if off else ""))
 		if off:
-			blocked += 1
+			blocked.append(card)
 			if _choice.map == card.get_meta(&"map_id"):
 				_choice.map = ROTATION
-	_custom_hint.text = "Greyed-out maps have no flag stands: place them in the Map Editor with the FLAGS tool."
-	_custom_hint.visible = blocked > 0 and _custom_head.visible
+	if blocked.size() == 1:
+		_custom_hint.text = "%s can't host Capture the Flag: %s" % [blocked[0].get_meta(&"title"), blocked[0].get_meta(&"ctf_why")]
+	elif blocked.size() > 1:
+		_custom_hint.text = "%d greyed-out maps can't host Capture the Flag (point at one for why). %s: %s" % [blocked.size(),
+			blocked[0].get_meta(&"title"), blocked[0].get_meta(&"ctf_why")]
+	_custom_hint.visible = not blocked.is_empty() and _custom_head.visible
 
 
 ## Sets every control to `_choice`.
