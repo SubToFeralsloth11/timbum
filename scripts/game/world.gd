@@ -612,9 +612,11 @@ func _make_bot_info() -> Dictionary:
 	}
 
 
-## A random cosmetic id from a Data catalog for a bot, never a Dev Pack (`dev: true`) piece.
+## A random cosmetic id from a Data catalog for a bot, never a Dev Pack (`dev: true`) or season pass
+## (`season: true`) piece.
 func _bot_pick(catalog: Dictionary) -> String:
-	return catalog.keys().filter(func(id: String) -> bool: return not catalog[id].get("dev", false)).pick_random()
+	return catalog.keys().filter(func(id: String) -> bool:
+		return not catalog[id].get("dev", false) and not catalog[id].get("season", false)).pick_random()
 
 
 ## Picks a spawn far from living enemies (players not on `team`; everyone else in free-for-all),
@@ -1407,13 +1409,14 @@ func check_live_feats() -> void:
 		_toast_feats(Profile.preview_feats(my_facts.result(scores[my_id()], my_weapon_stats, 0, scores.size(), false)))
 
 
-## Toasts each feat ([key, title, text]) not toasted yet this match.
+## Toasts each feat ([key, title, text]) not toasted yet this match; season tiers ("season:<n>")
+## in the season colour.
 func _toast_feats(feats: Array) -> void:
 	for f: Array in feats:
 		if _feats_toasted.has(f[0]):
 			continue
 		_feats_toasted[f[0]] = true
-		hud.feat_toast(str(f[1]), str(f[2]))
+		hud.feat_toast(str(f[1]), str(f[2]), Season.COLOR if str(f[0]).begins_with("season:") else Hud.FEAT_COLOR)
 
 
 @rpc("authority", "call_remote", "unreliable")

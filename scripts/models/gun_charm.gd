@@ -126,14 +126,26 @@ static func mesh_for(id: String) -> ArrayMesh:
 			for p: Vector3 in [Vector3(-0.0105, 0.007, -0.0105), Vector3(0.0105, 0.007, -0.0105), Vector3(-0.0105, 0.007, 0.0105), Vector3(0.0105, 0.007, 0.0105)]:
 				k.box(A, c + p, Vector3(0.005, 0.01, 0.005))
 			k.box(B, c + Vector3(0, -0.004, -0.0135), Vector3(0.006, 0.006, 0.002))
+		"gift":
+			k.box(A, c - Vector3(0, 0.002, 0), Vector3(0.026, 0.022, 0.026))
+			k.box(B, c - Vector3(0, 0.002, 0), Vector3(0.028, 0.024, 0.006))
+			k.box(B, c - Vector3(0, 0.002, 0), Vector3(0.006, 0.024, 0.028))
+			k.box(B, c + Vector3(-0.006, 0.013, 0), Vector3(0.01, 0.007, 0.005), Vector3(0, 0, 0.6))
+			k.box(B, c + Vector3(0.006, 0.013, 0), Vector3(0.01, 0.007, 0.005), Vector3(0, 0, -0.6))
+		"balloon":
+			k.box(A, c + Vector3(0, 0.0, 0), Vector3(0.022, 0.032, 0.022))
+			k.box(A, c + Vector3(0, 0.002, 0), Vector3(0.028, 0.02, 0.028))
+			k.box(A, c + Vector3(0, 0.002, 0), Vector3(0.026, 0.022, 0.026), Vector3(0, 0.785, 0))
+			k.box(A, c + Vector3(0, -0.018, 0), Vector3(0.008, 0.006, 0.008))
+			k.box(B, c + Vector3(-0.006, 0.009, -0.0142), Vector3(0.004, 0.009, 0.001))
 		_:
 			k.box(A, c, Vector3(0.024, 0.024, 0.024))
 	var a: Color = spec.a
 	var b: Color = spec.b
 	var glow := 0.6 if id == "gem" else 0.0
 	_meshes[id] = k.build([
-		Models.flat_material(a, 0.5, 0.3 if id in ["coin", "star", "crown"] else 0.0, glow),
-		Models.flat_material(b, 0.6),
+		Models.flat_material(a, 0.15 if spec.shape == "balloon" else 0.5, 0.3 if id in ["coin", "star", "crown"] else 0.0, glow),
+		Models.flat_material(b, 0.6, 0.6 if spec.shape == "gift" else 0.0),
 		Models.flat_material(Color(0.72, 0.74, 0.78), 0.3, 0.8),
 	])
 	return _meshes[id]

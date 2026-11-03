@@ -39,6 +39,9 @@ const _IRIS := {
 ## Rows from the top of the shin where the boot starts (4 when missing: ankle-high shoes).
 const _BOOT_TOP := {"astronaut": 3, "hazmat": 3, "armor": 3, "pirate": 2, "skier": 3, "firefighter": 3,
 	"cowboy": 3}
+## Season 1 (Block Party) colours: confetti flecks, sprinkles, balloon and gift details.
+const PARTY_COLORS: Array[Color] = [Color("ff3fa4"), Color("2ad8ff"), Color("ffd23a"), Color("7dff4a"),
+	Color("a66bff"), Color("ff8a2a")]
 
 static var _guns: Dictionary = {}
 static var _skin_materials: Dictionary = {}
@@ -281,9 +284,11 @@ static func _attachment_mesh(attachment_id: String) -> ArrayMesh:
 ## 0 flow (molten veins from mask_tex scroll along the gun and throb), 1 pulse (waves of light
 ## race along the mask's grid, shifting between the two colours), 2 aurora (curtains of light
 ## ripple over the base; mask green = stars that twinkle), 3 glitch (rows tear sideways in time
-## steps, colour channels split, blocks flicker). Gun UVs are planar (MeshKit.UV_TILE metres per
-## unit), so the effects keep their scale on every gun. With VIEWMODEL defined (the variant
-## anim_skin_shader(true) builds) the vertex stage squashes depth like Viewmodel.SHADER_CODE.
+## steps, colour channels split, blocks flicker), 4 disco (mirror tiles, mask red = grout, green =
+## each tile's random, catch rainbow spotlights sweeping along the gun and twinkle white). Gun UVs
+## are planar (MeshKit.UV_TILE metres per unit), so the effects keep their scale on every gun.
+## With VIEWMODEL defined (the variant anim_skin_shader(true) builds) the vertex stage squashes
+## depth like Viewmodel.SHADER_CODE.
 const ANIM_SKIN_SHADER := """
 shader_type spatial;
 render_mode cull_back, depth_draw_opaque;
@@ -332,6 +337,17 @@ void fragment() {
 		vec3 col = mix(color_a.rgb, color_b.rgb, 0.5 + 0.5 * sin(uv.x * 2.5 + uv.y * 1.5 + t * 0.5));
 		glow = col * band + vec3(m.g * (0.5 + 0.5 * sin(t * 3.0 + m.r * 40.0)));
 		base = mix(base, col * 0.35, band * 0.6);
+	} else if (anim == 4) {
+		vec2 m = texture(mask_tex, uv).rg;
+		float tile = 1.0 - m.r;
+		float hue = fract(m.g * 0.35 + t * 0.12 + (uv.x - uv.y) * 0.18);
+		vec3 rainbow = clamp(abs(mod(hue * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
+		vec3 tint = mix(rainbow, mix(color_a.rgb, color_b.rgb, 0.5 + 0.5 * sin(t * 0.7 + uv.y * 3.0)), 0.35);
+		float sweep = pow(0.5 + 0.5 * sin((uv.x + uv.y) * 2.4 - t * 2.8), 5.0);
+		float sweep2 = pow(0.5 + 0.5 * sin((uv.x - uv.y) * 1.7 + t * 1.9), 6.0);
+		float twinkle = step(0.94, hash21(floor(uv * 8.0) + vec2(floor(t * 7.0) * 3.1, m.g * 17.0)));
+		glow = (tint * (0.12 + 1.3 * max(sweep, sweep2)) + vec3(twinkle) * 1.4) * tile;
+		base = mix(base, base * tint * 1.4, max(sweep, sweep2) * 0.6 * tile);
 	} else {
 		float step_t = floor(t * 12.0);
 		float row = floor(uv.y * 8.0);
@@ -355,7 +371,7 @@ void fragment() {
 	EMISSION = glow * emission_energy;
 }
 """
-const ANIM_KINDS: Array[String] = ["flow", "pulse", "aurora", "glitch"]
+const ANIM_KINDS: Array[String] = ["flow", "pulse", "aurora", "glitch", "disco"]
 static var _anim_shaders: Array[Shader] = [null, null]
 
 
@@ -404,6 +420,14 @@ static func _anim_skin_material(skin: Dictionary, seed: int) -> ShaderMaterial:
 					if h > 0.975:
 						c = Color(0.85, 0.9, 1.0)
 						m.g = 1.0
+				"disco":
+					# 4 px mirror tiles: silver with a per-tile shade, dark grout between them.
+					var r := _hash(x >> 2, y >> 2, seed + 7)
+					m.g = r
+					c = Color(0.5, 0.53, 0.62).lerp(Color(0.86, 0.88, 0.95), r)
+					if x % 4 == 0 or y % 4 == 0:
+						c = Color(0.09, 0.08, 0.12)
+						m.r = 1.0
 				_:
 					var block := _hash(x >> 2, y >> 2, seed + 9)
 					c = Color(0.07, 0.07, 0.09).lerp(Color(0.2, 0.2, 0.24), block)
@@ -422,8 +446,8 @@ static func _anim_skin_material(skin: Dictionary, seed: int) -> ShaderMaterial:
 	sm.set_shader_parameter("color_b", b)
 	sm.set_shader_parameter("anim", ANIM_KINDS.find(kind))
 	sm.set_shader_parameter("emission_energy", float(skin.glow))
-	sm.set_shader_parameter("metallic", 0.35 if kind == "glitch" else 0.2)
-	sm.set_shader_parameter("roughness", 0.6 if kind == "flow" else 0.4)
+	sm.set_shader_parameter("metallic", 0.35 if kind == "glitch" else (0.75 if kind == "disco" else 0.2))
+	sm.set_shader_parameter("roughness", 0.6 if kind == "flow" else (0.22 if kind == "disco" else 0.4))
 	return sm
 
 
@@ -460,6 +484,9 @@ static func skin_material(skin_id: String) -> Material:
 		"galaxy":
 			m.metallic = 0.3
 			m.roughness = 0.35
+		"bp_giftwrap", "bp_dancefloor":
+			m.metallic = 0.25
+			m.roughness = 0.28
 		_:
 			m.metallic = 0.15
 			m.roughness = 0.55
@@ -861,6 +888,31 @@ static func _skin_image(skin: Dictionary, seed: int) -> Image:
 					c = b
 					if x % 8 == 0 or y % 8 == 0:
 						c = a
+				"confetti":
+					# 2x2 cells; about a quarter hold a fleck, lying flat or standing, in a party colour.
+					var cell := _hash(x >> 1, y >> 1, seed + 3)
+					c = b.lerp(b.lightened(0.12), _value_noise(x, y, N, 4, seed))
+					if cell > 0.74 and ((cell > 0.87 and x % 2 == 0) or (cell <= 0.87 and y % 2 == 0)):
+						c = PARTY_COLORS[int(_hash(x >> 1, y >> 1, seed + 5) * PARTY_COLORS.size()) % PARTY_COLORS.size()]
+				"giftwrap":
+					# Red paper with white polka dots, tied with a gold ribbon (shaded edges, lit middle).
+					var rx := absi(x - 15)
+					var ry := absi(y - 15)
+					if mini(rx, ry) <= 2:
+						var d := mini(rx, ry)
+						c = b.darkened(0.25) if d == 2 else (b.lightened(0.3) if d == 0 else b)
+					elif (x + ((y >> 3) & 1) * 4) % 8 in [3, 4] and y % 8 in [3, 4]:
+						c = Color(0.97, 0.95, 0.92)
+					elif (x + y) % 6 == 0:
+						c = a.darkened(0.08)
+				"tiles":
+					# Lit dance floor: 8 px tiles in party colours, bright in the middle, dark grout.
+					var tile_colors: Array[Color] = [a, b, Color("ffd23a"), Color("a66bff")]
+					var col: Color = tile_colors[((x >> 3) + (y >> 3) * 3) % 4]
+					var d := maxi(absi(x % 8 - 4), absi(y % 8 - 4))
+					c = col.lightened(0.4) if d <= 1 else col.darkened(0.12 * (d - 1))
+					if x % 8 == 0 or y % 8 == 0:
+						c = Color(0.05, 0.04, 0.08)
 				_:
 					c = a.lerp(b, h * 0.22)
 			c = _jitter(c, _hash(x, y, seed + 11))
@@ -1623,6 +1675,13 @@ static func _wrap(c: Color, x: int, y: int, n: float) -> Color:
 	return c if y % 2 == 0 else c.darkened(0.14)
 
 
+## Sequins (Disco Star): a fine checker of light and shade, and one texel in ten glints (emissive).
+static func _sequin(c: Color, x: int, y: int, n: float) -> Color:
+	if n > 0.9:
+		return _glow(c.lightened(0.55))
+	return c if (x + y) % 2 == 0 else c.darkened(0.16)
+
+
 ## Black and white chef's check.
 static func _check(x: int, y: int) -> Color:
 	return Color(0.12, 0.12, 0.13) if (x + y) % 2 == 0 else Color(0.9, 0.9, 0.88)
@@ -1839,6 +1898,32 @@ static func _paint_head(id: String, style: String, o: Dictionary, face: int, x: 
 				return Color("41454d")
 			if (face == 2 or face == 3) and y == 3:
 				return accent
+			return skin
+		"disco":
+			# Big dark curls, gold-framed shades with glowing pink lenses and a moustache.
+			var curls := Color("2a1a10")
+			var gold := Color("ffd23a")
+			if face == 4 or (face == 1 and y <= 6) or ((face == 2 or face == 3) and (y <= 2 or (y <= 5 and _back_half(face, x, w)))):
+				return curls.lightened(0.14) if n > 0.62 else curls
+			if front:
+				if y <= 1 or (y == 2 and (x == 0 or x == 7)):
+					return curls.lightened(0.14) if n > 0.62 else curls
+				if y == 3 and x >= 1 and x <= 6:
+					return gold
+				if y == 4:
+					if x in [1, 2, 5, 6]:
+						return _glow(accent)
+					if x == 3 or x == 4:
+						return gold
+				if y == 5 and (x == 3 or x == 4):
+					return skin.darkened(0.12)
+				# A handlebar moustache over a grin.
+				if (y == 6 and x >= 1 and x <= 6 and x != 3 and x != 4) or (y == 7 and (x == 1 or x == 6)):
+					return curls
+				if y == 6 and (x == 3 or x == 4):
+					return curls.lightened(0.08)
+				if y == 7 and x >= 2 and x <= 5:
+					return Color(0.96, 0.95, 0.92) if x == 3 or x == 4 else Color(0.4, 0.16, 0.14)
 			return skin
 		"mummy":
 			if front:
@@ -2087,6 +2172,18 @@ static func _paint_torso(style: String, o: Dictionary, face: int, x: int, y: int
 			if band and y == 10:
 				return shirt.darkened(0.15)
 			return shirt
+		"disco":
+			# Gold sequin jacket (glinting texels glow) open over the chest, a gold belt over white trousers.
+			var gold := Color("ffd23a")
+			if band and y == 11:
+				return o.pants
+			if band and y == 10:
+				return _glow(gold) if front and (x == 3 or x == 4) else gold.darkened(0.35)
+			if front and y <= 1 and (x == 2 or x == 5):
+				return accent
+			if front and ((y <= 1 and x >= 3 and x <= 4) or (y <= 4 and (x == 3 or x == 4))):
+				return skin
+			return _sequin(shirt, x, y, n)
 		"mummy":
 			return _wrap(shirt, x, y, n)
 	return shirt
@@ -2199,6 +2296,12 @@ static func _paint_arm(style: String, o: Dictionary, right: bool, face: int, x: 
 			if outer and (x == 1 or x == 2) and row >= 1:
 				return accent
 			return shirt
+		"disco":
+			if row >= 9:
+				return skin
+			if row == 8:
+				return o.pants
+			return _sequin(shirt, x, row, n)
 		"mummy":
 			return _wrap(skin, x, row, n)
 	return shirt
@@ -2234,6 +2337,9 @@ static func _paint_thigh(style: String, o: Dictionary, right: bool, face: int, x
 		"skier", "diver":
 			if outer and x == 1:
 				return o.accent
+		"disco":
+			if outer and (x == 1 or x == 2):
+				return Color("ffd23a")
 		"firefighter":
 			if face <= 3 and y == 4:
 				return Color(0.82, 0.84, 0.86)
@@ -2265,6 +2371,8 @@ static func _paint_shin(style: String, o: Dictionary, face: int, x: int, y: int,
 			return shoes.lightened(0.22)
 		if style == "skier" and y == 4:
 			return Color(0.55, 0.57, 0.6) if x % 2 == 0 else shoes
+		if style == "disco" and y == 5:
+			return Color("ffd23a")
 		if y == 5:
 			return shoes.darkened(0.25)
 		if face == 0 and y == boot_top and style in ["plain", "camper", "torn", "inmate"] and (x == 1 or x == 2):
@@ -2275,6 +2383,9 @@ static func _paint_shin(style: String, o: Dictionary, face: int, x: int, y: int,
 	match style:
 		"mummy":
 			return _wrap(pants, x, y, n)
+		"disco":
+			if (face == 2 or face == 3) and (x == 1 or x == 2):
+				return Color("ffd23a")
 		"firefighter":
 			if y == 1:
 				return Color(0.82, 0.84, 0.86)
@@ -2379,6 +2490,17 @@ static func _extra_mesh(outfit_id: String, mount: String) -> ArrayMesh:
 			k.box(0, Vector3(-0.065, 0.36, 0.2), Vector3(0.12, 0.46, 0.13))
 			k.box(1, Vector3(0, 0.62, 0.2), Vector3(0.1, 0.06, 0.06))
 			k.box(1, Vector3(0, 0.4, 0.2), Vector3(0.26, 0.04, 0.14))
+		["bp_disco_star", "torso"]:
+			# Wide pointed pink collar over the jacket and a gold medallion with a pink star.
+			mats = [flat_material(o.accent, 0.35), flat_material(Color("ffd23a"), 0.25, 0.85, 0.6),
+				flat_material(o.accent, 0.3, 0.0, 2.0)]
+			for sx: float in [1.0, -1.0]:
+				k.box(0, Vector3(0.1 * sx, 0.6, -0.12), Vector3(0.11, 0.1, 0.014), Vector3(0, 0, 0.5 * sx))
+				k.box(0, Vector3(0.16 * sx, 0.665, -0.04), Vector3(0.1, 0.016, 0.16), Vector3(0, 0, -0.25 * sx))
+			k.box(1, Vector3(0.03, 0.56, -0.117), Vector3(0.008, 0.08, 0.006), Vector3(0, 0, 0.35))
+			k.box(1, Vector3(-0.03, 0.56, -0.117), Vector3(0.008, 0.08, 0.006), Vector3(0, 0, -0.35))
+			k.box(1, Vector3(0, 0.49, -0.12), Vector3(0.065, 0.065, 0.012), Vector3(0, 0, 0.785))
+			k.box(2, Vector3(0, 0.49, -0.128), Vector3(0.028, 0.028, 0.004), Vector3(0, 0, 0.785))
 		_:
 			return null
 	return k.build(mats)
@@ -2506,6 +2628,79 @@ static func _hat_mesh(hat_id: String) -> ArrayMesh:
 					Vector3(0.18, 0.12, 0.05), Vector3(-0.16, 0.22, 0.06)]:
 				k.box(1, st, Vector3(0.04, 0.04, 0.04))
 			k.box(1, Vector3(0, 0.66, 0.2), Vector3(0.06, 0.06, 0.06))
+		"bp_balloon_dog":
+			# A twisted balloon dog standing on the head, side on (its classic profile shows from the
+			# front): glossy segments, darker pinches at the twists and a white shine along the top.
+			# Built facing -Z, then turned a quarter (adding to the Euler Y turns the box's own basis).
+			mats = [flat_material(Color("ff3fa4"), 0.12, 0.0, 0.12), flat_material(Color("c81f7a"), 0.2),
+				flat_material(Color(1, 0.93, 0.97), 0.1, 0.0, 0.6)]
+			const T := 0.082
+			var parts: Array = [
+				[0, Vector3(0, 0.165, 0.02), Vector3(T, T, 0.21), Vector3.ZERO],
+				[1, Vector3(0, 0.165, -0.088), Vector3(0.064, 0.064, 0.03), Vector3.ZERO],
+				[1, Vector3(0, 0.165, 0.128), Vector3(0.064, 0.064, 0.03), Vector3.ZERO],
+				[0, Vector3(0, 0.255, -0.105), Vector3(T, 0.15, T), Vector3(-0.3, 0, 0)],
+				[1, Vector3(0, 0.335, -0.125), Vector3(0.064, 0.03, 0.064), Vector3.ZERO],
+				[0, Vector3(0, 0.36, -0.15), Vector3(0.09, 0.085, 0.095), Vector3.ZERO],
+				[0, Vector3(0, 0.345, -0.25), Vector3(0.07, 0.07, 0.12), Vector3.ZERO],
+				[1, Vector3(0, 0.345, -0.318), Vector3(0.032, 0.032, 0.02), Vector3.ZERO],
+				[0, Vector3(0, 0.25, 0.185), Vector3(0.064, 0.16, 0.064), Vector3(0.5, 0, 0)],
+				[1, Vector3(0, 0.33, 0.225), Vector3(0.03, 0.03, 0.03), Vector3.ZERO],
+				[2, Vector3(0.03, 0.208, 0.02), Vector3(0.016, 0.004, 0.14), Vector3.ZERO],
+				[2, Vector3(0.025, 0.381, -0.25), Vector3(0.012, 0.004, 0.07), Vector3.ZERO],
+			]
+			for sx: float in [1.0, -1.0]:
+				parts.append([0, Vector3(0.045 * sx, 0.075, -0.08), Vector3(T, 0.15, T), Vector3(0.15, 0, 0.18 * sx)])
+				parts.append([0, Vector3(0.045 * sx, 0.075, 0.12), Vector3(T, 0.15, T), Vector3(-0.15, 0, 0.18 * sx)])
+				parts.append([0, Vector3(0.035 * sx, 0.43, -0.13), Vector3(0.055, 0.1, 0.055), Vector3(0.35, 0, -0.3 * sx)])
+			var turn := Basis(Vector3.UP, PI * 0.5)
+			for p: Array in parts:
+				k.box(p[0], turn * (p[1] as Vector3), p[2], (p[3] as Vector3) + Vector3(0, PI * 0.5, 0))
+		"bp_cake":
+			# Two-tier birthday cake with pink drips, sprinkles and three lit candles.
+			mats = [flat_material(Color("fff2f7"), 0.6), flat_material(Color("ff6fb5"), 0.35),
+				flat_material(Color("2ad8ff"), 0.4), flat_material(Color("ffcc33"), 0.3, 0.0, 3.0),
+				flat_material(Color(0.15, 0.12, 0.1)), flat_material(PARTY_COLORS[2], 0.4),
+				flat_material(PARTY_COLORS[3], 0.4), flat_material(PARTY_COLORS[4], 0.4)]
+			k.box(0, Vector3(0, 0.065, 0), Vector3(0.42, 0.13, 0.42))
+			k.box(1, Vector3(0, 0.012, 0), Vector3(0.44, 0.024, 0.44))
+			k.box(1, Vector3(0, 0.134, 0), Vector3(0.425, 0.014, 0.425))
+			k.box(0, Vector3(0, 0.19, 0), Vector3(0.26, 0.11, 0.26))
+			k.box(1, Vector3(0, 0.249, 0), Vector3(0.265, 0.014, 0.265))
+			for i in 5:
+				var t := -0.16 + i * 0.08
+				var drip := 0.045 if i % 2 == 0 else 0.075
+				for side in 4:
+					var rot := Vector3(0, side * PI * 0.5, 0)
+					k.box(1, Basis.from_euler(rot) * Vector3(t, 0.13 - drip * 0.5, -0.213), Vector3(0.036, drip, 0.012), rot)
+			for i in 3:
+				var t := -0.08 + i * 0.08
+				var drip := 0.03 if i == 1 else 0.05
+				for side in 4:
+					var rot := Vector3(0, side * PI * 0.5, 0)
+					k.box(1, Basis.from_euler(rot) * Vector3(t, 0.245 - drip * 0.5, -0.133), Vector3(0.03, drip, 0.01), rot)
+			for i in 16:
+				var ang := i * TAU / 16.0 + 0.2
+				var r := 0.165 + 0.02 * float(i % 3)
+				k.box(5 + i % 3, Vector3(cos(ang) * r, 0.144, sin(ang) * r), Vector3(0.026, 0.01, 0.01), Vector3(0, ang * 2.3, 0))
+			for c: Vector3 in [Vector3(-0.07, 0, 0.05), Vector3(0.07, 0, 0.05), Vector3(0, 0, -0.07)]:
+				k.box(2, c + Vector3(0, 0.305, 0), Vector3(0.024, 0.1, 0.024))
+				k.box(0, c + Vector3(0, 0.29, 0), Vector3(0.026, 0.014, 0.026))
+				k.box(0, c + Vector3(0, 0.325, 0), Vector3(0.026, 0.014, 0.026))
+				k.box(4, c + Vector3(0, 0.362, 0), Vector3(0.006, 0.014, 0.006))
+				k.box(3, c + Vector3(0, 0.39, 0), Vector3(0.024, 0.04, 0.024), Vector3(0, 0.785, 0))
+		"bp_discoball":
+			# A mirror ball floating over the head, wearing the Disco Fever skin's animated tiles,
+			# with a chrome cap and hanger. Layers turned 45 degrees in between round it off.
+			mats = [skin_material("bp_disco"), flat_material(Color(0.82, 0.84, 0.9), 0.2, 1.0), flat_material(Color(0.3, 0.3, 0.34), 0.4, 0.8)]
+			const C := Vector3(0, 0.27, 0)
+			var rings := [[-0.13, 0.12], [-0.088, 0.22], [-0.044, 0.272], [0.0, 0.29], [0.044, 0.272], [0.088, 0.22], [0.13, 0.12]]
+			for r: Array in rings:
+				var s: float = r[1]
+				k.box(0, C + Vector3(0, r[0], 0), Vector3(s, 0.046, s))
+				k.box(0, C + Vector3(0, r[0], 0), Vector3(s * 0.94, 0.044, s * 0.94), Vector3(0, PI * 0.25, 0))
+			k.box(1, C + Vector3(0, 0.165, 0), Vector3(0.06, 0.03, 0.06))
+			k.box(2, C + Vector3(0, 0.195, 0), Vector3(0.022, 0.03, 0.006))
 	return k.build(mats)
 
 

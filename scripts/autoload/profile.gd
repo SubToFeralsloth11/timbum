@@ -168,6 +168,11 @@ const MAX_MATCH_PRESETS := 8
 ## one-time Data.TUTORIAL_REWARD was paid.
 var tutorial_offered := false
 var tutorial_paid := false
+## Season pass (Season): the season these belong to, season XP earned in it and the tiers claimed
+## (ints 1..Season.TIERS). Saves from before the pass, or from another season, start at 0.
+var season_id := Season.ID
+var season_xp := 0
+var season_claimed: Array = []
 
 ## Set to false by tests so they never touch the real save file.
 var persist := true
@@ -408,13 +413,15 @@ func claim_daily() -> int:
 ## (World.my_weapon_stats: id -> {kills, headshots, shots, hits, damage}); they are added to
 ## weapon_stats and pay any mastery tier reached. The whole result (MatchFacts.tally) advances the
 ## challenges.
-## Returns {coins, xp, levels_gained, breakdown, accuracy, shots, hits, most_used, mastery, feats};
-## breakdown is [[label, coins, xp], ...], one row per source, in the order the results screen
+## Returns {coins, xp, levels_gained, breakdown, accuracy, shots, hits, most_used, mastery, feats,
+## season}; breakdown is [[label, coins, xp], ...], one row per source, in the order the results screen
 ## lists them. accuracy is hits / shots of the match (-1 without shots), most_used the weapon
 ## fired most ("" if none), mastery the [weapon id, tier] pairs reached this match, feats the
-## challenges it completed and achievements it unlocked ([key, title, text], see preview_feats).
+## challenges it completed, season tiers it reached and achievements it unlocked ([key, title,
+## text], see preview_feats), season the _add_season_xp answer for the match's XP.
 ## The tally also goes into feats (medals included) for the achievements.
-## At Data.LEVEL_CAP XP stops: the match pays no XP until the player prestiges.
+## At Data.LEVEL_CAP XP stops: the match pays no XP until the player prestiges. Season XP doesn't
+## stop: it counts the match's XP as earned.
 func record_match(result: Dictionary) -> Dictionary:
 	var kills := int(result.get("kills", 0))
 	var heads := int(result.get("headshots", 0))
@@ -445,6 +452,10 @@ func record_match(result: Dictionary) -> Dictionary:
 	var done_feats := _advance_challenges(tally)
 	_add_feats(tally)
 	var reached := _pay_mastery(match_weapons.keys(), breakdown)
+	# Season XP is the match's XP as earned, before the level cap stops it.
+	var season_gain := 0
+	for row: Array in breakdown:
+		season_gain += int(row[2])
 	var capped := level >= Data.LEVEL_CAP
 	if capped:
 		for row: Array in breakdown:
@@ -467,10 +478,14 @@ func record_match(result: Dictionary) -> Dictionary:
 	stats.wins += 1 if won else 0
 	stats.best_streak = maxi(int(stats.best_streak), int(result.get("best_streak", 0)))
 	stats.coins_earned += earned
+	var season := _add_season_xp(season_gain)
+	for t: int in season.reached:
+		done_feats.append(_season_feat(t))
 	done_feats.append_array(_unlock_achievements())
 	save()
 	changed.emit()
-	var out := {"coins": earned, "xp": gained_xp, "levels_gained": levels, "breakdown": breakdown, "mastery": reached, "feats": done_feats}
+	var out := {"coins": earned, "xp": gained_xp, "levels_gained": levels, "breakdown": breakdown, "mastery": reached,
+		"feats": done_feats, "season": season}
 	out.merge(summary)
 	return out
 
@@ -534,6 +549,8 @@ func refresh_challenges(day := -1, pay := true) -> Dictionary:
 		rolled = true
 	if pay and (owed.coins > 0 or owed.xp > 0):
 		_grant(owed.coins, owed.xp)
+		_add_season_xp(owed.xp)
+		_unlock_achievements()
 	if rolled:
 		save()
 		changed.emit()
@@ -555,8 +572,8 @@ func claimable_challenges() -> int:
 	return n
 
 
-## Pays challenge `index` of `kind` once it is complete: {coins, xp, levels} (XP is 0 at the level
-## cap), or {} if it isn't complete or was already claimed.
+## Pays challenge `index` of `kind` once it is complete: {coins, xp, levels, season_xp} (XP is 0 at
+## the level cap; its season XP never is), or {} if it isn't complete or was already claimed.
 func claim_challenge(kind: String, index: int) -> Dictionary:
 	var list := challenge_list(kind)
 	if index < 0 or index >= list.size():
@@ -568,9 +585,11 @@ func claim_challenge(kind: String, index: int) -> Dictionary:
 	var reward := Challenges.reward(kind)
 	var gained_xp := 0 if level >= Data.LEVEL_CAP else int(reward.xp)
 	var levels := _grant(int(reward.coins), gained_xp)
+	_add_season_xp(int(reward.xp))
+	_unlock_achievements()
 	save()
 	changed.emit()
-	return {"coins": int(reward.coins), "xp": gained_xp, "levels": levels}
+	return {"coins": int(reward.coins), "xp": gained_xp, "levels": levels, "season_xp": int(reward.xp)}
 
 
 ## Adds coins and XP outside a match (claims, carried rewards), level-up coins included. Returns
@@ -581,6 +600,88 @@ func _grant(add_coins: int, add_xp: int) -> int:
 	coins += paid
 	stats.coins_earned += paid
 	return levels
+
+
+# ---------------------------------------------------------------- season pass
+
+## Tiers reached this season (0..Season.TIERS).
+func season_tier() -> int:
+	return Season.tier_for(season_xp)
+
+
+## Adds `amount` season XP (the total stops at Season.MAX_XP). Returns {xp (the amount earned),
+## before (tier before), tier, progress (Season.tier_progress after), reached (tiers newly
+## reached)}. The caller saves.
+func _add_season_xp(amount: int) -> Dictionary:
+	var before := season_tier()
+	season_xp += clampi(amount, 0, Season.MAX_XP - season_xp)
+	var reached: Array = []
+	for t in range(before + 1, season_tier() + 1):
+		reached.append(t)
+	return {"xp": maxi(0, amount), "before": before, "tier": season_tier(), "progress": Season.tier_progress(season_xp),
+		"reached": reached}
+
+
+## True for a tier reached and not yet claimed.
+func can_claim_tier(tier: int) -> bool:
+	return tier >= 1 and tier <= season_tier() and not season_claimed.has(tier)
+
+
+## Reached, unclaimed tiers in order (the home chip's badge counts them).
+func claimable_season_tiers() -> Array[int]:
+	var out: Array[int] = []
+	for t in range(1, season_tier() + 1):
+		if not season_claimed.has(t):
+			out.append(t)
+	return out
+
+
+## Claims `tier`: {tier, coins, item ([category, id] or [])}, or {} unless it can be claimed.
+## Pays once: the tier is remembered in season_claimed.
+func claim_season_tier(tier: int) -> Dictionary:
+	if not can_claim_tier(tier):
+		return {}
+	var got := _grant_season_tier(tier)
+	save()
+	changed.emit()
+	return got
+
+
+## Claims every reached tier: {tiers, coins (total), items ([category, id] each)}; tiers empty when
+## there was nothing to claim.
+func claim_all_season() -> Dictionary:
+	var out := {"tiers": [], "coins": 0, "items": []}
+	for t in claimable_season_tiers():
+		var got := _grant_season_tier(t)
+		out.tiers.append(t)
+		out.coins += int(got.coins)
+		if not (got.item as Array).is_empty():
+			out.items.append(got.item)
+	if not out.tiers.is_empty():
+		save()
+		changed.emit()
+	return out
+
+
+func _grant_season_tier(tier: int) -> Dictionary:
+	season_claimed.append(tier)
+	var r := Season.reward(tier)
+	if r.has("item"):
+		var cat := str(r.item[0])
+		var id := str(r.item[1])
+		var list: Array = owned.get(cat, [])
+		if not list.has(id):
+			list.append(id)
+		owned[cat] = list
+		return {"tier": tier, "coins": 0, "item": [cat, id]}
+	var paid := int(r.coins)
+	coins += paid
+	stats.coins_earned += paid
+	return {"tier": tier, "coins": paid, "item": []}
+
+
+static func _season_feat(tier: int) -> Array:
+	return ["season:%d" % tier, "SEASON TIER %d REACHED" % tier, "%s. Claim it in SEASON." % Season.reward_text(tier)]
 
 
 ## Advances every unfinished challenge by one match's tally. Returns the ones it completed as
@@ -615,10 +716,19 @@ func preview_feats(result: Dictionary) -> Array:
 			var ch: Dictionary = list[i]
 			if not Challenges.is_complete(ch) and int(ch.progress) + Challenges.amount(ch, tally) >= int(ch.target):
 				out.append(_challenge_feat(kind, i, ch))
+	for t in range(season_tier() + 1, Season.tier_for(season_xp + _season_xp_estimate(tally)) + 1):
+		out.append(_season_feat(t))
 	for id: String in Data.ACHIEVEMENTS:
 		if not achievements.has(id) and achievement_value(str(Data.ACHIEVEMENTS[id].key), tally) >= achievement_target(id):
 			out.append(_achievement_feat(id))
 	return out
+
+
+## Season XP a match with `tally` (MatchFacts.tally) has earned so far, as record_match will count
+## it: the kill and headshot XP. The match, victory and challenge rows only come at the end, so a
+## tier they reach is toasted then (record_match's feats), not as the match starts.
+static func _season_xp_estimate(tally: Dictionary) -> int:
+	return int(tally.get("kills", 0)) * Data.XP_PER_KILL + int(tally.get("headshots", 0)) * Data.XP_PER_HEADSHOT
 
 
 # ---------------------------------------------------------------- achievements and medals
@@ -626,10 +736,12 @@ func preview_feats(result: Dictionary) -> Array:
 ## Lifetime value of an achievement key (Data.ACHIEVEMENTS), with one match's `tally`
 ## (MatchFacts.tally) added when given. Keys: the stats ones (kills, headshots, deaths, matches,
 ## wins, best_streak), w_kills:<id> / w_heads:<id> (weapon_stats), the counts guns_with_kill,
-## maps_won, modes_won and gold_guns, or a feats counter.
+## maps_won, modes_won and gold_guns, season_tier (the season pass), or a feats counter.
 func achievement_value(key: String, tally: Dictionary = {}) -> int:
 	var n := 0
 	match key:
+		"season_tier":
+			return Season.tier_for(season_xp + _season_xp_estimate(tally))
 		"guns_with_kill":
 			for id: String in Data.WEAPONS:
 				if Data.WEAPONS[id].slot != "melee" and weapon_stat(id, "kills") + int(tally.get("w_kills:" + id, 0)) > 0:
@@ -1152,6 +1264,7 @@ func _payload() -> Dictionary:
 		"challenges": challenges, "feats": feats, "achievements": achievements, "match_presets": match_presets,
 		"loadout_presets": loadout_presets, "active_preset": active_preset,
 		"tutorial_offered": tutorial_offered, "tutorial_paid": tutorial_paid,
+		"season_id": season_id, "season_xp": season_xp, "season_claimed": season_claimed,
 	}
 
 
@@ -1395,6 +1508,19 @@ func load_from_dict(d: Dictionary) -> void:
 			var preset_name := sanitize_name(str((raw as Dictionary).get("name", "")))
 			if not preset_name.is_empty() and match_preset_index(preset_name) < 0:
 				match_presets.append({"name": preset_name, "settings": MatchSetupScreen.sanitize_choice((raw as Dictionary).get("settings"))})
+	# Season pass: saves from before it (or from another season) start the current season at 0.
+	season_id = Season.ID
+	season_xp = 0
+	season_claimed = []
+	if str(d.get("season_id", "")) == Season.ID:
+		season_xp = clampi(_num(d.get("season_xp"), 0), 0, Season.MAX_XP)
+		var saved_claims: Variant = d.get("season_claimed", [])
+		if typeof(saved_claims) == TYPE_ARRAY:
+			for raw: Variant in saved_claims:
+				var t := _num(raw, 0)
+				if t >= 1 and t <= season_tier() and not season_claimed.has(t):
+					season_claimed.append(t)
+		season_claimed.sort()
 	# Saves from before achievements: what their stats already reach unlocks now.
 	_unlock_achievements()
 	_load_pad_bindings(d.get("pad_bindings", {}))

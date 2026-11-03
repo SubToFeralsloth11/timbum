@@ -371,6 +371,20 @@ const SKINS := {
 	"dev_circuit": {"name": "Dev Circuit", "price": -1, "pattern": "dev", "dev": true,
 		"desc": "Carbon black with neon green circuit traces. Pulses race to the muzzle. Flashes on every kill.",
 		"a": Color("39ff14"), "b": Color("07080a"), "glow": 3.0},
+	# SEASON 1: BLOCK PARTY (Season.REWARDS): price -1 = never sold; claiming the tier unlocks it.
+	# season: true = SEASON card in the shop, left out of bot picks.
+	"bp_confetti": {"name": "Confetti Pop", "price": -1, "pattern": "confetti", "season": true,
+		"desc": "Deep indigo showered in glowing confetti flecks of every party colour.",
+		"a": Color("ff4fd8"), "b": Color("1a1240"), "glow": 0.9},
+	"bp_giftwrap": {"name": "Gift Wrap", "price": -1, "pattern": "giftwrap", "season": true,
+		"desc": "Glossy red paper with white polka dots, tied up in a shiny gold ribbon.",
+		"a": Color("d8283c"), "b": Color("ffc93a"), "glow": 0.0},
+	"bp_dancefloor": {"name": "Dance Floor", "price": -1, "pattern": "tiles", "season": true,
+		"desc": "Lit-up dance floor tiles in pink, cyan, gold and violet. Glows.",
+		"a": Color("ff3fa4"), "b": Color("2ad8ff"), "glow": 1.1},
+	"bp_disco": {"name": "Disco Fever", "price": -1, "pattern": "anim", "anim": "disco", "season": true,
+		"desc": "Mirror tiles that catch sweeping rainbow spotlights and sparkle. Animated, glows.",
+		"a": Color("ff4fd8"), "b": Color("3ad7ff"), "glow": 2.0},
 }
 
 const HATS := {
@@ -390,6 +404,12 @@ const HATS := {
 	"crown": {"name": "Crown", "price": 1200},
 	"dev_halo": {"name": "Dev Halo", "price": -1, "dev": true,
 		"desc": "A black circlet under a floating neon halo and the </> glyph. Flashes on every kill."},
+	"bp_balloon_dog": {"name": "Balloon Pup", "price": -1, "season": true,
+		"desc": "A shiny pink balloon dog, twisted by a party clown, sitting proudly on your head."},
+	"bp_cake": {"name": "Party Cake", "price": -1, "season": true,
+		"desc": "Two tiers of frosting with drips, sprinkles and three lit candles. Make a wish."},
+	"bp_discoball": {"name": "Disco Ball", "price": -1, "season": true,
+		"desc": "A mirror ball floating over your head, throwing rainbow light. Animated, glows."},
 }
 
 ## Outfit colours: skin, shirt, pants, shoes, accent. pattern adds detail.
@@ -457,6 +477,10 @@ const OUTFITS := {
 		"desc": "Matte black with X eyes, a wide stitched smile and neon green seams. The lines crawl and the core beats. The only animated outfit. Flashes on every kill.",
 		"skin": Color("07080a"), "shirt": Color("39ff14"), "pants": Color("07080a"),
 		"shoes": Color("07080a"), "accent": Color("39ff14")},
+	"bp_disco_star": {"name": "Disco Star", "price": -1, "pattern": "disco", "season": true,
+		"desc": "A glittering gold sequin jacket with a wide pink collar and medallion, flared white trousers, platform shoes and shades.",
+		"skin": Color("b8794e"), "shirt": Color("ffc93a"), "pants": Color("f4f2ff"),
+		"shoes": Color("ff3fa4"), "accent": Color("ff3fa4")},
 }
 
 ## Weapon charms dangle from a short chain on the left of every gun (except the knife) and
@@ -489,6 +513,12 @@ const CHARMS := {
 	"dev_core": {"name": "Dev Core", "price": -1, "dev": true, "shape": "dev",
 		"desc": "A black core in a neon cage. Flashes on every kill.",
 		"a": Color("39ff14"), "b": Color("07080a")},
+	"bp_gift": {"name": "Party Gift", "price": -1, "season": true, "shape": "gift",
+		"desc": "A little present with a gold bow. Don't shake it.",
+		"a": Color("2ad8ff"), "b": Color("ffc93a")},
+	"bp_balloon": {"name": "Party Balloon", "price": -1, "season": true, "shape": "balloon",
+		"desc": "A shiny pink balloon on a string, bobbing along with every move.",
+		"a": Color("ff3fa4"), "b": Color("ffffff")},
 }
 
 ## Win emotes: the match winner's character performs theirs at the end of the match while
@@ -529,6 +559,8 @@ const SPRAYS := {
 	"flame": {"name": "Flame", "price": 350, "desc": "On fire."},
 	"crown": {"name": "Crown", "price": 450, "desc": "King of the block."},
 	"cube": {"name": "Timbum Cube", "price": 600, "desc": "The block everything is built from."},
+	"bp_popper": {"name": "Party Popper", "price": -1, "season": true, "desc": "Pop! Confetti everywhere."},
+	"bp_boombox": {"name": "Boombox", "price": -1, "season": true, "desc": "Turn it up. The party starts here."},
 }
 
 ## Attachment upgrades apply to every gun and are bought one level at a time; each level costs
@@ -804,6 +836,8 @@ const ACHIEVEMENTS := {
 	"decorated": {"name": "Decorated", "desc": "Earn 25 medals (match highlights).", "key": "medals", "target": 25},
 	"gold_standard": {"name": "Gold Standard", "desc": "Reach Gold mastery with a gun.", "key": "gold_guns", "target": 1},
 	"grinder": {"name": "Daily Grinder", "desc": "Complete 10 challenges.", "key": "challenges_done", "target": 10},
+	"party_starter": {"name": "Party Starter", "desc": "Reach tier 10 of the season pass.", "key": "season_tier", "target": 10},
+	"life_of_the_party": {"name": "Life of the Party", "desc": "Reach tier 30 of the season pass.", "key": "season_tier", "target": 30},
 }
 
 
