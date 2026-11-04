@@ -90,6 +90,9 @@ var _picture: TextureRect
 var _picture_size := Vector2i.ZERO
 var _attrs: CameraAttributesPractical
 var _flying := false
+## The drone was flown by hand since the playhead last moved: keep that view (so ADD KEY saves it)
+## instead of snapping back onto the key path.
+var _posed := false
 var _render := {}
 var _render_pid := -1
 var _render_poll := 0.0
@@ -324,6 +327,7 @@ func _process(delta: float) -> void:
 
 func _seek(t: float) -> void:
 	time = clampf(t, 0.0, length)
+	_posed = false
 	if _replay != null and _replay.tape != null:
 		_replay.seek(_t0 + time)
 		_replay.step(_t0 + time, 0.0)
@@ -333,6 +337,8 @@ func _seek(t: float) -> void:
 
 func set_playing(on: bool) -> void:
 	playing = on and kind == "clip"
+	if playing:
+		_posed = false
 	Engine.time_scale = float(edit.speed) if playing else 1.0
 	AudioServer.playback_speed_scale = Engine.time_scale
 	if _play_btn != null:
@@ -383,7 +389,7 @@ func _place_camera(t: float, _delta: float) -> void:
 			_set_dof(eye.distance_to(_shot.global_position))
 		_:
 			var keys: Array = edit.keys
-			if not keys.is_empty() and not _flying:
+			if not keys.is_empty() and not _flying and not _posed:
 				var k := key_view(t)
 				_drone.place(k[0], k[1])
 			elif not _flying:
@@ -462,6 +468,7 @@ func add_key() -> void:
 		if absf(float(keys[i][0]) - time) < 0.05:
 			keys.remove_at(i)
 	keys.append([time, _drone.global_transform, _drone.fov])
+	_posed = false
 	keys.sort_custom(func(x: Array, y: Array) -> bool: return float(x[0]) < float(y[0]))
 	set_edit("camera", "drone")
 	Sfx.play(&"ui_click")
@@ -470,6 +477,7 @@ func add_key() -> void:
 
 func clear_keys() -> void:
 	(edit.keys as Array).clear()
+	_posed = false
 	_refresh_keys()
 
 
@@ -797,6 +805,8 @@ func _on_view_input(event: InputEvent) -> void:
 			edit.camera = "drone"
 			_apply_edit()
 		_flying = down
+		if down:
+			_posed = true
 		_drone.active = down
 		_drone.make_current()
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED if down else Input.MOUSE_MODE_VISIBLE
