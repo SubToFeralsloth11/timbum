@@ -1,8 +1,10 @@
 # Changelog
 
-## Unreleased
+## 2.0.1 (2026-11-04)
 
+- **Automatic updates.** From this version on, Timbum updates itself. A few seconds after it starts it checks the latest GitHub release, downloads the new game data in the background and shows **UPDATE READY · RESTART** at the bottom left of the home screen. RESTART, or just closing the game, installs it; the next start runs the new version. Updates are signed and checked before they are used. When an update needs the whole app (a new Godot version), the button reads **DOWNLOAD** and opens the release page instead. On Windows the game data now sits beside the game as `Timbum.pck`; keep it next to `Timbum.exe`.
 - **Developer tag.** The admin panel (cheats) and the Dev Pack are now for the developer's profile only. A profile is the developer's when it carries a signed developer tag; only the public key ships, so the tag can't be made by editing a save. Every other profile has no ADMIN PANEL button, F1 does nothing, and the Dev Pack can't be owned (the credits code says "Invalid code"). The tag is saved with the profile and travels in progress exports.
+- **App icon.** The icon no longer has a dark rim and drop shadow around it, and its grid lines are solid, so it looks clean on dark backgrounds, the Dock and the Windows taskbar.
 
 ## 2.0.0: The Big Block Update (2026-11-04)
 

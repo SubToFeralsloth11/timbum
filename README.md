@@ -147,6 +147,14 @@ godot --headless --path . --export-release "Linux"   build/linux/Timbum.x86_64
 
 The macOS build is signed ad hoc and not notarized. The first time, open it with right-click → Open.
 
+### Publishing an update (installed games update themselves)
+
+```sh
+tools/release.py 2.0.2 --notes notes.md
+```
+
+This builds both apps and a game-data pack per platform, signs `update.json` with the owner key (`~/.timbum-dev/dev_tag_key.pem`), commits the version, tags it and creates the GitHub release. Every installed copy (2.0.1 or later) checks the latest release a few seconds after it starts and downloads the new game data in the background. The home screen then shows **UPDATE READY · RESTART** at the bottom left; RESTART, or simply closing the game, swaps the new data into the app, and the next start runs the new version. Nobody has to be sent a file. Players without internet keep their version until they are online. A release that changes the Godot version or the native plugins (GodotSteam, WebRTC) can't be applied this way: the script warns, and installed games show **DOWNLOAD**, which opens the release page for the full app. The same happens for a copy the game can't write to (for example a Mac app run straight from the Downloads folder: move it to Applications). On Windows the game data is `Timbum.pck` beside `Timbum.exe`; keep the two together. `--dry-run` builds and signs everything into `build/release/v<version>/` without publishing.
+
 ## Project layout
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for module contracts, the networking model and collision layers.
