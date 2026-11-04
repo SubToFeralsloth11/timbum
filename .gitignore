@@ -4,3 +4,6 @@
 .DS_Store
 
 /Music/
+
+# Progress exports hold the developer tag; never commit them.
+/timbum-progress-*.json
