@@ -621,6 +621,7 @@ func _tidy_render() -> void:
 
 ## Render mode: this process was started by export_video with the job at `job_path`.
 func _start_render(job_path: String) -> void:
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(Clips.DIR))
 	var f := FileAccess.open(job_path, FileAccess.READ)
 	var job: Variant = f.get_var() if f != null else null
 	if typeof(job) != TYPE_DICTIONARY:
