@@ -31,7 +31,7 @@ const MANIFEST := "update.json"
 const MANIFEST_PREFIX := "timbum-update\n"
 ## Engine and native-plugin fingerprint of this build. tools/release.py computes it and keeps it
 ## current; a pack is only installed by a build with the same value.
-const RUNTIME := "0000000000000000"
+const RUNTIME := "e610386ceea7d68c"
 const DIR := "user://updates/"
 const STATE := DIR + "state.json"
 const CHECK_DELAY := 3.0
