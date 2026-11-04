@@ -1,12 +1,13 @@
 extends Control
 ## Main menu root: 3D backdrop (MenuBackdrop), persistent top bar (coins, level), home screen and
-## the sub-screens (match setup, join, shop, locker, stats, challenges, achievements, season,
-## settings) with tweened transitions. Home keeps the 3D scene clear in the middle: logo top left;
-## STATS, CHALLENGES, ACHIEVEMENTS, SEASON chips and round SETTINGS / QUIT icons top right; the
-## player card bottom left; LOCKER and SHOP cards beside a big PLAY bottom right. PLAY pops up a panel (vs
-## bots / host / join / Firing Range / tutorial). After every update the update log (WhatsNew)
-## opens once over the home screen; a new profile (Profile.tutorial_offered false) is then offered
-## the tutorial once.
+## the sub-screens (match setup, join, shop, locker, gallery, stats, challenges, achievements,
+## season, settings) with tweened transitions. Home keeps the 3D scene clear in the middle: logo
+## top left; STATS, CHALLENGES, ACHIEVEMENTS, SEASON chips and round SETTINGS / QUIT icons top
+## right; the player card bottom left; GALLERY, LOCKER and SHOP cards beside a big PLAY bottom
+## right. PLAY pops up a panel (vs bots / host / join / Firing Range / tutorial). After every
+## update the update log (WhatsNew) opens once over the home screen; a new profile
+## (Profile.tutorial_offered false) is then offered the tutorial once. Studio's BACK returns
+## straight to the gallery (GalleryScreen.reopen).
 
 const TRANSITION := 0.22
 ## Height of the bottom-right dock (LOCKER, SHOP, PLAY) and the other compact buttons.
@@ -47,6 +48,10 @@ var whats_new: WhatsNew
 
 
 func _ready() -> void:
+	if Clips.is_render_process():
+		# Studio's video render, if this build ignored the scene on its command line.
+		get_tree().change_scene_to_file.call_deferred(Studio.SCENE)
+		return
 	theme = UITheme.get_theme()
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -83,7 +88,11 @@ func _ready() -> void:
 	if int(carried.coins) > 0:
 		toast.call_deferred("UNCLAIMED CHALLENGES PAID: +%d COINS" % int(carried.coins), UITheme.ACCENT)
 	_refresh_profile()
-	if WhatsNew.should_show():
+	if GalleryScreen.reopen:
+		# Back from Studio: straight to the gallery.
+		GalleryScreen.reopen = false
+		go.call_deferred("gallery")
+	elif WhatsNew.should_show():
 		open_whats_new()
 	elif not Profile.tutorial_offered:
 		_add_tutorial_offer()
@@ -317,6 +326,8 @@ func _get_screen(screen_name: String) -> Control:
 			s = AchievementsScreen.new()
 		"season":
 			s = SeasonScreen.new()
+		"gallery":
+			s = GalleryScreen.new()
 		"settings":
 			s = _build_settings_screen()
 	s.visible = false
@@ -492,6 +503,7 @@ func _build_home() -> MenuScreen:
 	dock.offset_right = -40
 	dock.offset_bottom = -40
 	home.add_child(dock)
+	_add_card(dock, "gallery", "GALLERY", &"", func() -> void: go("gallery"))
 	_add_card(dock, "locker", "LOCKER", &"", func() -> void: go("locker"))
 	_add_card(dock, "shop", "SHOP", &"GoldButton", func() -> void: go("shop"))
 	_play_button = MenuTile.new("PLAY", "play", &"PrimaryButton", DOCK_HEIGHT, 24, UITheme.ACCENT, UITheme.TEXT, 3)

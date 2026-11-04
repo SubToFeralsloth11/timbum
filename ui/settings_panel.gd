@@ -19,6 +19,7 @@ const CONTROLS: Array = [
 	["streak_reward", "Call in Block Bomber (killstreak)"], ["ping", "Ping (team modes)"],
 	["interact", "Swap weapon (Tactical)"], ["tactical_map", "Floor plan (Tactical)"],
 	["scoreboard", "Scoreboard"], ["chat", "Chat"], ["skip_killcam", "Skip kill cam"],
+	["save_clip", "Clip your last kill (double-tap)"],
 	["spectate_view", "Spectator: free camera / follow"], ["photo_mode", "Photo mode (offline)"],
 	["inspect", "Inspect weapon"], ["spray", "Spray"], ["admin_panel", "Admin panel (offline)"],
 	["admin_panic", "Admin: all cheats off / back on"],
@@ -185,6 +186,8 @@ func _ready() -> void:
 	_check_row(gameplay, "damage_numbers", "Show damage numbers")
 	_check_row(gameplay, "killfeed", "Show kill feed")
 	_check_row(gameplay, "killcam", "Kill cam (replay your killer's view)")
+	_check_row(gameplay, "clips", "Clips (double-tap a key to save a kill)")
+	_tip(gameplay, "Clips: double-tap the clip key (K unless you changed it in Controls) up to %d seconds after a kill to save it with the %d seconds before it. Your clips and photos are in the main menu's GALLERY: film them from any angle, change the time of day, weather and look, trim them and export videos and pictures." % [int(Clips.SAVE_WINDOW), int(Clips.BEFORE)])
 
 	var crosshair := _preview_page(pages, CrosshairPreview.new())
 	_option_row(crosshair, "crosshair_style", "Style", Crosshair.STYLE_NAMES)
@@ -543,7 +546,7 @@ func _build_controls(parent: VBoxContainer) -> void:
 	assist_tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	parent.add_child(assist_tip)
 	parent.add_child(UIKit.label("BINDINGS", &"SubheaderLabel"))
-	var tip := UIKit.label("Pick a binding, then press a key or mouse button (KEY columns) or a controller button, stick direction or trigger (PAD). Backspace clears it, Esc or Start cancels. A key or button moves off any action that had it.", &"DimLabel")
+	var tip := UIKit.label("Pick a binding, then press a key or mouse button (KEY columns) or a controller button, stick direction or trigger (PAD). Backspace clears it, Esc or Start cancels. A key or button moves off any action that had it, except where two never clash (Skip kill cam and Clip your last kill share K).", &"DimLabel")
 	tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	parent.add_child(tip)
 	var grid := GridContainer.new()

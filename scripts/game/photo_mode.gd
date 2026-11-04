@@ -7,10 +7,12 @@ extends CanvasLayer
 ## viewmodel hides and their body shows, and a FreeCam starts at the current view. It flies with
 ## the player's bindings (FreeCam) plus a roll (lean keys, LB / RB) and a speed scale; the panel
 ## on the right sets the field of view, speed and roll, picks a filter (PostProcess.FILTER_NAMES:
-## none, colour grade, black and white, sepia) and takes the photo: the panel hides for two
-## drawn frames, the viewport image is saved as `user://screenshots/timbum_<date>_<time>.png`
-## (`_2`, `_3`... if taken within the same second) and its full path shows with an OPEN FOLDER
-## button. Esc / B (pause, ui_cancel) closes it: filter back to none, the previous camera, layers,
+## none, colour grade, black and white, sepia) and takes the photo: the panel hides for two drawn
+## frames, the viewport image is saved as `user://screenshots/timbum_<date>_<time>.png` (`_2`,
+## `_3`... if taken within the same second) with the scene beside it (Clips.save_photo_scene:
+## every player's pose, the camera, the map, time of day and weather, so the gallery's Studio can
+## shoot it again), and its full path shows with an OPEN FOLDER button. Exporting and editing
+## happen in the main menu's GALLERY. Esc / B (pause, ui_cancel) closes it: filter back to none, the previous camera, layers,
 ## nametags and viewmodel restored, and the pause menu comes back (`closed`).
 ## Keyboard and mouse: hold the right mouse button to look, the wheel zooms (FOV), R the next
 ## filter, Enter takes the photo; the panel's controls take clicks. Controller: the panel has no
@@ -190,7 +192,11 @@ func take_photo() -> String:
 		Sfx.play(&"ui_error")
 		return ""
 	last_path = path
-	_path_label.text = "Saved %s" % _breakable(ProjectSettings.globalize_path(path))
+	# The scene beside it, so the gallery can re-shoot it (another angle, time of day, look).
+	var meta := Clips.match_meta(world)
+	meta.merge({"camera": _cam.global_transform, "fov": _cam.fov, "filter": filter()}, true)
+	Clips.save_photo_scene(path, world.killcam.snapshot(), meta)
+	_path_label.text = "Saved %s. Edit it in the main menu's GALLERY." % _breakable(ProjectSettings.globalize_path(path))
 	Sfx.play(&"ui_buy")
 	photo_taken.emit(path, img.get_size())
 	return path

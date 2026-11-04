@@ -65,8 +65,11 @@ var pings: Pings
 var sprays: Sprays
 ## Destructible blocks (child "Demolition"; idle unless the mutator is "demolition").
 var demolition: Demolition
-## Kill cam replay (records on every peer; plays when another player kills the local player).
+## Kill cam replay and the match recording (records on every peer while the kill cam or clips
+## are on; plays when another player kills the local player).
 var killcam: KillCam
+## Clips (child "ClipRecorder"): a double tap of `save_clip` after a kill saves it for the gallery.
+var clips: ClipRecorder
 ## Spectating: a spectator's free / follow camera, or a dead player following teammates (Tactical).
 var spectator: Spectator
 ## Photo mode (offline only): frozen match, free camera, filters, screenshots.
@@ -195,6 +198,9 @@ func _ready() -> void:
 	killcam.name = "KillCam"
 	killcam.world = self
 	add_child(killcam)
+	clips = ClipRecorder.new()
+	clips.world = self
+	add_child(clips)
 	spectator = Spectator.new()
 	spectator.world = self
 	add_child(spectator)
@@ -1482,6 +1488,7 @@ func _s_killed(victim_id: int, killer_id: int, wid: String, head: bool, killer_h
 	if victim != null:
 		fx.death_burst(victim.global_position + Vector3.UP * 0.9, Color(info_color(victim)))
 		Sfx.play(&"death", victim.global_position)
+		killcam.record_death(victim)
 		victim.die(entities.get(killer_id) if victim == local_player else null)
 	streaks.on_death(victim_id)
 	# Dev Pack kill flash on the killer's avatar, gun, hat and charm (a no-op without pack pieces);
@@ -1495,6 +1502,7 @@ func _s_killed(victim_id: int, killer_id: int, wid: String, head: bool, killer_h
 	hud.add_killfeed(tagged_name(killer_id), weapon_label(wid), tagged_name(victim_id), head, killer_id == victim_id, teams[0], teams[1], wid)
 	var me := my_id()
 	if killer_id == me and victim_id != me:
+		clips.on_local_kill(victim_id, wid, head)
 		# Per-weapon kills go to the source that killed: the gun, the grenade or the Block Bomber.
 		if not match_over and (Data.WEAPONS.has(wid) or Data.STAT_EXTRA_SOURCES.has(wid)):
 			var s := _my_stats(wid)

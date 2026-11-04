@@ -75,6 +75,8 @@ const DEFAULT_SETTINGS := {
 	"killfeed": true,
 	## Kill cam: replay the killer's view of your death before the death screen (KillCam).
 	"killcam": true,
+	## Clips: record matches so a double tap of `save_clip` after a kill saves it (ClipRecorder).
+	"clips": false,
 	## Accessibility colour mode (Palette.MODE_NAMES index).
 	"color_mode": 0,
 	## Crosshair editor (Settings > Crosshair, drawn by `Crosshair`): style (Crosshair.STYLE_NAMES
@@ -189,6 +191,10 @@ func _ready() -> void:
 	_add_menu_pad_events()
 	_apply_bindings()
 	load_profile()
+	if Clips.is_render_process():
+		# Studio's video render: the player's profile, read only, with export-quality graphics.
+		persist = false
+		settings.merge(Studio.RENDER_SETTINGS, true)
 	apply_settings()
 	get_tree().root.window_input.connect(_note_device)
 	get_tree().root.focus_exited.connect(_on_window_focus.bind(false))
@@ -1572,7 +1578,7 @@ const DEFAULT_BINDINGS := {
 	"grapple": ["k%d" % KEY_F], "streak_reward": ["k%d" % KEY_4], "ping": ["m%d" % MOUSE_BUTTON_MIDDLE],
 	"interact": ["k%d" % KEY_B], "tactical_map": ["k%d" % KEY_M],
 	"scoreboard": ["k%d" % KEY_TAB], "chat": ["k%d" % KEY_T, "k%d" % KEY_ENTER],
-	"skip_killcam": ["k%d" % KEY_K],
+	"skip_killcam": ["k%d" % KEY_K], "save_clip": ["k%d" % KEY_K],
 	"spectate_view": ["k%d" % KEY_N], "photo_mode": ["k%d" % KEY_P], "inspect": ["k%d" % KEY_I], "spray": ["k%d" % KEY_Y],
 	"admin_panic": ["k%d" % KEY_H],
 	"admin_panel": ["k%d" % KEY_F1],
@@ -1605,6 +1611,10 @@ const DEFAULT_PAD_BINDINGS := {
 ## spectator (who has no gun to reload or swap) switches the camera view with X.
 const PAD_SHARED: Array = [["reload", "interact"], ["grapple", "tactical_map"], ["jump", "skip_killcam"],
 	["reload", "spectate_view"], ["interact", "spectate_view"]]
+## Actions that may share one key or mouse button, because they never get in each other's way:
+## skipping the kill cam only works while you are dead, clipping a kill (a double tap) only
+## while you are alive.
+const KEY_SHARED: Array = [["skip_killcam", "save_clip"]]
 ## Start: the pad's pause button, reserved like Esc.
 const PAD_PAUSE := "j6"
 ## On-screen names of the pad buttons (JoyButton index) and axes ([negative, positive]).
@@ -1657,8 +1667,17 @@ static func pad_may_share(a: String, b: String) -> bool:
 	return false
 
 
+## Whether actions `a` and `b` may share one key or mouse button (KEY_SHARED).
+static func key_may_share(a: String, b: String) -> bool:
+	for pair: Array in KEY_SHARED:
+		if pair.has(a) and pair.has(b):
+			return true
+	return false
+
+
 ## Binds key/mouse `code` to `action` in slot `index` (0 primary, 1 alternate). The code is taken
-## away from any other action, so one key never does two things. An empty `code` clears the slot.
+## away from any other action unless they may share it (KEY_SHARED), so one key never does two
+## things at once. An empty `code` clears the slot.
 func set_binding(action: String, index: int, code: String) -> void:
 	if not DEFAULT_BINDINGS.has(action) or action == "pause" or index < 0 or index >= MAX_BINDINGS:
 		return
@@ -1666,7 +1685,7 @@ func set_binding(action: String, index: int, code: String) -> void:
 		if not is_bindable(code) or is_pad_code(code):
 			return
 		for other: String in DEFAULT_BINDINGS:
-			if other != action and get_binding(other).has(code):
+			if other != action and get_binding(other).has(code) and not key_may_share(action, other):
 				var stripped := get_binding(other).duplicate()
 				stripped.erase(code)
 				bindings[other] = stripped
@@ -1878,29 +1897,33 @@ func _note_device(event: InputEvent) -> void:
 		device_changed.emit()
 
 
-## Keeps saved key/mouse bindings for known actions with valid, unique codes; anything else falls
-## back to the defaults.
+## Keeps saved key/mouse bindings for known actions with valid codes, each used once (or shared as
+## KEY_SHARED allows); anything else falls back to the defaults.
 func _load_bindings(saved: Variant) -> void:
 	bindings = {}
 	if typeof(saved) == TYPE_DICTIONARY:
+		# code -> the action that took it.
 		var used := {}
+		var taken := func(c: String, action: String) -> bool:
+			return used.has(c) and not key_may_share(str(used[c]), action)
 		for action: Variant in saved:
-			if not DEFAULT_BINDINGS.has(str(action)) or str(action) == "pause" or typeof(saved[action]) != TYPE_ARRAY:
+			var a := str(action)
+			if not DEFAULT_BINDINGS.has(a) or a == "pause" or typeof(saved[action]) != TYPE_ARRAY:
 				continue
 			var list: Array = []
 			for code: Variant in saved[action]:
 				var c := str(code)
-				if is_bindable(c) and not is_pad_code(c) and not used.has(c) and list.size() < MAX_BINDINGS:
-					used[c] = true
+				if is_bindable(c) and not is_pad_code(c) and not taken.call(c, a) and not list.has(c) and list.size() < MAX_BINDINGS:
+					used[c] = a
 					list.append(c)
-			bindings[str(action)] = list
+			bindings[a] = list
 		# A default key the player never rebound may now also be bound elsewhere; drop it there.
 		for action: String in DEFAULT_BINDINGS:
 			if bindings.has(action):
 				continue
 			var defaults: Array = DEFAULT_BINDINGS[action]
-			if defaults.any(func(c: String) -> bool: return used.has(c)):
-				bindings[action] = defaults.filter(func(c: String) -> bool: return not used.has(c))
+			if defaults.any(func(c: String) -> bool: return taken.call(c, action)):
+				bindings[action] = defaults.filter(func(c: String) -> bool: return not taken.call(c, action))
 	_apply_bindings()
 
 

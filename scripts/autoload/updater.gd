@@ -84,8 +84,10 @@ func _exit_tree() -> void:
 		_install(false)
 
 
+## Release exports on macOS and Windows, never Studio's video render process (Clips), which must
+## not download or install anything when it quits.
 static func enabled() -> bool:
-	return OS.has_feature("template") and not platform().is_empty()
+	return OS.has_feature("template") and not platform().is_empty() and not Clips.is_render_process()
 
 
 static func platform() -> String:
