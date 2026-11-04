@@ -31,6 +31,8 @@ var _xp_label: Label
 var _name_edit: LineEdit
 var _daily_button: Button
 var _play_button: MenuTile
+## Bottom-left update button: download progress, RESTART or DOWNLOAD (Updater).
+var _update_button: Button
 var _challenges_button: MenuTile
 var _season_button: MenuTile
 ## Home: every focusable home control (they leave the focus chain while the PLAY panel, the update
@@ -512,25 +514,67 @@ func _build_home() -> MenuScreen:
 	])
 	home.add_child(_flyout)
 
-	# Bottom left, under the player card: the version, which opens the update log. It is in the
-	# focus chain (down from the daily reward), so a pad or the keyboard can reopen the log too.
+	# Bottom left, under the player card: the version, which opens the update log, and beside it
+	# the update button (Updater). Both are in the focus chain (down from the daily reward), so a
+	# pad or the keyboard reaches them too.
+	var bottom := UIKit.hbox(8)
+	bottom.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
+	bottom.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	bottom.offset_left = 30
+	bottom.offset_top = -34
+	bottom.offset_bottom = -4
 	var version := UIKit.button("v%s  ·  WHAT'S NEW" % WhatsNew.current_version())
 	version.name = "VersionButton"
-	version.flat = true
-	version.add_theme_font_size_override("font_size", 13)
-	version.add_theme_color_override("font_color", UITheme.TEXT_DIM)
-	version.add_theme_color_override("font_hover_color", UITheme.ACCENT)
-	version.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
-	version.offset_left = 30
-	version.offset_top = -34
-	version.offset_bottom = -4
-	version.add_theme_color_override("font_focus_color", UITheme.ACCENT)
+	_style_bottom_button(version, UITheme.TEXT_DIM)
 	version.pressed.connect(func() -> void:
 		_home_focus = version
 		open_whats_new())
 	_home_controls.append(version)
-	home.add_child(version)
+	bottom.add_child(version)
+	_update_button = UIKit.button("")
+	_update_button.name = "UpdateButton"
+	_style_bottom_button(_update_button, UITheme.ACCENT)
+	_update_button.pressed.connect(_on_update_pressed)
+	_home_controls.append(_update_button)
+	bottom.add_child(_update_button)
+	home.add_child(bottom)
+	Updater.status_changed.connect(_refresh_update_button)
+	_refresh_update_button()
 	return home
+
+
+func _style_bottom_button(b: Button, color: Color) -> void:
+	b.flat = true
+	b.add_theme_font_size_override("font_size", 13)
+	b.add_theme_color_override("font_color", color)
+	b.add_theme_color_override("font_hover_color", UITheme.ACCENT)
+	b.add_theme_color_override("font_focus_color", UITheme.ACCENT)
+
+
+## The update button follows Updater.status: progress while a new version downloads, RESTART once
+## it is ready, DOWNLOAD (the release page) when it needs the full app; hidden otherwise.
+func _refresh_update_button() -> void:
+	var v := Updater.new_version
+	match Updater.status:
+		Updater.Status.DOWNLOADING:
+			_update_button.text = "DOWNLOADING v%s  %d%%" % [v, roundi(Updater.progress * 100.0)]
+		Updater.Status.READY:
+			_update_button.text = "UPDATE v%s READY  ·  RESTART" % v
+		Updater.Status.FULL:
+			_update_button.text = "v%s IS OUT  ·  DOWNLOAD" % v
+		_:
+			_update_button.text = ""
+	_update_button.visible = not _update_button.text.is_empty()
+	_update_button.disabled = Updater.status == Updater.Status.DOWNLOADING
+
+
+func _on_update_pressed() -> void:
+	_home_focus = _update_button
+	match Updater.status:
+		Updater.Status.READY:
+			Updater.restart_now()
+		Updater.Status.FULL:
+			OS.shell_open(Updater.full_url)
 
 
 ## Home action: closes the PLAY panel first when clicked with the mouse while it is open, and

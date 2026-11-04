@@ -22,6 +22,7 @@ Data="*res://scripts/autoload/data.gd"
 Profile="*res://scripts/autoload/profile.gd"
 Sfx="*res://scripts/autoload/sfx.gd"
 Net="*res://scripts/autoload/net.gd"
+Updater="*res://scripts/autoload/updater.gd"
 
 [display]
 

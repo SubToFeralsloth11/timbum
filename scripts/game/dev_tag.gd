@@ -28,9 +28,16 @@ static func verify(tag: Variant) -> bool:
 		return false
 	var id: Variant = tag.get("id")
 	var sig_text: Variant = tag.get("sig")
-	if typeof(id) != TYPE_STRING or typeof(sig_text) != TYPE_STRING:
+	if typeof(id) != TYPE_STRING or typeof(sig_text) != TYPE_STRING or (id as String).is_empty():
 		return false
-	if (id as String).is_empty() or (sig_text as String).is_empty() or (sig_text as String).length() > MAX_SIG_LENGTH:
+	return signed_by_owner((MESSAGE_PREFIX + id).to_utf8_buffer(), sig_text)
+
+
+## True when `sig_text` (base64) is the owner's RSA-SHA256 signature of `message`. The updater
+## (Updater) checks release manifests with it too, each with its own message prefix.
+static func signed_by_owner(message: PackedByteArray, sig_text: String) -> bool:
+	sig_text = sig_text.strip_edges()
+	if sig_text.is_empty() or sig_text.length() > MAX_SIG_LENGTH:
 		return false
 	var sig := Marshalls.base64_to_raw(sig_text)
 	if sig.is_empty():
@@ -39,5 +46,9 @@ static func verify(tag: Variant) -> bool:
 		_key = CryptoKey.new()
 		if _key.load_from_string(PUBLIC_KEY, true) != OK:
 			push_error("DevTag: the public key didn't load")
+			_key = null
 			return false
-	return Crypto.new().verify(HashingContext.HASH_SHA256, (MESSAGE_PREFIX + id).sha256_buffer(), sig, _key)
+	var ctx := HashingContext.new()
+	ctx.start(HashingContext.HASH_SHA256)
+	ctx.update(message)
+	return Crypto.new().verify(HashingContext.HASH_SHA256, ctx.finish(), sig, _key)
