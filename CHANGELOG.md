@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Developer tag.** The admin panel (cheats) and the Dev Pack are now for the developer's profile only. A profile is the developer's when it carries a signed developer tag; only the public key ships, so the tag can't be made by editing a save. Every other profile has no ADMIN PANEL button, F1 does nothing, and the Dev Pack can't be owned (the credits code says "Invalid code"). The tag is saved with the profile and travels in progress exports.
+
 ## 2.0.0: The Big Block Update (2026-11-04)
 
 The biggest Timbum update yet: three new weapons, two new modes (Capture the Flag and One in the Chamber), two new maps (Moon Base and Volcano Forge), weather, a free season pass and an in-game update log. The game shows these notes once when you first open 2.0 (WHAT'S NEW), and the version button at the bottom left of the home screen opens them again.

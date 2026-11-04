@@ -5,8 +5,10 @@ the notes and previews and has a `.gdignore`, so Godot doesn't parse, import or 
 
 ## What it is
 
-A four-piece cosmetic set that can't be bought. The only way to get it is a secret dev code typed
-on the keypad behind **Stats > CREDITS > DEV**. It is not redeemable in the shop: the shop only
+A four-piece cosmetic set that can't be bought, and only a developer profile (one carrying a
+valid developer tag, `DevTag` in `scripts/game/dev_tag.gd`) can own it. On that profile the secret
+dev code typed on the keypad behind **Stats > CREDITS > DEV** unlocks it; anywhere else the code
+says "Invalid code". It is not redeemable in the shop: the shop only
 shows the pieces as CODE ONLY and never says what the code is or where to enter it.
 
 **The code changed** from the one this pack was first made with. The old code no longer works;
