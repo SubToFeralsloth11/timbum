@@ -8,6 +8,8 @@ extends CharacterBody3D
 
 enum Mode { LOCAL, BOT, REMOTE }
 
+## Big Heads mutator: how much bigger every head is.
+const BIG_HEAD := 1.8
 const WALK_SPEED := 5.4
 const SPRINT_SPEED := 7.6
 const CROUCH_SPEED := 2.8
@@ -428,14 +430,10 @@ func _ready() -> void:
 		"speed":
 			_mutator_speed = 1.3
 		"big_heads":
-			# Head pivots at the neck (1.35 m); scaling it 1.8x lifts its centre to ~1.75 m.
-			head_box.size = Vector3.ONE * 0.52 * 1.8
-			_head_hit_y = 1.35 + 0.225 * 1.8
-			# Scale the head's children: the pivot's own basis is rewritten every pose update.
-			for part: Node in avatar.get_head().get_children():
-				if part is Node3D:
-					(part as Node3D).scale *= 1.8
-					(part as Node3D).position *= 1.8
+			# Head pivots at the neck (1.35 m); scaling it BIG_HEAD lifts its centre to ~1.75 m.
+			head_box.size = Vector3.ONE * 0.52 * BIG_HEAD
+			_head_hit_y = 1.35 + 0.225 * BIG_HEAD
+			avatar.grow_head(BIG_HEAD)
 	speed_scale = _mutator_speed * float(info.get("speed", 1.0))
 	_hit_head = _make_hitbox("HitHead", "head", head_box)
 	_hit_head_col = _hit_head.get_child(0)

@@ -370,6 +370,15 @@ func get_head() -> Node3D:
 	return _head
 
 
+## Big Heads: scales the head's parts by `factor` about the neck pivot (the pivot's own basis is
+## rewritten every pose update, so its children are scaled instead).
+func grow_head(factor: float) -> void:
+	for part: Node in _head.get_children():
+		if part is Node3D:
+			(part as Node3D).scale *= factor
+			(part as Node3D).position *= factor
+
+
 ## Plays win emote `id` (Data.EMOTES) on a loop until reset_pose() or stop_emote(). A dead
 ## body gets back up first. The gun is put away while dancing.
 func play_emote(id: String) -> void:

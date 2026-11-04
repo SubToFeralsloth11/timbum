@@ -110,6 +110,11 @@ static func decorate(p: Player, my_team: int) -> void:
 
 ## Replaces `p`'s armbands with `col` (a player whose team changes, e.g. a new Infected).
 static func set_armbands(p: Player, col: Color) -> void:
+	set_avatar_armbands(p.avatar, col)
+
+
+## Glowing armbands in `col` on `avatar` (a player's, or a clip's ghost in Studio).
+static func set_avatar_armbands(avatar: Avatar, col: Color) -> void:
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = col
 	mat.emission_enabled = true
@@ -119,7 +124,7 @@ static func set_armbands(p: Player, col: Color) -> void:
 	band.size = Vector3(0.27, 0.09, 0.27)
 	band.material = mat
 	for arm: String in ["ArmL", "ArmR"]:
-		var mount := p.avatar.find_child(arm, true, false) as Node3D
+		var mount := avatar.find_child(arm, true, false) as Node3D
 		if mount == null:
 			continue
 		var mi := mount.get_node_or_null("Armband") as MeshInstance3D
@@ -131,7 +136,7 @@ static func set_armbands(p: Player, col: Color) -> void:
 		mi.mesh = band
 	# New meshes join the avatar's geometry list so a first-person body (the local player, or the
 	# player a spectator follows) keeps them shadow-only instead of floating in front of the camera.
-	p.avatar._refresh_geoms()
+	avatar._refresh_geoms()
 
 
 ## The local player's team is only known once its own entity arrives (after others may have),

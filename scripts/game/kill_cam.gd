@@ -1,50 +1,58 @@
 class_name KillCam
 extends Node
-## Kill cam replay: World's child "KillCam" on every peer.
+## Kill cam replay and the match recording behind it and behind clips: World's child "KillCam"
+## on every peer.
 ##
 ## **Recording.** Every peer keeps a ring buffer (a Tape) of what it already has of every player:
-## RATE frames a second for SECONDS, each with every player's feet position, eye position, yaw,
-## pitch and state flags (Player.net_flags: stance, aim, sprint, slide, reload, held weapon, lean;
-## plus alive, grappling and "remote"), the projectiles in flight, and the shots, knife swings,
-## throws, rockets, explosions and hits it plays as effects, and up to MARKS mode objectives
-## (Capture the Flag's flags: MatchMode.replay_mark_count / replay_mark_state / _carrier / _pos,
-## state, carrier and position). A remote player's entry is the
-## interpolated pose this peer shows, which runs Player.INTERP_DELAY behind the events it
-## receives, so the replay reads remote poses that much later and they line up with their shots.
-## Nothing is sent over the network for it, and nothing is recorded in Tactical (no respawns:
-## the dead spectate) or with the `killcam` setting off. The buffers are preallocated packed
-## arrays, so recording allocates nothing per frame.
+## RATE frames a second for RING_SECONDS, each with every player's feet position, eye position,
+## yaw, pitch and state flags (Player.net_flags: stance, aim, sprint, slide, reload, held weapon,
+## lean; plus alive, grappling and "remote"), the projectiles in flight, and the shots, knife
+## swings, throws, rockets, explosions, hits and deaths it plays as effects, and up to MARKS mode
+## objectives (Capture the Flag's flags: MatchMode.replay_mark_count / replay_mark_state /
+## _carrier / _pos, state, carrier and position). A remote player's entry is the interpolated
+## pose this peer shows, which runs Player.INTERP_DELAY behind the events it receives, so a replay
+## reads remote poses that much later and they line up with their shots. Nothing is sent over the
+## network for it, and nothing is recorded in Tactical (no respawns: the dead spectate) or with
+## both the `killcam` and the `clips` setting off. The buffers are preallocated packed arrays, so
+## recording allocates nothing per frame. The ring is long enough for a clip (ClipRecorder:
+## Clips.BEFORE before a kill, saved up to Clips.SAVE_WINDOW after it); `window(t_from, t_to)`
+## copies a span of it out.
 ##
 ## **Replay.** When another player kills the local player (World._s_killed), the replay starts
 ## START_DELAY after the death. It shows the last moments up to TAIL past the kill from the
-## killer's eyes: their recorded eye, aim and stance drive this node's own camera and a Viewmodel
-## built with the killer's outfit, skin, charm and camos (gun, kick, muzzle flash, reload, knife,
-## throw), their shots draw tracers and impacts, and everyone else is a ghost Avatar at their
-## recorded pose (the local player's own ghost is labelled YOU). The mode draws its objectives at
-## their recorded state through replay_mark_state / replay_mark_carrier / replay_mark_pos and
-## replay_ghost (Capture the Flag puts a carried flag on the carrier's ghost). KillCamOverlay draws the KILLCAM
-## banner, the skip key (`skip_killcam`) and progress. The replay ends END_MARGIN before the
-## respawn at the latest: its length is the respawn delay minus START_DELAY and END_MARGIN, at
-## most MAX_LEN, and none plays under MIN_LEN; a respawn, the end of the match or the skip key
-## ends it at once. When it starts, the window is copied out of the ring into a second Tape, so
-## recording carries on during the replay.
+## killer's eyes through a ReplayView: their recorded eye, aim and stance drive its camera and a
+## Viewmodel built with the killer's outfit, skin, charm and camos (gun, kick, muzzle flash,
+## reload, knife, throw), their shots draw tracers and impacts, and everyone else is a ghost
+## Avatar at their recorded pose (the local player's own ghost is labelled YOU). The mode draws
+## its objectives at their recorded state through replay_mark_state / replay_mark_carrier /
+## replay_mark_pos and replay_ghost (Capture the Flag puts a carried flag on the carrier's
+## ghost). KillCamOverlay draws the KILLCAM banner, the skip key (`skip_killcam`) and progress.
+## The replay ends END_MARGIN before the respawn at the latest: its length is the respawn delay
+## minus START_DELAY and END_MARGIN, at most MAX_LEN, and none plays under MIN_LEN; a respawn, the
+## end of the match or the skip key ends it at once. When it starts, the window is copied out of
+## the ring into a second Tape, so recording carries on during the replay.
 ## The live match keeps running underneath: the replay only swaps the current camera, hides the
 ## live avatars, projectiles and the HUD's own cards (Hud.set_killcam) and the mode overlays
 ## (canvas layer 11), and reads no gameplay state back. A frozen offline match (pause) freezes it,
 ## since its clock is World.now().
 
 const RATE := 30.0
-const SECONDS := 5.0
-## Ring size: SECONDS at RATE, plus slack for the copy window's edges.
-const FRAMES := 152
+## Seconds the ring holds: a clip's lead-in before a kill plus the time allowed to save it.
+const RING_SECONDS := 22.0
+## Ring size: RING_SECONDS at up to RATE / 0.9 frames a second (a frame is due 0.9 / RATE after
+## the last), plus slack for a copy window's edges.
+const FRAMES := 744
+## The replay's copy: MAX_LEN at RATE plus slack.
+const PLAY_FRAMES := 152
 ## Players recorded; every mode with respawns has at most 12.
 const SLOTS := 16
 ## Projectiles recorded per frame.
 const PROJ := 8
 ## Mode objectives recorded per frame (Capture the Flag's two flags).
 const MARKS := 2
-## Effect events kept (shots of a full lobby over a few seconds).
-const EVENTS := 512
+## Effect events kept (shots of a full lobby over the ring's span), and in the replay's copy.
+const EVENTS := 2048
+const PLAY_EVENTS := 512
 const START_DELAY := 0.8
 const END_MARGIN := 0.2
 const MAX_LEN := 4.0
@@ -63,7 +71,8 @@ const BIT_GRAPPLE := 1 << 26
 ## Projectile and explosion kinds (index stored in the tape; new kinds go at the end).
 const KINDS: Array[String] = ["rocket", "grenade", "smoke", "flash", "bomber", "cube_lobber"]
 
-enum Ev { SHOT, PELLET, SLASH, THROW, ROCKET, EXPLODE, HIT }
+## Effect event kinds (stored in saved clips: new kinds go at the end).
+enum Ev { SHOT, PELLET, SLASH, THROW, ROCKET, EXPLODE, HIT, DEATH }
 
 
 ## Fixed-size recording: `cap` frames of `slots` players and `proj` projectiles in a ring
@@ -97,6 +106,13 @@ class Tape:
 	var ev_arg := PackedInt32Array()
 	var ev_a := PackedVector3Array()
 	var ev_b := PackedVector3Array()
+	## Result of the last sample_slot.
+	var s_pos := Vector3.ZERO
+	var s_eye := Vector3.ZERO
+	var s_yaw := 0.0
+	var s_pitch := 0.0
+	var s_flags := 0
+	var s_vel := Vector3.ZERO
 
 	func _init(p_frames: int, p_slots: int, p_proj: int, p_events: int) -> void:
 		cap = p_frames
@@ -134,6 +150,10 @@ class Tape:
 	## Ring index of logical frame `i`.
 	func at(i: int) -> int:
 		return (head + i) % cap
+
+	## Ring index of logical event `i` (0 the oldest).
+	func ev_at(i: int) -> int:
+		return (ev_head + i) % ev_cap
 
 	## Starts a frame at time `t` (overwriting the oldest when full) and returns its ring index,
 	## with its player and projectile entries emptied.
@@ -185,6 +205,74 @@ class Tape:
 				hi = mid - 1
 		return lo
 
+	## Time of the first and last frame ([0, 0] when empty).
+	func span() -> Vector2:
+		if count == 0:
+			return Vector2.ZERO
+		return Vector2(times[at(0)], times[at(count - 1)])
+
+	## The slot `eid` was recorded in (-1: never).
+	func slot_of(eid: int) -> int:
+		for i in count:
+			var base := at(i) * slots
+			for s in slots:
+				if ids[base + s] == eid:
+					return s
+		return -1
+
+	## Every entity id recorded.
+	func entity_ids() -> PackedInt32Array:
+		var seen := {}
+		for i in count:
+			var base := at(i) * slots
+			for s in slots:
+				if ids[base + s] != 0:
+					seen[ids[base + s]] = true
+		return PackedInt32Array(seen.keys())
+
+	## Interpolated state of slot `slot` (entity `eid`) at `t` into the s_* fields; false when the
+	## tape has no entry for it there. A remote player's entry is read Player.INTERP_DELAY later.
+	func sample_slot(slot: int, eid: int, t: float) -> bool:
+		if slot < 0 or not _sample_at(slot, eid, t):
+			return false
+		if (s_flags & BIT_REMOTE) != 0:
+			_sample_at(slot, eid, t + Player.INTERP_DELAY)
+		return true
+
+	func _sample_at(slot: int, eid: int, t: float) -> bool:
+		var i := find(t)
+		if i < 0:
+			return false
+		var j := mini(i + 1, count - 1)
+		var fa := at(i)
+		var fb := at(j)
+		var a := fa * slots + slot
+		var b := fb * slots + slot
+		var ok_a := ids[a] == eid
+		var ok_b := ids[b] == eid
+		if not ok_a and not ok_b:
+			return false
+		if not ok_a:
+			a = b
+		elif not ok_b:
+			b = a
+		var k := 0.0
+		s_vel = Vector3.ZERO
+		if a != b:
+			var dt := times[fb] - times[fa]
+			k = clampf((t - times[fa]) / dt, 0.0, 1.0) if dt > 0.0001 else 1.0
+			var step := pos[b] - pos[a]
+			if step.length() > SNAP_DIST:
+				k = 0.0 if k < 0.5 else 1.0
+			elif dt > 0.0001:
+				s_vel = step / dt
+		s_pos = pos[a].lerp(pos[b], k)
+		s_eye = eye[a].lerp(eye[b], k)
+		s_yaw = lerp_angle(yaw[a], yaw[b], k)
+		s_pitch = lerpf(pitch[a], pitch[b], k)
+		s_flags = flags[a] if k < 1.0 else flags[b]
+		return true
+
 	## Replaces this tape with `src`'s frames covering `t_from`..`t_to` (one frame either side) and
 	## its events in that span.
 	func copy_from(src: Tape, t_from: float, t_to: float) -> void:
@@ -218,10 +306,54 @@ class Tape:
 			if src.times[sf] > t_to:
 				break
 		for j in src.ev_count:
-			var e := (src.ev_head + j) % src.ev_cap
+			var e := src.ev_at(j)
 			var t := src.ev_time[e]
 			if t >= t_from and t <= t_to:
 				add_event(t, src.ev_kind[e], src.ev_eid[e], src.ev_arg[e], src.ev_a[e], src.ev_b[e])
+
+	## The frames and events in logical order as packed arrays (a saved clip, Clips).
+	func to_dict() -> Dictionary:
+		var out := Tape.new(maxi(count, 1), slots, proj, maxi(ev_count, 1))
+		out.copy_from(self, -INF, INF)
+		return {"slots": slots, "proj": proj, "count": count, "times": out.times.slice(0, count),
+			"ids": out.ids.slice(0, count * slots), "pos": out.pos.slice(0, count * slots),
+			"eye": out.eye.slice(0, count * slots), "yaw": out.yaw.slice(0, count * slots),
+			"pitch": out.pitch.slice(0, count * slots), "flags": out.flags.slice(0, count * slots),
+			"proj_id": out.proj_id.slice(0, count * proj), "proj_kind": out.proj_kind.slice(0, count * proj),
+			"proj_pos": out.proj_pos.slice(0, count * proj),
+			"ev_count": ev_count, "ev_time": out.ev_time.slice(0, ev_count), "ev_kind": out.ev_kind.slice(0, ev_count),
+			"ev_eid": out.ev_eid.slice(0, ev_count), "ev_arg": out.ev_arg.slice(0, ev_count),
+			"ev_a": out.ev_a.slice(0, ev_count), "ev_b": out.ev_b.slice(0, ev_count)}
+
+	## A tape from to_dict()'s output; null when it is malformed (a damaged or foreign file).
+	static func from_dict(d: Dictionary) -> Tape:
+		var n := int(d.get("count", 0))
+		var s := int(d.get("slots", 0))
+		var p := int(d.get("proj", 0))
+		var ne := int(d.get("ev_count", 0))
+		if n < 1 or s < 1 or s > 64 or p < 0 or p > 64 or ne < 0:
+			return null
+		var typed := {"times": TYPE_PACKED_FLOAT64_ARRAY, "ids": TYPE_PACKED_INT32_ARRAY, "pos": TYPE_PACKED_VECTOR3_ARRAY,
+			"eye": TYPE_PACKED_VECTOR3_ARRAY, "yaw": TYPE_PACKED_FLOAT32_ARRAY, "pitch": TYPE_PACKED_FLOAT32_ARRAY,
+			"flags": TYPE_PACKED_INT32_ARRAY, "proj_id": TYPE_PACKED_INT32_ARRAY, "proj_kind": TYPE_PACKED_INT32_ARRAY,
+			"proj_pos": TYPE_PACKED_VECTOR3_ARRAY, "ev_time": TYPE_PACKED_FLOAT64_ARRAY, "ev_kind": TYPE_PACKED_INT32_ARRAY,
+			"ev_eid": TYPE_PACKED_INT32_ARRAY, "ev_arg": TYPE_PACKED_INT32_ARRAY, "ev_a": TYPE_PACKED_VECTOR3_ARRAY,
+			"ev_b": TYPE_PACKED_VECTOR3_ARRAY}
+		var sizes := {"times": n, "ids": n * s, "pos": n * s, "eye": n * s, "yaw": n * s, "pitch": n * s, "flags": n * s,
+			"proj_id": n * p, "proj_kind": n * p, "proj_pos": n * p, "ev_time": ne, "ev_kind": ne, "ev_eid": ne,
+			"ev_arg": ne, "ev_a": ne, "ev_b": ne}
+		for key: String in typed:
+			if typeof(d.get(key)) != typed[key] or (d[key] as Variant).size() != sizes[key]:
+				return null
+		var t := Tape.new(n, s, p, maxi(ne, 1))
+		t.count = n
+		for key: String in typed:
+			t.set(key, d[key].duplicate())
+		t.times.resize(n)
+		t.ev_count = ne
+		for key: String in ["ev_time", "ev_kind", "ev_eid", "ev_arg", "ev_a", "ev_b"]:
+			(t.get(key) as Variant).resize(maxi(ne, 1))
+		return t
 
 
 var world: World
@@ -232,7 +364,7 @@ var last := {}
 var replays := 0
 
 var _tape := Tape.new(FRAMES, SLOTS, PROJ, EVENTS)
-var _play := Tape.new(FRAMES, SLOTS, PROJ, EVENTS)
+var _play := Tape.new(PLAY_FRAMES, SLOTS, PROJ, PLAY_EVENTS)
 var _recording := false
 var _last_record := -100.0
 ## Recording slot of each entity id, and the entity (0: free) and last record time of each slot.
@@ -244,91 +376,28 @@ var _slot_seen := PackedFloat64Array()
 var _pending_at := -1.0
 var _playing := false
 var _killer := 0
-var _killer_slot := -1
 var _wid := ""
 var _kill_t := 0.0
 var _len := 0.0
 ## Recorded time the replay starts at, and World.now() when it started.
 var _t0 := 0.0
 var _started_at := 0.0
-var _ev_next := 0
-var _frames_played := 0
-## The replayed moment (World.now() time of the recording) of the current replay frame.
-var _replay_t := 0.0
 
-var _root3d: Node3D
-var _cam: Camera3D
-var _viewmodel: Viewmodel
-var _vm_key := ""
-var _ads := 0.0
-var _cam_weapon := ""
-var _cam_reloading := false
-## Seconds the replayed killer has been charging a charge weapon (Player.FLAG_CHARGE), for its glow.
-var _cam_charge := 0.0
-var _cam_ads_fov := 60.0
-var _cam_scoped := false
-var _cam_scope_style := "sniper"
-var _you_tag: Label3D
+var _view: ReplayView
 var _overlay: KillCamOverlay
 var _entities_root: Node3D
 var _hidden_layers: Array[CanvasLayer] = []
-
-## Ghost avatars per recording slot (null until needed) and their replay state.
-var _ghosts: Array[Avatar] = []
-var _g_eid := PackedInt32Array()
-var _g_look: Array[String] = []
-var _g_wid: Array[String] = []
-var _g_info: Array[Dictionary] = []
-var _g_alive: Array[bool] = []
-var _g_seen_alive: Array[bool] = []
-var _g_reload: Array[bool] = []
-var _proj_nodes: Array[Node3D] = []
-var _proj_node_kind := PackedInt32Array()
-
-## Result of the last _sample.
-var _s_pos := Vector3.ZERO
-var _s_eye := Vector3.ZERO
-var _s_yaw := 0.0
-var _s_pitch := 0.0
-var _s_flags := 0
-var _s_vel := Vector3.ZERO
 
 
 func _ready() -> void:
 	_slot_eid.resize(SLOTS)
 	_slot_seen.resize(SLOTS)
-	_g_eid.resize(SLOTS)
-	for s in SLOTS:
-		_ghosts.append(null)
-		_g_look.append("")
-		_g_wid.append("")
-		_g_info.append({})
-		_g_alive.append(true)
-		_g_seen_alive.append(false)
-		_g_reload.append(false)
-	_proj_node_kind.resize(PROJ)
-	for k in PROJ:
-		_proj_nodes.append(null)
-		_proj_node_kind[k] = -1
-	_root3d = Node3D.new()
-	_root3d.name = "Replay"
-	_root3d.visible = false
-	add_child(_root3d)
-	_cam = Camera3D.new()
-	_cam.name = "Camera"
-	_cam.near = 0.05
-	_cam.far = 400.0
-	_root3d.add_child(_cam)
-	_you_tag = Label3D.new()
-	_you_tag.text = "YOU"
-	_you_tag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	_you_tag.no_depth_test = true
-	_you_tag.fixed_size = true
-	_you_tag.pixel_size = 0.0012
-	_you_tag.font_size = 40
-	_you_tag.outline_size = 10
-	_you_tag.modulate = Color(1.0, 0.35, 0.3)
-	_root3d.add_child(_you_tag)
+	_view = ReplayView.new()
+	_view.visible = false
+	_view.fx = world.fx
+	_view.info_of = _live_info
+	_view.look_of = _copy_look
+	add_child(_view)
 	_overlay = KillCamOverlay.new()
 	_overlay.name = "KillCamOverlay"
 	add_child(_overlay)
@@ -337,9 +406,14 @@ func _ready() -> void:
 
 # ================================================================ recording
 
+## Whether the match is being recorded now (kill cam or clips on, a mode with respawns).
+func is_recording() -> bool:
+	return _recording
+
+
 func _physics_process(_delta: float) -> void:
-	var on := bool(Profile.get_setting("killcam")) and not world.match_over and world.local_player != null \
-		and world.rules.respawn_delay() >= 0.0
+	var wanted := bool(Profile.get_setting("killcam")) or bool(Profile.get_setting("clips"))
+	var on := wanted and not world.match_over and world.local_player != null and world.rules.respawn_delay() >= 0.0
 	if on != _recording:
 		_recording = on
 		if on:
@@ -351,23 +425,24 @@ func _physics_process(_delta: float) -> void:
 	if t - _last_record < 0.9 / RATE:
 		return
 	_last_record = t
-	_record(t)
+	_record(_tape, t)
 
 
-func _record(t: float) -> void:
-	var f := _tape.begin_frame(t)
-	var base := f * SLOTS
+## Records the scene at `t` as a new frame of `tape`.
+func _record(tape: Tape, t: float) -> void:
+	var f := tape.begin_frame(t)
+	var base := f * tape.slots
 	for eid: int in world.entities:
-		var s := _slot(eid, t)
+		var s := _slot(eid, t) if tape == _tape else _free_slot(tape, f, eid)
 		if s < 0:
 			continue
 		var p: Player = world.entities[eid]
 		var i := base + s
-		_tape.ids[i] = eid
-		_tape.pos[i] = p.global_position
-		_tape.eye[i] = p.head.global_position
-		_tape.yaw[i] = p.yaw
-		_tape.pitch[i] = p.pitch
+		tape.ids[i] = eid
+		tape.pos[i] = p.global_position
+		tape.eye[i] = p.head.global_position
+		tape.yaw[i] = p.yaw
+		tape.pitch[i] = p.pitch
 		var fl := p.net_flags()
 		if p.alive:
 			fl |= BIT_ALIVE
@@ -375,24 +450,24 @@ func _record(t: float) -> void:
 			fl |= BIT_REMOTE
 		if p.grappling:
 			fl |= BIT_GRAPPLE
-		_tape.flags[i] = fl
+		tape.flags[i] = fl
 	var n := 0
-	var pb := f * PROJ
+	var pb := f * tape.proj
 	for pid: int in world.projectiles:
-		if n >= PROJ:
+		if n >= tape.proj:
 			break
 		var proj: Projectile = world.projectiles[pid]
 		if not proj.in_flight():
 			continue
-		_tape.proj_id[pb + n] = pid
-		_tape.proj_kind[pb + n] = KINDS.find(proj.kind)
-		_tape.proj_pos[pb + n] = proj.global_position
+		tape.proj_id[pb + n] = pid
+		tape.proj_kind[pb + n] = KINDS.find(proj.kind)
+		tape.proj_pos[pb + n] = proj.global_position
 		n += 1
 	var rules := world.rules
 	for k in mini(rules.replay_mark_count(), MARKS):
-		_tape.mark_state[f * MARKS + k] = rules.replay_mark_state(k)
-		_tape.mark_carrier[f * MARKS + k] = rules.replay_mark_carrier(k)
-		_tape.mark_pos[f * MARKS + k] = rules.replay_mark_pos(k)
+		tape.mark_state[f * MARKS + k] = rules.replay_mark_state(k)
+		tape.mark_carrier[f * MARKS + k] = rules.replay_mark_carrier(k)
+		tape.mark_pos[f * MARKS + k] = rules.replay_mark_pos(k)
 
 
 func _slot(eid: int, t: float) -> int:
@@ -401,7 +476,7 @@ func _slot(eid: int, t: float) -> int:
 		_slot_seen[s] = t
 		return s
 	for i in SLOTS:
-		if _slot_eid[i] == 0 or t - _slot_seen[i] > SECONDS + 1.0:
+		if _slot_eid[i] == 0 or t - _slot_seen[i] > RING_SECONDS + 1.0:
 			if _slot_eid[i] != 0:
 				_slot_of.erase(_slot_eid[i])
 			_slot_eid[i] = eid
@@ -409,6 +484,30 @@ func _slot(eid: int, t: float) -> int:
 			_slot_seen[i] = t
 			return i
 	return -1
+
+
+## A snapshot's slot: the first empty one of frame `f` (-1 when full).
+static func _free_slot(tape: Tape, f: int, _eid: int) -> int:
+	for s in tape.slots:
+		if tape.ids[f * tape.slots + s] == 0:
+			return s
+	return -1
+
+
+## The scene right now as a one-frame tape (a photo's scene, PhotoMode), with up to Data.MAX_PLAYERS
+## players whatever the mode.
+func snapshot() -> Tape:
+	var tape := Tape.new(1, maxi(world.entities.size(), 1), PROJ, 1)
+	_record(tape, World.now())
+	return tape
+
+
+## A copy of the ring's frames and events from `t_from` to `t_to` (a clip, ClipRecorder). Frames
+## come up to 1 / 0.9 times RATE (see _physics_process), so the copy has room for that many.
+func window(t_from: float, t_to: float) -> Tape:
+	var tape := Tape.new(ceili((t_to - t_from) * RATE / 0.9) + 8, SLOTS, PROJ, EVENTS)
+	tape.copy_from(_tape, t_from, t_to)
+	return tape
 
 
 ## World._play_shot_fx: a hitscan shot or melee swing of `p` (every peer plays these).
@@ -450,66 +549,27 @@ func record_hit(p: Player) -> void:
 		_tape.add_event(World.now(), Ev.HIT, p.id, 0, p.global_position + Vector3.UP * (p.body_center_height() - 0.15), Vector3.ZERO)
 
 
+## World._s_killed: `p` died (the death burst and sound in a clip).
+func record_death(p: Player) -> void:
+	if _recording:
+		_tape.add_event(World.now(), Ev.DEATH, p.id, 0, p.global_position + Vector3.UP * 0.9, Vector3.ZERO)
+
+
 ## Checks: what the ring holds now.
 func buffer_info() -> Dictionary:
+	var s := _tape.span()
 	return {"frames": _tape.count, "frame_cap": _tape.cap, "events": _tape.ev_count, "event_cap": _tape.ev_cap,
-		"span": _tape.times[_tape.at(_tape.count - 1)] - _tape.times[_tape.at(0)] if _tape.count > 0 else 0.0,
-		"slots": _slot_of.size(), "ghosts": _ghosts.filter(func(g: Avatar) -> bool: return g != null).size()}
+		"span": s.y - s.x, "slots": _slot_of.size(), "ghosts": _view.get_children().filter(func(c: Node) -> bool: return c is Avatar).size()}
 
 
-## Checks: the pose this peer recorded for `eid` at World.now() time `t`, as the replay reads it
+## Checks: the pose this peer recorded for `eid` at World.now() time `t`, as a replay reads it
 ## (a remote player's interpolated pose INTERP_DELAY later); {} when not recorded.
 func recorded_pose(eid: int, t: float) -> Dictionary:
 	var s: int = _slot_of.get(eid, -1)
-	if s < 0 or not _sample(_tape, s, eid, t):
+	if not _tape.sample_slot(s, eid, t):
 		return {}
-	return {"pos": _s_pos, "eye": _s_eye, "yaw": _s_yaw, "pitch": _s_pitch,
-		"weapon": Player.flags_weapon(_s_flags), "alive": (_s_flags & BIT_ALIVE) != 0}
-
-
-## Interpolated state of slot `slot` (entity `eid`) at `t` into the _s_* fields; false when the
-## tape has no entry for it there. A remote player's entry is read INTERP_DELAY later.
-func _sample(tape: Tape, slot: int, eid: int, t: float) -> bool:
-	if not _sample_at(tape, slot, eid, t):
-		return false
-	if (_s_flags & BIT_REMOTE) != 0:
-		_sample_at(tape, slot, eid, t + Player.INTERP_DELAY)
-	return true
-
-
-func _sample_at(tape: Tape, slot: int, eid: int, t: float) -> bool:
-	var i := tape.find(t)
-	if i < 0:
-		return false
-	var j := mini(i + 1, tape.count - 1)
-	var fa := tape.at(i)
-	var fb := tape.at(j)
-	var a := fa * SLOTS + slot
-	var b := fb * SLOTS + slot
-	var ok_a := tape.ids[a] == eid
-	var ok_b := tape.ids[b] == eid
-	if not ok_a and not ok_b:
-		return false
-	if not ok_a:
-		a = b
-	elif not ok_b:
-		b = a
-	var k := 0.0
-	_s_vel = Vector3.ZERO
-	if a != b:
-		var span := tape.times[fb] - tape.times[fa]
-		k = clampf((t - tape.times[fa]) / span, 0.0, 1.0) if span > 0.0001 else 1.0
-		var step := tape.pos[b] - tape.pos[a]
-		if step.length() > SNAP_DIST:
-			k = 0.0 if k < 0.5 else 1.0
-		elif span > 0.0001:
-			_s_vel = step / span
-	_s_pos = tape.pos[a].lerp(tape.pos[b], k)
-	_s_eye = tape.eye[a].lerp(tape.eye[b], k)
-	_s_yaw = lerp_angle(tape.yaw[a], tape.yaw[b], k)
-	_s_pitch = lerpf(tape.pitch[a], tape.pitch[b], k)
-	_s_flags = tape.flags[a] if k < 1.0 else tape.flags[b]
-	return true
+	return {"pos": _tape.s_pos, "eye": _tape.s_eye, "yaw": _tape.s_yaw, "pitch": _tape.s_pitch,
+		"weapon": Player.flags_weapon(_tape.s_flags), "alive": (_tape.s_flags & BIT_ALIVE) != 0}
 
 
 # ================================================================ replay
@@ -519,7 +579,8 @@ func _sample_at(tape: Tape, slot: int, eid: int, t: float) -> bool:
 ## leaves room for at least MIN_LEN.
 func on_local_death(killer_id: int, wid: String) -> void:
 	stop("death")
-	if not _recording or killer_id == world.my_id() or world.match_over or not world.entities.has(killer_id):
+	if not _recording or not bool(Profile.get_setting("killcam")) or killer_id == world.my_id() \
+			or world.match_over or not world.entities.has(killer_id):
 		return
 	# A death the player doesn't come back from (One in the Chamber's last life) has no replay.
 	var delay := world.rules.respawn_delay() if world.rules.respawns(world.my_id()) else -1.0
@@ -571,12 +632,12 @@ func _begin() -> void:
 	var end_t := _kill_t + TAIL
 	_t0 = end_t - _len
 	_play.copy_from(_tape, _t0 - 2.0 / RATE, end_t + Player.INTERP_DELAY + 2.0 / RATE)
-	_killer_slot = _slot_of.get(_killer, -1)
+	var killer_slot: int = _slot_of.get(_killer, -1)
 	# The killer may have spawned or joined inside the window: start at their first frame.
 	var first := -1.0
-	if _killer_slot >= 0:
+	if killer_slot >= 0:
 		for i in _play.count:
-			if _play.ids[_play.at(i) * SLOTS + _killer_slot] == _killer:
+			if _play.ids[_play.at(i) * SLOTS + killer_slot] == _killer:
 				first = _play.times[_play.at(i)]
 				break
 	if first < 0.0 or end_t - maxf(_t0, first) < MIN_LEN * 0.5:
@@ -584,13 +645,11 @@ func _begin() -> void:
 		return
 	_t0 = maxf(_t0, first)
 	_len = end_t - _t0
-	_ev_next = 0
-	while _ev_next < _play.ev_count and _play.ev_time[_ev_next] < _t0:
-		_ev_next += 1
-	_frames_played = 0
-	_ads = 0.0
-	_cam_reloading = false
-	_build_view(world.entities[_killer])
+	_view.tag_eid = world.my_id()
+	_view.base_fov = float(Profile.get_setting("fov"))
+	_view.frames_played = 0
+	_view.begin(_play, _t0, _killer)
+	_show_view(world.entities[_killer])
 	_playing = true
 	_started_at = World.now()
 	replays += 1
@@ -600,39 +659,9 @@ func _begin() -> void:
 	_step(0.0)
 
 
-func _build_view(killer: Player) -> void:
-	var info := killer.info
-	var camos: Variant = info.get("camos", [])
-	var key := "%s|%s|%s|%s|%s" % [info.outfit, info.skin, info.get("charm", "none"), info.get("draw", "standard"), str(camos)]
-	if key != _vm_key or _viewmodel == null:
-		if _viewmodel != null:
-			_viewmodel.queue_free()
-		_vm_key = key
-		_viewmodel = Viewmodel.new()
-		_viewmodel.setup(str(info.outfit), str(info.skin), str(info.get("charm", "none")), str(info.get("draw", "standard")),
-			camos if typeof(camos) == TYPE_ARRAY else [])
-		_cam.add_child(_viewmodel)
-		_cam_weapon = ""
-	for s in SLOTS:
-		_g_alive[s] = true
-		_g_seen_alive[s] = false
-		_g_reload[s] = false
-		if _ghosts[s] == null:
-			continue
-		var p: Player = world.entities.get(_g_eid[s])
-		if p == null or _look_key(p.info) != _g_look[s]:
-			# Gone, or a new outfit or hat: rebuilt when needed.
-			_ghosts[s].queue_free()
-			_ghosts[s] = null
-			_g_eid[s] = 0
-			continue
-		_ghosts[s].visible = false
-		_ghosts[s].reset_pose()
-		_g_info[s] = p.info
-		_copy_look(p, _ghosts[s])
-	_root3d.visible = true
-	_cam.fov = float(Profile.get_setting("fov"))
-	_cam.make_current()
+func _show_view(killer: Player) -> void:
+	_view.visible = true
+	_view.camera.make_current()
 	_entities_root.visible = false
 	_hide_live_projectiles()
 	for node: Node in world.find_children("*", "CanvasLayer", true, false):
@@ -648,7 +677,8 @@ func _build_view(killer: Player) -> void:
 
 func _finish(reason: String) -> void:
 	_playing = false
-	_root3d.visible = false
+	_view.visible = false
+	_view.hide_all()
 	_overlay.visible = false
 	_overlay.set_scope(false, "sniper")
 	var me := world.local_player
@@ -665,12 +695,18 @@ func _finish(reason: String) -> void:
 	world.hud.set_killcam(false)
 	last.end_t = World.now()
 	last.reason = reason
-	last.frames = _frames_played
+	last.frames = _view.frames_played
 
 
 func _hide_live_projectiles() -> void:
 	for pid: int in world.projectiles:
 		(world.projectiles[pid] as Node3D).visible = false
+
+
+## A live entity's info for the replay's ghosts ({} once it has left).
+func _live_info(eid: int) -> Dictionary:
+	var p: Player = world.entities.get(eid)
+	return p.info if p != null else {}
 
 
 ## While a replay plays: the recorded state of mode objective `k` at the replayed moment (-1: none
@@ -689,18 +725,13 @@ func replay_mark_pos(k: int) -> Vector3:
 
 ## Ring index of the replay frame at or before the replayed moment.
 func _mark_frame() -> int:
-	return _play.at(maxi(0, _play.find(_replay_t)))
+	return _play.at(maxi(0, _play.find(_view.replay_t)))
 
 
 ## While a replay plays: the ghost avatar standing in for `eid` (null for the killer, whose eyes the
 ## replay looks through, and for anyone not shown).
 func replay_ghost(eid: int) -> Avatar:
-	if not _playing or eid == _killer:
-		return null
-	for s in SLOTS:
-		if _g_eid[s] == eid and _ghosts[s] != null and _ghosts[s].visible:
-			return _ghosts[s]
-	return null
+	return _view.ghost_of(eid) if _playing else null
 
 
 func _step(delta: float) -> void:
@@ -708,139 +739,17 @@ func _step(delta: float) -> void:
 	if r >= _len:
 		_finish("end")
 		return
-	var t := _t0 + r
-	_replay_t = t
-	_frames_played += 1
 	_overlay.set_progress(r / _len)
 	_hide_live_projectiles()
-	_pose_killer(t, delta)
-	_pose_ghosts(t, delta)
-	_pose_projectiles(t)
-	_play_events(t)
-
-
-func _pose_killer(t: float, delta: float) -> void:
-	if _killer_slot < 0 or not _sample(_play, _killer_slot, _killer, t):
-		return
-	var fl := _s_flags
-	var wid := Player.flags_weapon(fl)
-	if wid != _cam_weapon:
-		var w: Dictionary = Data.WEAPONS[wid]
-		_viewmodel.set_weapon(wid, 0.05 if _cam_weapon.is_empty() else Player.SWITCH_TIME)
-		_cam_weapon = wid
-		_cam_ads_fov = float(w.ads_fov)
-		_cam_scoped = w.get("scope", false)
-		_cam_scope_style = str(w.get("scope_style", "sniper"))
-	_ads = move_toward(_ads, 1.0 if (fl & Player.FLAG_AIM) != 0 else 0.0, delta * 6.0)
-	var sliding := (fl & Player.FLAG_SLIDE) != 0
-	var roll := -Player.flags_lean(fl) * Player.LEAN_ROLL + (deg_to_rad(-4.0) if sliding else 0.0)
-	_cam.global_transform = Transform3D(Basis.from_euler(Vector3(_s_pitch, _s_yaw, roll)), _s_eye)
-	var base_fov := float(Profile.get_setting("fov"))
-	_cam.fov = lerpf(base_fov, minf(_cam_ads_fov, base_fov), _ads)
-	var reloading := (fl & Player.FLAG_RELOAD) != 0
-	if reloading and not _cam_reloading:
-		_viewmodel.play_reload(float(Data.WEAPONS[wid].reload))
-	elif _cam_reloading and not reloading:
-		_viewmodel.stop_reload()
-	_cam_reloading = reloading
-	var charge_time := float(Data.WEAPONS[wid].get("charge_time", 0.0))
-	_cam_charge = minf(_cam_charge + delta, charge_time) if charge_time > 0.0 and (fl & Player.FLAG_CHARGE) != 0 else 0.0
-	_viewmodel.set_charge(_cam_charge / charge_time if charge_time > 0.0 else 0.0)
-	var alive := (fl & BIT_ALIVE) != 0
-	_viewmodel.visible = alive
-	var local_vel := Basis(Vector3.UP, _s_yaw).inverse() * _s_vel
-	_viewmodel.pose(delta, _ads, (fl & Player.FLAG_SPRINT) != 0, sliding, (fl & BIT_GRAPPLE) != 0, local_vel,
-		(fl & Player.FLAG_FLOOR) != 0, Vector2(_s_vel.x, _s_vel.z).length(), (fl & Player.FLAG_CROUCH) != 0)
-	_overlay.set_scope(alive and _cam_scoped and _ads > 0.85, _cam_scope_style)
-
-
-func _pose_ghosts(t: float, delta: float) -> void:
-	var me := world.my_id()
-	_you_tag.visible = false
-	var i := maxi(0, _play.find(t))
-	var fa := _play.at(i) * SLOTS
-	var fb := _play.at(mini(i + 1, _play.count - 1)) * SLOTS
-	for s in SLOTS:
-		var eid := _play.ids[fa + s]
-		if eid == 0:
-			eid = _play.ids[fb + s]
-		var g := _ghosts[s]
-		if eid == 0 or eid == _killer or not _sample(_play, s, eid, t):
-			if g != null:
-				g.visible = false
-			continue
-		g = _ghost(s, eid)
-		if g == null:
-			continue
-		var fl := _s_flags
-		var alive := (fl & BIT_ALIVE) != 0
-		g.position = _s_pos
-		g.rotation.y = _s_yaw
-		if not alive:
-			if _g_alive[s]:
-				_g_alive[s] = false
-				g.play_death()
-			g.visible = _g_seen_alive[s]
-			continue
-		if not _g_alive[s]:
-			_g_alive[s] = true
-			g.reset_pose()
-		_g_seen_alive[s] = true
-		g.visible = true
-		var wid := Player.flags_weapon(fl)
-		if wid != _g_wid[s]:
-			_g_wid[s] = wid
-			g.hold_weapon(wid, Data.gun_skin_for(_g_info[s], wid))
-		var reloading := (fl & Player.FLAG_RELOAD) != 0
-		if reloading and not _g_reload[s]:
-			g.play_reload(float(Data.WEAPONS[wid].reload))
-		elif _g_reload[s] and not reloading:
-			g.stop_reload()
-		_g_reload[s] = reloading
-		var local_vel := Basis(Vector3.UP, _s_yaw).inverse() * _s_vel
-		g.set_motion((fl & Player.FLAG_SLIDE) != 0, Player.flags_lean(fl), Vector2(local_vel.x, -local_vel.z), (fl & BIT_GRAPPLE) != 0)
-		g.set_look_pitch(_s_pitch)
-		g.animate(delta, Vector2(_s_vel.x, _s_vel.z).length(), (fl & Player.FLAG_FLOOR) != 0,
-			(fl & Player.FLAG_CROUCH) != 0, (fl & Player.FLAG_PRONE) != 0)
-		if eid == me:
-			_you_tag.visible = true
-			_you_tag.position = _s_pos + Vector3.UP * 2.35
-
-
-## The ghost avatar of `eid` in slot `s`, built (or rebuilt for another entity or a new look) on
-## first use and kept for later replays; null when the entity has left.
-func _ghost(s: int, eid: int) -> Avatar:
-	var g := _ghosts[s]
-	if g != null and _g_eid[s] == eid:
-		return g
-	var p: Player = world.entities.get(eid)
-	if p == null:
-		if g != null:
-			g.visible = false
-		return null
-	var look := _look_key(p.info)
-	if g != null:
-		g.queue_free()
-	g = Models.build_avatar(str(p.info.outfit), str(p.info.hat))
-	g.charm_id = str(p.info.get("charm", "none"))
-	g.name = "Ghost%d" % s
-	_root3d.add_child(g)
-	_copy_look(p, g)
-	_ghosts[s] = g
-	_g_eid[s] = eid
-	_g_look[s] = look
-	_g_info[s] = p.info
-	_g_wid[s] = ""
-	_g_alive[s] = true
-	return g
-
-
-static func _look_key(info: Dictionary) -> String:
-	return "%s|%s|%s" % [info.outfit, info.hat, info.get("charm", "none")]
+	_view.step(_t0 + r, delta)
+	_overlay.set_scope(_view.scoped, _view.scope_style)
 
 
 ## Team armbands, a tint (Infected) and Big Heads' scaled head, copied from the live avatar.
-func _copy_look(p: Player, g: Avatar) -> void:
+func _copy_look(eid: int, g: Avatar) -> void:
+	var p: Player = world.entities.get(eid)
+	if p == null:
+		return
 	var live := p.avatar
 	g.set_tint(live.get_tint())
 	for arm: String in ["ArmL", "ArmR"]:
@@ -867,131 +776,3 @@ func _copy_look(p: Player, g: Avatar) -> void:
 			if lh[i] is Node3D and gh[i] is Node3D:
 				(gh[i] as Node3D).scale = (lh[i] as Node3D).scale
 				(gh[i] as Node3D).position = (lh[i] as Node3D).position
-
-
-func _pose_projectiles(t: float) -> void:
-	var i := maxi(0, _play.find(t))
-	var j := mini(i + 1, _play.count - 1)
-	var fa := _play.at(i)
-	var fb := _play.at(j)
-	var span := _play.times[fb] - _play.times[fa]
-	var k := clampf((t - _play.times[fa]) / span, 0.0, 1.0) if span > 0.0001 else 0.0
-	for n in PROJ:
-		var pid := _play.proj_id[fa * PROJ + n]
-		var node := _proj_nodes[n]
-		if pid == 0:
-			if node != null:
-				node.visible = false
-			continue
-		var kind := _play.proj_kind[fa * PROJ + n]
-		var from := _play.proj_pos[fa * PROJ + n]
-		var to := from
-		for m in PROJ:
-			if _play.proj_id[fb * PROJ + m] == pid:
-				to = _play.proj_pos[fb * PROJ + m]
-				break
-		if node == null or _proj_node_kind[n] != kind:
-			if node != null:
-				node.queue_free()
-			match KINDS[clampi(kind, 0, KINDS.size() - 1)]:
-				"rocket": node = Models.build_rocket()
-				"grenade": node = Models.build_grenade()
-				"cube_lobber": node = Models.build_lobber_shell()
-				var tactical: node = Models.build_tactical(tactical)
-			_root3d.add_child(node)
-			_proj_nodes[n] = node
-			_proj_node_kind[n] = kind
-		node.visible = true
-		node.position = from.lerp(to, k)
-		var dir := to - from
-		if kind == 0 and dir.length_squared() > 0.0001:
-			dir = dir.normalized()
-			node.basis = Basis.looking_at(dir, Vector3.UP if absf(dir.y) < 0.99 else Vector3.RIGHT)
-
-
-func _play_events(t: float) -> void:
-	while _ev_next < _play.ev_count and _play.ev_time[_ev_next] <= t:
-		_fire_event(_ev_next)
-		_ev_next += 1
-
-
-func _fire_event(e: int) -> void:
-	var kind := _play.ev_kind[e]
-	var eid := _play.ev_eid[e]
-	var a := _play.ev_a[e]
-	var b := _play.ev_b[e]
-	var mine := eid == _killer
-	var s: int = _slot_of.get(eid, -1)
-	var g: Avatar = _ghosts[s] if s >= 0 and _g_eid[s] == eid and _ghosts[s] != null and _ghosts[s].visible else null
-	var fx := world.fx
-	match kind:
-		Ev.SHOT, Ev.PELLET:
-			var wid := Player.weapon_from_index(_play.ev_arg[e])
-			var w: Dictionary = Data.WEAPONS[wid]
-			var suppressed: bool = w.get("suppressed", false)
-			var muzzle := _muzzle(g, mine)
-			if kind == Ev.SHOT:
-				if mine:
-					_viewmodel.play_fire(float(w.recoil))
-					Sfx.play(StringName(w.sound), null, -3.0, float(w.get("pitch", 1.0)))
-				elif g != null:
-					g.play_shoot()
-					Sfx.play(StringName(w.sound), muzzle, 0.0, float(w.get("pitch", 1.0)))
-					if not suppressed:
-						fx.muzzle_flash(muzzle)
-			if w.get("beam", false):
-				fx.rail_beam(muzzle, a)
-			elif mine or (g != null and not suppressed):
-				fx.tracer(muzzle, a)
-			if b != Vector3.ZERO:
-				fx.impact(a, b)
-		Ev.SLASH:
-			var mw: Dictionary = Data.WEAPONS[Player.weapon_from_index(_play.ev_arg[e])]
-			var swing := StringName(mw.sound)
-			if mine:
-				_viewmodel.play_melee(false)
-				Sfx.play(swing, null, -4.0, float(mw.get("pitch", 1.0)))
-			elif g != null:
-				g.play_slash()
-				Sfx.play(swing, g.global_position, -4.0, float(mw.get("pitch", 1.0)))
-			if b != Vector3.ZERO:
-				fx.impact(a, b)
-		Ev.THROW, Ev.ROCKET:
-			var rocket := kind == Ev.ROCKET
-			var launcher: String = KINDS[clampi(_play.ev_arg[e], 0, KINDS.size() - 1)]
-			var sound := World.launch_sound(launcher) if rocket else &"grenade_throw"
-			if mine:
-				if rocket:
-					_viewmodel.play_fire(float(Data.WEAPONS[launcher].recoil))
-				else:
-					_viewmodel.play_throw()
-				Sfx.play(sound, null, -2.0)
-			elif g != null:
-				if rocket:
-					g.play_shoot()
-				else:
-					g.play_throw()
-				Sfx.play(sound, g.global_position)
-		Ev.EXPLODE:
-			match KINDS[clampi(_play.ev_arg[e], 0, KINDS.size() - 1)]:
-				"smoke":
-					Sfx.play(&"smoke_pop", a)
-				"flash":
-					fx.flash_burst(a)
-					Sfx.play(&"flashbang", a, 2.0)
-				_:
-					fx.explosion(a)
-					Sfx.play(&"explosion", a, 2.0)
-		Ev.HIT:
-			fx.blood(a)
-
-
-## Where a shot in the replay comes from: the killer's first-person gun, a ghost's gun muzzle.
-func _muzzle(g: Avatar, mine: bool) -> Vector3:
-	if mine:
-		return _viewmodel.muzzle_position()
-	if g == null:
-		return _cam.global_position
-	var gun := g.get_gun()
-	var m := gun.get_node_or_null(^"Muzzle") as Node3D if gun != null else null
-	return m.global_position if m != null else g.global_position + Vector3.UP * 1.4
