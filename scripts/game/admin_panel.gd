@@ -1,6 +1,7 @@
 class_name AdminPanel
 extends CanvasLayer
-## Admin panel, World's child "AdminPanel" (`World.admin`), in every match, offline and online.
+## Admin panel, World's child "AdminPanel" (`World.admin`), in every match, offline and online,
+## for a developer profile only (Profile.developer, see DevTag; can_open).
 ## Opened with `admin_panel` (F1) or the pause menu's ADMIN PANEL via `Hud.open_admin()`; an
 ## offline match freezes while it is open (online keeps running), and Esc / F1 / CLOSE shut it
 ## (back to the pause menu when it was opened from there: `closed(to_pause)`). Cheats stay on after
@@ -183,8 +184,10 @@ func _exit_tree() -> void:
 
 
 ## Whether the panel may open now: in a running match, no photo mode or kill cam replay.
+## Only a developer profile (Profile.developer, see DevTag) ever opens it, so nobody else can
+## switch a cheat on.
 func can_open() -> bool:
-	return not _open and not world.match_over and not world.photo.is_open() \
+	return Profile.developer and not _open and not world.match_over and not world.photo.is_open() \
 		and not world.killcam.is_playing()
 
 

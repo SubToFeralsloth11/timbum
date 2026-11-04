@@ -176,6 +176,10 @@ var season_claimed: Array = []
 ## The game version whose update log (WhatsNew) the player has closed. Empty in a new profile and
 ## in saves from before the log, so the main menu shows the log once after every update.
 var seen_version := ""
+## The developer tag (DevTag): {id, sig}, kept only when it verifies; `developer` caches the check.
+## It is the only way to open the admin panel and to own the Dev Pack.
+var dev_tag := {}
+var developer := false
 
 ## Set to false by tests so they never touch the real save file.
 var persist := true
@@ -199,6 +203,8 @@ func is_owned(category: String, id: String) -> bool:
 		return false
 	if int(cat[id].price) == 0:
 		return true
+	if DevPack.is_dev_item(category, id) and not developer:
+		return false
 	return id in owned.get(category, [])
 
 
@@ -227,9 +233,10 @@ const REDEEM_INVALID := "Invalid code"
 
 
 ## The dev code (DevPack.code_matches: only its SHA-256 ships) unlocks every Dev Pack piece for
-## free. Typed on the keypad behind Stats > CREDITS > DEV; the pack is never sold.
+## free on a developer profile (DevTag); anyone else gets REDEEM_INVALID. Typed on the keypad
+## behind Stats > CREDITS > DEV; the pack is never sold.
 func redeem_code(code: String) -> String:
-	if not DevPack.code_matches(code):
+	if not developer or not DevPack.code_matches(code):
 		return REDEEM_INVALID
 	var added := false
 	for cat: String in DevPack.IDS:
@@ -1278,7 +1285,7 @@ func _payload() -> Dictionary:
 		"loadout_presets": loadout_presets, "active_preset": active_preset,
 		"tutorial_offered": tutorial_offered, "tutorial_paid": tutorial_paid,
 		"season_id": season_id, "season_xp": season_xp, "season_claimed": season_claimed,
-		"seen_version": seen_version,
+		"seen_version": seen_version, "dev_tag": dev_tag,
 	}
 
 
@@ -1341,6 +1348,8 @@ static func _num(v: Variant, fallback: int) -> int:
 
 ## Merges a saved dictionary over defaults and repairs anything invalid.
 func load_from_dict(d: Dictionary) -> void:
+	dev_tag = d.get("dev_tag", {}) if DevTag.verify(d.get("dev_tag")) else {}
+	developer = not dev_tag.is_empty()
 	var loaded_name := sanitize_name(str(d.get("player_name", "")))
 	player_name = loaded_name if not loaded_name.is_empty() else "Player"
 	coins = maxi(0, _num(d.get("coins"), coins))
