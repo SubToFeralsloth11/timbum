@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Fixes
+- Clip studio: after you fly the drone and let go of the right mouse button, it stays where you flew it, even when you then move the playhead. Before, it jumped back to the first key, so every key after the first was saved in the same place. The drone goes back onto the key path when you press ADD KEY, CLEAR or play.
+
 ## 2.1.0: Clips & Gallery (2026-11-04)
 
 Save your best kills and turn them, and your photos, into videos and pictures. The game shows these notes once when you first open 2.1.

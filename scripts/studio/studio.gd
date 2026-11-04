@@ -90,8 +90,8 @@ var _picture: TextureRect
 var _picture_size := Vector2i.ZERO
 var _attrs: CameraAttributesPractical
 var _flying := false
-## The drone was flown by hand since the playhead last moved: keep that view (so ADD KEY saves it)
-## instead of snapping back onto the key path.
+## The drone was flown by hand since the last ADD KEY / CLEAR / play: keep that view (so moving the
+## playhead and then pressing ADD KEY saves it) instead of snapping back onto the key path.
 var _posed := false
 var _render := {}
 var _render_pid := -1
@@ -327,7 +327,6 @@ func _process(delta: float) -> void:
 
 func _seek(t: float) -> void:
 	time = clampf(t, 0.0, length)
-	_posed = false
 	if _replay != null and _replay.tape != null:
 		_replay.seek(_t0 + time)
 		_replay.step(_t0 + time, 0.0)
