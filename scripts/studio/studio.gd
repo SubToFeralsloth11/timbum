@@ -553,8 +553,10 @@ func export_video() -> void:
 	var args := PackedStringArray()
 	if not OS.has_feature("template"):
 		args.append_array(["--path", ProjectSettings.globalize_path("res://")])
+	# Release builds refuse a scene on the command line: the main menu sends a render process
+	# here instead (Clips.is_render_process).
 	args.append_array(["--fixed-fps", str(job.fps), "--write-movie", ProjectSettings.globalize_path(SCRATCH_MOVIE),
-		"--disable-vsync", "--windowed", "--resolution", "640x360", SCENE, "--",
+		"--disable-vsync", "--windowed", "--resolution", "640x360", "--",
 		Clips.RENDER_ARG + ProjectSettings.globalize_path(JOB_PATH)])
 	_render_pid = OS.create_process(OS.get_executable_path(), args)
 	if _render_pid <= 0:

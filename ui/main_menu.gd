@@ -49,7 +49,7 @@ var whats_new: WhatsNew
 
 func _ready() -> void:
 	if Clips.is_render_process():
-		# Studio's video render, if this build ignored the scene on its command line.
+		# Studio's video render process (release builds take no scene on the command line).
 		get_tree().change_scene_to_file.call_deferred(Studio.SCENE)
 		return
 	theme = UITheme.get_theme()

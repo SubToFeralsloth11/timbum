@@ -14,11 +14,12 @@ class_name Clips
 ## and `wid`; for a photo, `camera` (Transform3D) and `fov`. Studio opens both.
 ##
 ## **Render process.** Studio exports a video by starting the game again with
-## `--fixed-fps <fps> --write-movie <scratch.avi> <Studio.SCENE> -- --timbum-render=<job.json>`:
-## fixed time steps make every frame, effect and sound land exactly on the video's clock however
-## long a frame takes to draw, and Movie Maker's audio driver mixes the sound in step with them. That
-## process (is_render_process) never saves the profile, never updates, plays no music and renders
-## the job's frames into its own file (Studio.RenderJob).
+## `--fixed-fps <fps> --write-movie <scratch.avi> -- --timbum-render=<job>`: fixed time steps make
+## every frame, effect and sound land exactly on the video's clock however long a frame takes to
+## draw, and Movie Maker's audio driver mixes the sound in step with them. The main menu sends that
+## process (is_render_process) straight to Studio (release builds take no scene on the command
+## line); it never saves the profile, never updates, plays no music and renders the job's frames
+## into its own file (Studio "Export").
 
 const DIR := "user://clips"
 const EXT := "tclip"
