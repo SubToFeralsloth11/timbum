@@ -1,5 +1,31 @@
 # Changelog
 
+## 2.1.0: Clips & Gallery (2026-11-04)
+
+Save your best kills and turn them, and your photos, into videos and pictures. The game shows these notes once when you first open 2.1.
+
+### Kill clips
+- **New setting: Settings > Gameplay > Clips** (off until you switch it on). With it on, the game keeps the last 22 seconds of the match.
+- After a kill, **double-tap K** (up to 10 seconds later) to save that kill with the 10 seconds before it. A card says CLIP SAVED; a clip saved straight after the kill waits a moment to catch the victim falling.
+- K still skips the kill cam while you are dead. The clip key is **Clip your last kill** in Settings > Controls, on any key, mouse button or controller button.
+- A clip records everyone's moves, shots, grenades, rockets, explosions, hits and deaths rather than a video, so it is small and can be filmed again from anywhere. It works in every mode with respawns, offline and online (not in Tactical).
+
+### Gallery
+- **New GALLERY button** on the home screen, beside LOCKER and SHOP: every clip and photo you saved, newest first, with ALL / CLIPS / PHOTOS, OPEN, SHOW and DELETE.
+- Photo mode now saves the scene with each photo, so a photo can be opened and re-shot: another angle, time of day, weather or look. Photos from before 2.1 open with the look tools only.
+- VIDEO EXPORTS and PICTURE EXPORTS open Movies/Timbum and Pictures/Timbum.
+
+### Clip studio
+- **Cameras:** POV (through the eyes of you or any player in the clip, gun in hand), CHASE, ORBIT (radius, angle and speed) and DRONE, which you fly with the right mouse button held, like photo mode. Drone keys make the drone fly a smooth path through the views you set.
+- **Scene:** day, sunset or night, and clear, rain, thunderstorm, snow, sandstorm or ash. Field of view, depth of field and a YOU tag.
+- **Look:** 16 filters (Cinematic, Black & white, Sepia, Noir, Vintage, Vibrant, Cool, Warm, Neon, Retro 8-bit, VHS, CRT, Thermal, Dream, Comic), exposure, contrast, saturation, warmth, vignette, film grain, colour fringe, sharpen, pixelate, cinema bars and a TIMBUM watermark.
+- **Timeline:** scrub, trim with IN / OUT handles (or I / O), step frames with the arrow keys, play at 0.25x to 2x (slow motion slows the effects and deepens the sound).
+- **Export video:** 720p, 1080p, 1440p or 4K at 30 or 60 fps with the game's sound, as an MP4 in Movies/Timbum (on Windows an AVI unless ffmpeg is installed). A second copy of the game draws every frame at full quality in a small window, however long each frame takes, so the video is smooth whatever your frame rate; the studio shows its progress and can cancel it.
+- **Save frame / export photo:** a PNG of the picture with its look, in Pictures/Timbum.
+
+### Also
+- The kill cam now shows the burst and sound of anyone who dies during the replay.
+
 ## 2.0.1 (2026-11-04)
 
 - **Automatic updates.** From this version on, Timbum updates itself. A few seconds after it starts it checks the latest GitHub release, downloads the new game data in the background and shows **UPDATE READY · RESTART** at the bottom left of the home screen. RESTART, or just closing the game, installs it; the next start runs the new version. Updates are signed and checked before they are used. When an update needs the whole app (a new Godot version), the button reads **DOWNLOAD** and opens the release page instead. On Windows the game data now sits beside the game as `Timbum.pck`; keep it next to `Timbum.exe`.
