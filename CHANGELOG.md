@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.1.1 (2026-11-04)
 
 ### Fixes
 - Clip studio: after you fly the drone and let go of the right mouse button, it stays where you flew it, even when you then move the playhead. Before, it jumped back to the first key, so every key after the first was saved in the same place. The drone goes back onto the key path when you press ADD KEY, CLEAR or play.
