@@ -622,6 +622,7 @@ const MAPS := {
 	"moon": {"name": "Moon Base", "desc": "Domes, craters and a rocket on its pad under a black sky. The edge drops into space."},
 	"volcano": {"name": "Volcano Forge", "desc": "Basalt forge halls around a lava lake. Lava kills."},
 	"building": {"name": "Block HQ", "desc": "A three-storey office block: room lattice, stairwells, an atrium and flanking alleys."},
+	"parkour": {"name": "Parkour Run", "desc": "A floating course over a lava sea: 14 stages of jumps, beams, pillars and jump pads, harder as it climbs."},
 	"range": {"name": "Firing Range", "desc": "Practice lanes at 10, 25, 50 and 75 m with target dummies and a weapon console."},
 }
 ## Match modifiers. When mutators are on, each match rolls one (or none) so matches feel different.
@@ -655,6 +656,7 @@ const MAP_WEATHER := {
 	"desert": {"clear": 3, "sandstorm": 2},
 	"snow": {"clear": 3, "snow": 2},
 	"range": {"clear": 1},
+	"parkour": {"clear": 3, "snow": 1},
 }
 const DEFAULT_WEATHER := {"clear": 5, "rain": 2, "storm": 2}
 const CUSTOM_WEATHER := {"clear": 3, "rain": 1}
@@ -664,7 +666,8 @@ const MAP_ROTATION: Array[String] = ["village", "desert", "factory", "sky", "sno
 ## Game modes (`Net.config.mode`), in match-setup order. `short` labels the setup button;
 ## `teams` marks the two-team modes (Teams.is_team_mode), which may name and colour their sides
 ## (`team_names`, else ALPHA / BRAVO; `team_colors`: Palette roles, else team_a / team_b). Each mode's rules are a
-## MatchMode subclass (MatchMode.create). Tactical always plays TACTICAL_MAP, outside the rotation.
+## MatchMode subclass (MatchMode.create). Tactical always plays TACTICAL_MAP and Parkour PARKOUR_MAP,
+## outside the rotation (MODE_MAPS).
 ## `no_kills` marks modes where nobody can be hurt (Tag, Hide and Seek): no kill challenges there.
 const MODES := {
 	"ffa": {"name": "Deathmatch", "short": "DEATHMATCH", "desc": "Free-for-all. First to the kill limit wins."},
@@ -686,10 +689,21 @@ const MODES := {
 		"desc": "One seeker counts while everyone hides. A catch swaps seeker and hider. No nametags; hiders see the seeker through walls."},
 	"blockhunt": {"name": "Block Hunt", "short": "BLOCK HUNT", "teams": true, "team_names": ["HIDERS", "SEEKERS"],
 		"desc": "Hiders pick one of four blocks and become it. Seekers whack blocks; a found hider seeks too. Balloons score points but show where you are."},
+	"parkour": {"name": "Parkour", "short": "PARKOUR", "no_kills": true,
+		"desc": "Race up a floating obstacle course: jump pads, beams, pillars and long jumps, harder every stage. Fall and you're back on your checkpoint."},
 	"tactical": {"name": "Tactical", "short": "TACTICAL", "teams": true,
 		"desc": "25 v 25 in an office block. Plan, find your weapons, one life each."},
 }
 const TACTICAL_MAP := "building"
+const PARKOUR_MAP := "parkour"
+## Modes that always play one map of their own (no map pick, no map vote).
+const MODE_MAPS := {"tactical": TACTICAL_MAP, "parkour": PARKOUR_MAP}
+
+
+## The one map `mode` always plays, or "" when the mode plays the normal maps.
+static func fixed_map(mode: String) -> String:
+	return str(MODE_MAPS.get(mode, ""))
+
 ## The Firing Range and the tutorial's map (in MAPS, never in a rotation or match setup).
 const RANGE_MAP := "range"
 ## `Net.config.session`: a normal match, or an offline practice session on RANGE_MAP (FiringRange,
@@ -823,6 +837,8 @@ const MEDALS := {
 	"top_seeker": {"name": "Eagle Eye", "desc": "Most catches in Hide and Seek.", "mode": "hideseek"},
 	"never_found": {"name": "Never Found", "desc": "Still hidden when Block Hunt ended.", "mode": "blockhunt"},
 	"party_animal": {"name": "Party Animal", "desc": "Most balloons released in Block Hunt.", "mode": "blockhunt"},
+	"parkour_champ": {"name": "Speedrunner", "desc": "Won Parkour with the fastest run to the finish.", "mode": "parkour"},
+	"sure_feet": {"name": "Sure Feet", "desc": "Fewest falls in Parkour (3 checkpoints or more).", "mode": "parkour"},
 }
 
 ## Permanent achievements (Profile.achievements: id -> unlock time). `key` is a lifetime value

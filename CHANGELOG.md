@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.3.0: Parkour (2026-11-20)
+
+A new mode with no guns: race up an obstacle course. The game shows these notes once when you first open 2.3.
+
+### New mode
+- **Parkour:** everyone races up the **Parkour Run**, a floating course over a lava sea. It has 14 stages and gets harder as it climbs, starting with stepping stones and stairs, then balance beams, hurdles, jump pads, a pad tower, 1x1 pillars, zigzag ladders, long sprint jumps and pad chains. Each stage's blocks change colour from white to red as it gets harder.
+- **Checkpoints:** a gold pad ends every stage. Fall off and you're put straight back on your last checkpoint (it counts as a fall, not a death). The HUD shows your stage, its name and your falls.
+- **Winning:** the first to the finish wins and the match ends 20 seconds later. At the time limit, whoever reached the furthest checkpoint first wins. The scoreboard shows each player's checkpoint, finish time and falls.
+- No guns, no grapple and no hits. Bots run the course too and miss a jump now and then (easy bots more often).
+- New medals: **Speedrunner** (the fastest run to the finish) and **Sure Feet** (the fewest falls).
+
 ## 2.2.0: Hide & Seek (2026-11-19)
 
 Three new modes with no guns, custom scopes you build part by part, two new guns and a batch of fixes. The game shows these notes once when you first open 2.2.

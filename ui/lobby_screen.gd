@@ -154,12 +154,16 @@ func _build_vote() -> Control:
 	var options: Array = Net.lobby.get("options", [])
 	var v := _panel("MAP VOTE" if not options.is_empty() else "MAP", 1.5)
 	if options.is_empty():
-		# Tactical: one map, no vote.
-		var card := _map_card(Data.TACTICAL_MAP, false)
+		# Tactical, Parkour: one map, no vote.
+		var mode := str(Net.config.mode)
+		var map_id := Data.fixed_map(mode)
+		if map_id.is_empty():
+			map_id = Data.TACTICAL_MAP
+		var card := _map_card(map_id, false)
 		card.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		card.focus_mode = Control.FOCUS_NONE
 		v.add_child(card)
-		v.add_child(UIKit.label("Tactical always plays %s." % Data.MAPS[Data.TACTICAL_MAP].name, &"DimLabel"))
+		v.add_child(UIKit.label("%s always plays %s." % [Data.MODES[mode].name, Data.MAPS[map_id].name], &"DimLabel"))
 		return v.get_meta(&"panel")
 	_vote_grid = GridContainer.new()
 	_vote_grid.columns = 2

@@ -9,15 +9,26 @@ extends Control
 
 signal closed
 
-const HEADLINE := "TIMBUM 2.2"
-const SUBTITLE := "HIDE & SEEK"
-const HIGHLIGHTS: Array[String] = ["TAG", "HIDE AND SEEK", "BLOCK HUNT", "CUSTOM SCOPES", "2 NEW GUNS"]
+const HEADLINE := "TIMBUM 2.3"
+const SUBTITLE := "PARKOUR"
+const HIGHLIGHTS: Array[String] = ["PARKOUR", "14 STAGES", "JUMP PADS", "CHECKPOINTS", "2 NEW MEDALS"]
 const PANEL_SIZE := Vector2(1080, 620)
 
 ## One page each: title, colour, pixel icon (11 x 11 rows, "#" filled), a one-line tagline and
 ## the bullets (RichTextLabel BBCode).
 const SECTIONS: Array[Dictionary] = [
-	{"title": "HIDE & SEEK", "color": Color("5fd3c8"), "tag": "Three new modes with no guns, custom scopes, two new guns and fixes.",
+	{"title": "PARKOUR", "color": Color("ffd84a"), "tag": "PLAY > mode PARKOUR. Race up an obstacle course.",
+		"icon": ["........###", "........###", "...........", ".....###...", ".....###...", "...........",
+			"..###......", "..###......", "...........", "###........", "###........"],
+		"bullets": [
+			"Everyone races up the [b]Parkour Run[/b], a floating course over a lava sea.",
+			"[b]14 stages[/b] that get harder as it climbs: stepping stones and stairs first, then beams, hurdles, [b]jump pads[/b], a pad tower, 1x1 pillars, zigzag ladders, long sprint jumps and pad chains.",
+			"The blocks go from white to red as the stages get harder.",
+			"A [b]gold pad[/b] ends every stage and saves your checkpoint. Fall off and you're straight back on it.",
+			"The first to the finish wins; the match ends 20 seconds later. At the time limit, the furthest checkpoint wins.",
+			"No guns, no grapple, nobody gets hurt. Bots race too. New medals: [b]Speedrunner[/b] and [b]Sure Feet[/b].",
+		]},
+	{"title": "HIDE & SEEK (2.2)", "color": Color("5fd3c8"), "tag": "Last update: three new modes with no guns, custom scopes, two new guns and fixes.",
 		"icon": ["...........", "...#####...", "..#.....#..", ".#..###..#.", "#..#####..#", "#..##.##..#",
 			"#..#####..#", ".#..###..#.", "..#.....#..", "...#####...", "..........."],
 		"bullets": [

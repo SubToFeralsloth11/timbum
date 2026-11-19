@@ -14,7 +14,7 @@ const ROTATION := "rotation"
 ## `streaks`: mode -> killstreaks on, once picked for that mode (until then the mode's default,
 ## Streaks.default_for). A match setup preset (Profile.match_presets) holds a copy of it.
 static var _choice := default_choice()
-const MODE_IDS: Array[String] = ["ffa", "tdm", "ctf", "gungame", "oitc", "koth", "infected", "tag", "hideseek", "blockhunt", "tactical"]
+const MODE_IDS: Array[String] = ["ffa", "tdm", "ctf", "gungame", "oitc", "koth", "infected", "tag", "hideseek", "blockhunt", "parkour", "tactical"]
 const MODE_HINTS := {
 	"ffa": "Bots fill every empty slot up to the player count.",
 	"tdm": "Two teams, bots fill both evenly. The kill limit is the team score; friendly fire is off.",
@@ -26,6 +26,7 @@ const MODE_HINTS := {
 	"tag": "No guns, nobody gets hurt. One player is IT: swing your melee weapon at someone or run into them to make them IT (no tag-backs for 4 s). A point a second while you're not IT, +3 a tag. Most points wins.",
 	"hideseek": "One seeker counts blindfolded for 20 s while everyone hides. Catch a hider (swing or bump) and you swap: they seek. No nametags; hiders see the seeker through walls. Hiders score a point a second, catches +10.",
 	"blockhunt": "Pick one of 4 blocks from the map and become it; hold still to snap onto the grid. After 30 s one seeker in five hunts with their melee weapon; found hiders seek too. Balloons score 1 / 3 / 7 but light you up. Hiders win if any are left.",
+	"parkour": "Race up the Parkour Run: 14 stages over a lava sea, from stepping stones to 1x1 pillars, long jumps and jump pads. Gold pads save your checkpoint; fall and you're straight back on it. First to the finish wins, 20 s later the match ends; else the furthest checkpoint. No guns, no grapple.",
 	"tactical": "25 v 25 in Block HQ, bots fill every slot. 30 s of planning behind barriers, then find your weapons: everyone starts with their melee weapon. One life; the last team standing wins.",
 }
 ## One line under each mode card's name.
@@ -40,12 +41,13 @@ const MODE_TAGS := {
 	"tag": "You're IT! Pass it on",
 	"hideseek": "One seeker, hide and swap",
 	"blockhunt": "Become a block, pop balloons",
+	"parkour": "Jump, climb, don't look down",
 	"tactical": "25 v 25, plan, one life",
 }
 const MODE_COLORS := {
 	"ffa": Color("ff8a4c"), "tdm": Color("4fa3ff"), "ctf": Color("ff5d73"), "gungame": Color("ffc531"),
 	"oitc": Color("ffb066"), "koth": Color("c58bff"), "infected": Color("7be05a"), "tag": Color("ff6fb5"),
-	"hideseek": Color("5fd3c8"), "blockhunt": Color("b8e05a"), "tactical": Color("9fb3c8"),
+	"hideseek": Color("5fd3c8"), "blockhunt": Color("b8e05a"), "parkour": Color("ffd84a"), "tactical": Color("9fb3c8"),
 }
 
 
@@ -113,6 +115,12 @@ class ModeIcon extends Control:
 				draw_rect(Rect2(c + Vector2(-13, -1), Vector2(14, 4)), color)
 				draw_line(c + Vector2(-2, -1), c + Vector2(7, -6), Color(0.92, 0.92, 0.95), 1.5, true)
 				draw_circle(c + Vector2(8, -10), 5.5, Color("ff5d73"))
+			"parkour":
+				# Three rising blocks with a figure leaping between them.
+				for i in 3:
+					draw_rect(Rect2(c + Vector2(-14 + i * 10, 8 - i * 6), Vector2(7, 6 + i * 6)), color.darkened(0.15 * i))
+				draw_arc(c + Vector2(-2, 0), 9.0, PI * 1.1, PI * 1.9, 10, Color(color, 0.7), 1.5, true)
+				draw_circle(c + Vector2(3, -11), 2.6, Color(0.95, 0.97, 1.0))
 			"tactical":
 				draw_rect(Rect2(c + Vector2(-11, -13), Vector2(22, 26)), color)
 				for y in 3:
@@ -296,8 +304,9 @@ func _ready() -> void:
 	_add_map_card(grid, group, ROTATION, "Rotation", "Play every map in turn.")
 	for id: String in Data.MAP_ROTATION:
 		_add_map_card(grid, group, id, Data.MAPS[id].name, Data.MAPS[id].desc)
-	# Tactical's map; the only card shown in that mode.
-	_add_map_card(grid, group, Data.TACTICAL_MAP, Data.MAPS[Data.TACTICAL_MAP].name, Data.MAPS[Data.TACTICAL_MAP].desc)
+	# The maps of Tactical and Parkour; the only card shown in that mode.
+	for id: String in Data.MODE_MAPS.values():
+		_add_map_card(grid, group, id, Data.MAPS[id].name, Data.MAPS[id].desc)
 	_custom_head = UIKit.label("CUSTOM", &"SubheaderLabel")
 	map_list.add_child(_custom_head)
 	_custom_hint = UIKit.label("", &"DimLabel")
@@ -355,7 +364,7 @@ func _ready() -> void:
 	_players_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	players_row.add_child(_players_label)
 	_rule(rules, "PLAYERS", players_row)
-	_mode_rule(rules, ["ffa", "tdm", "ctf", "gungame", "oitc", "koth", "infected", "tag", "hideseek", "blockhunt"])
+	_mode_rule(rules, ["ffa", "tdm", "ctf", "gungame", "oitc", "koth", "infected", "tag", "hideseek", "blockhunt", "parkour"])
 	_update_players_label()
 
 	var difficulty_names: Array[String] = []
@@ -527,7 +536,7 @@ func _refresh_custom_maps() -> void:
 			card.set_meta(&"ctf_why", "" if ctf.is_empty() else ctf[0])
 	if CustomMaps.is_custom(_choice.map) and not ids.has(_choice.map):
 		_choice.map = ROTATION
-	_custom_head.visible = not ids.is_empty() and _choice.mode != "tactical"
+	_custom_head.visible = not ids.is_empty() and Data.fixed_map(_choice.mode).is_empty()
 	_apply_custom_ctf()
 
 
@@ -579,24 +588,26 @@ func _show_choice() -> void:
 
 
 ## Shows the rules that apply to the chosen mode (the others keep their choices for switching
-## back). Tactical fixes the map, player count, kill rule and mutators: only its own map card.
+## back). Tactical and Parkour fix the map (Tactical also the player count, kill rule and
+## mutators): only their own map card.
 func _apply_mode() -> void:
-	var tactical: bool = _choice.mode == "tactical"
+	var fixed := Data.fixed_map(_choice.mode)
 	for entry: Array in _mode_rules:
 		for c: Control in entry[0]:
 			c.visible = (entry[1] as Array).has(_choice.mode)
 	_rules_hint.text = MODE_HINTS[_choice.mode]
 	_pick_segment(_streak_row, 0 if _streaks_on() else 1)
 	for b in _map_group.get_buttons():
-		b.visible = (b.get_meta(&"map_id") == Data.TACTICAL_MAP) == tactical
-	_custom_head.visible = _custom_grid.get_child_count() > 0 and not tactical
+		var id: String = b.get_meta(&"map_id")
+		b.visible = id == fixed if not fixed.is_empty() else not Data.MODE_MAPS.values().has(id)
+	_custom_head.visible = _custom_grid.get_child_count() > 0 and fixed.is_empty()
 	_apply_custom_ctf()
-	# Tactical's single card keeps a card's size instead of filling the whole column.
-	_map_grid.size_flags_vertical = Control.SIZE_SHRINK_BEGIN if tactical else Control.SIZE_EXPAND_FILL
-	if tactical:
+	# A fixed map's single card keeps a card's size instead of filling the whole column.
+	_map_grid.size_flags_vertical = Control.SIZE_SHRINK_BEGIN if not fixed.is_empty() else Control.SIZE_EXPAND_FILL
+	if not fixed.is_empty():
 		for b in _map_group.get_buttons():
-			b.set_pressed_no_signal(b.get_meta(&"map_id") == Data.TACTICAL_MAP)
-		_map_desc.text = Data.MAPS[Data.TACTICAL_MAP].desc
+			b.set_pressed_no_signal(b.get_meta(&"map_id") == fixed)
+		_map_desc.text = Data.MAPS[fixed].desc
 	else:
 		_select_map(_choice.map)
 	_fill_weather_row()
@@ -616,7 +627,8 @@ static func weather_options(map_id: String) -> Array[String]:
 ## Rebuilds the WEATHER chips for the picked map (Tactical: its own map). A pick the map doesn't
 ## offer shows as AUTO, which is what it plays there; the pick itself is kept for other maps.
 func _fill_weather_row() -> void:
-	var map_id: String = Data.TACTICAL_MAP if _choice.mode == "tactical" else _choice.map
+	var fixed := Data.fixed_map(_choice.mode)
+	var map_id: String = fixed if not fixed.is_empty() else _choice.map
 	var options := weather_options(map_id)
 	for c: Node in _weather_row.get_children():
 		c.free()
@@ -689,7 +701,7 @@ func _add_map_card(grid: GridContainer, group: ButtonGroup, id: String, title: S
 	card.set_meta(&"map_id", id)
 	card.set_meta(&"desc", desc)
 	card.pressed.connect(func() -> void: _select_map(id))
-	if id == Data.TACTICAL_MAP:
+	if Data.MODE_MAPS.values().has(id):
 		card.custom_minimum_size.y = 300
 	grid.add_child(card)
 	var v := UIKit.vbox(4)
@@ -747,7 +759,7 @@ func _process(_delta: float) -> void:
 
 func _select_map(id: String) -> void:
 	# The Tactical card is fixed by the mode; the deathmatch pick stays for switching back.
-	if id != Data.TACTICAL_MAP:
+	if not Data.MODE_MAPS.values().has(id):
 		_choice.map = id
 	# set_pressed_no_signal skips the ButtonGroup, so release the other cards here.
 	for b in _map_group.get_buttons():
@@ -1010,7 +1022,8 @@ static func describe_config(cfg: Dictionary) -> Array:
 		rows.append(["MAP", str(Data.MAPS[Data.TACTICAL_MAP].name)])
 		rows.append(["PLAYERS", "%d v %d" % [Tactical.PLAYERS / 2, Tactical.PLAYERS / 2]])
 	else:
-		rows.append(["MAP", "Rotation" if cfg.map == ROTATION else MapBuilder.map_name(str(cfg.map))])
+		var fixed := Data.fixed_map(mode)
+		rows.append(["MAP", MapBuilder.map_name(fixed) if not fixed.is_empty() else "Rotation" if cfg.map == ROTATION else MapBuilder.map_name(str(cfg.map))])
 		rows.append(["PLAYERS", "%d players" % int(cfg.bots_fill)])
 	rows.append(["BOTS", "%s bots" % Data.DIFFICULTY_NAMES[int(cfg.difficulty)]])
 	match mode:
@@ -1027,7 +1040,7 @@ static func describe_config(cfg: Dictionary) -> Array:
 		"koth":
 			rows.append(["POINTS", "%d points" % int(cfg.kill_limit)])
 	rows.append(["TIME LIMIT", "%d min" % (int(cfg.time_limit) / 60)])
-	var gunless := mode in ["tag", "hideseek", "blockhunt"]
+	var gunless := mode in ["tag", "hideseek", "blockhunt", "parkour"]
 	if mode != "tactical" and mode != "oitc" and not gunless:
 		rows.append(["MUTATORS", "Random mutators" if cfg.mutators else "No mutators"])
 	if not gunless:

@@ -62,7 +62,8 @@ const GAME_ID := "timbum"
 ##     controllers' RPCs, `seeker` / `disguise` / `block_choices` in a player's info), and the
 ##     new weapons appended to Data.WEAPONS.
 ##     Also custom scopes: `scopes` in peer_info (weapon id -> CustomScopes.encode bytes).
-const PROTOCOL_VERSION := 30
+## 31: Parkour (config.mode "parkour" on map "parkour", ParkourMode's RPCs).
+const PROTOCOL_VERSION := 31
 const CONNECT_TIMEOUT := 8.0
 ## A room-code join first tries a direct (NAT punch-through) link this long, then the relay.
 const NAT_CONNECT_TIMEOUT := 6.0
@@ -83,7 +84,7 @@ const MAP_CHUNK := 1000
 
 const DEFAULT_CONFIG := {
 	## A Data.MODES id: "ffa" (deathmatch), "tdm", "ctf", "gungame", "oitc", "koth", "infected", "tag",
-	## "hideseek", "blockhunt" or "tactical"
+	## "hideseek", "blockhunt", "parkour" or "tactical"
 	## (see MatchMode).
 	"mode": "ffa",
 	"map": "rotation",
@@ -445,9 +446,10 @@ func open_lobby() -> void:
 
 
 ## The maps of a vote: MAP_VOTE_CHOICES maps of the mode's pool, with `first` (if any) as the
-## first option and without `exclude`; plus RANDOM_MAP when `with_random`. Empty in Tactical (one map).
+## first option and without `exclude`; plus RANDOM_MAP when `with_random`. Empty in a mode with a
+## map of its own (Data.MODE_MAPS: Tactical, Parkour).
 func _map_vote_options(first: String, with_random: bool, exclude := "") -> Array:
-	if config.mode == "tactical":
+	if not Data.fixed_map(str(config.mode)).is_empty():
 		return []
 	var pool: Array = Data.MAP_ROTATION.duplicate()
 	pool.shuffle()
@@ -782,9 +784,11 @@ static func sanitize_config(cfg: Dictionary) -> Dictionary:
 		out.bots_fill = Tactical.PLAYERS
 		out.mutators = false
 		out.mutator = "none"
-	elif out.mode in ["oitc", "tag", "hideseek", "blockhunt"]:
-		# One in the Chamber is the Cuber .44 and one round; Tag, Hide and Seek and Block Hunt
-		# have no guns at all: no mutators or killstreaks.
+	elif out.mode in ["oitc", "tag", "hideseek", "blockhunt", "parkour"]:
+		# One in the Chamber is the Cuber .44 and one round; Tag, Hide and Seek, Block Hunt and
+		# Parkour have no guns at all: no mutators or killstreaks. Parkour runs its own course.
+		if out.mode == "parkour":
+			out.map = Data.PARKOUR_MAP
 		out.mutators = false
 		out.mutator = "none"
 		out.streaks = false

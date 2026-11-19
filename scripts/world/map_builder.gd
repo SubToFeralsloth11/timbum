@@ -23,6 +23,7 @@ const GENERATORS := {
 	"moon": preload("res://scripts/world/maps/moon_map.gd"),
 	"volcano": preload("res://scripts/world/maps/volcano_map.gd"),
 	"building": preload("res://scripts/world/maps/building_map.gd"),
+	"parkour": preload("res://scripts/world/maps/parkour_map.gd"),
 	"range": preload("res://scripts/world/maps/range_map.gd"),
 }
 

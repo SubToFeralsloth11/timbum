@@ -15,6 +15,7 @@ extends Node
 ##   - `TagMode` (scripts/game/tag_mode.gd, "tag") and its subclass `HideAndSeek`
 ##     (scripts/game/hide_and_seek.gd, "hideseek")
 ##   - `BlockHunt` (scripts/game/block_hunt.gd, "blockhunt")
+##   - `ParkourMode` (scripts/game/parkour_mode.gd, "parkour")
 ##   - `Tactical` (scripts/game/tactical.gd, "tactical")
 ## and, for the offline practice sessions (`Net.config.session`), `FiringRange`
 ## (scripts/game/firing_range.gd, "range") and its subclass `Tutorial` (scripts/game/tutorial.gd).
@@ -47,6 +48,7 @@ static func create(p_world: World) -> MatchMode:
 				"tag": m = TagMode.new()
 				"hideseek": m = HideAndSeek.new()
 				"blockhunt": m = BlockHunt.new()
+				"parkour": m = ParkourMode.new()
 				"tactical": m = Tactical.new()
 				_: m = MatchMode.new()
 	m.world = p_world
