@@ -1,5 +1,34 @@
 # Changelog
 
+## 2.2.0: Hide & Seek (2026-11-19)
+
+Three new modes with no guns, custom scopes you build part by part, two new guns and a batch of fixes. The game shows these notes once when you first open 2.2.
+
+### New modes
+- **Tag:** nobody gets hurt. One player is IT; swing your melee weapon at someone or run into them to make them IT. The new IT waits 3 seconds and can't tag you straight back. You score a point every second you're not IT and 3 for a tag. Most points wins.
+- **Hide and Seek:** there is always one seeker. They count blindfolded for 20 seconds while everyone hides. When the seeker catches a hider, they swap: the hider becomes the seeker and counts for 6 seconds. There are no nametags, and hiders can see the seeker through walls (in red). Hiders score a point a second while the seeker searches; a catch scores 10.
+- **Block Hunt:** pick one of 4 blocks taken from the map and become it. Hold still and your block snaps onto the grid so it lines up with the real ones. After 30 seconds, one player in five becomes a seeker and hunts with their melee weapon; found hiders seek too. No nametags. Hiders win if any are left when time runs out.
+- **Balloons (Block Hunt):** press fire to release a balloon for points: small +1, medium +3, big +7. A balloon rises from you in a burst of confetti and your block glows its colour (3, 6 or 10 seconds), and the bigger it is the longer you wait for the next one (6, 15 or 30 seconds). Pick the size with 1-3 or the scroll wheel.
+- **Smarter bots for hiding:** hider bots look for covered spots away from the seeker and, in Block Hunt, the spot and block that match their surroundings best. They hold still and run when they're spotted. Seeker bots search places they haven't checked, follow balloons and running footsteps, and only spot a hider they could really make out: one that moves, stands out in colour against what's behind it, shows past cover or (in Block Hunt) hasn't settled onto the grid.
+
+### Weapons
+- **New: Pulse Cube** (650 coins), an automatic rifle: 800 rounds a minute, 35-round magazine and little recoil, but its damage drops off sooner. Up close it kills as fast as the AR-Cube and is easier to keep on target; the AR-Cube wins at range.
+- **New: Rapid Block** (1000 coins), a fast semi-automatic marksman rifle: 50 damage to the body and 84 to the head, 10 rounds, open reflex sight.
+- **AR-Cube:** damage 25 → 23.
+- **Stacker LMG and Cuber .44:** your hand and parts of the gun no longer cover the middle of the screen when you shoot or aim.
+
+### Custom scopes
+- **Shop > a gun you own > BUY CUSTOM SCOPE** (5,000 coins per gun) gives that gun a custom scope with 3 starter parts, then opens the **SCOPE BUILDER**: a live 3D preview you can turn, and 97 parts in 7 groups (bodies, mounts, front ends, eyepieces, turrets, gear, decorations), each with its own colour (24 swatches or any colour), one of 12 finishes (matte, gloss, metal, glow, camo, carbon, holo, your gun skin...), length, width, position and roll. Up to 24 parts.
+- **Every part you add costs 150 coins.** Removing parts gives nothing back; changing colours, finishes, sizes, positions and the optics is free and saves by itself.
+- **Optics:** 16 reticles, including one you paint pixel by pixel, its colour, glow and size, lens tint, 6 view shapes (including an open reflex view), view size, zoom, height and position. Zoom stays fair: guns without a scope can go up to 2x their own sights, and the sniper, DMR and crossbow can only zoom out.
+- **Turn it off** any time with SCOPE ON / OFF in the builder or under CUSTOM SCOPES in the locker. It's free both ways and keeps the purchase and your design.
+- Other players see your scope on your gun, and aiming through it shows your view shape, tint and reticle (also in the kill cam).
+
+### Fixes
+- Nametags follow the player's head when they crouch or lie down.
+- Lying down under a 1-block gap and getting up no longer puts you inside the blocks: you stay down (or crouched) until there is room.
+- No more thin gaps between blocks: at chunk edges, around swaying leaves and at the edges of water and lava.
+
 ## 2.1.1 (2026-11-04)
 
 ### Fixes
