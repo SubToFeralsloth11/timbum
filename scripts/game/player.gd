@@ -1208,7 +1208,7 @@ func _tick_weapon(delta: float) -> void:
 	recoil = move_toward(recoil, 0.0, delta * (6.0 + recoil * 5.0))
 	if not in_fire:
 		_trigger_down = false
-	if world.match_over or world.attacks_blocked():
+	if world.match_over or world.attacks_blocked() or not world.rules.can_attack(self):
 		in_reload = false
 		in_grenade = false
 		in_tactical = false

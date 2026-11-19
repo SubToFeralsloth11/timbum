@@ -14,7 +14,7 @@ const ROTATION := "rotation"
 ## `streaks`: mode -> killstreaks on, once picked for that mode (until then the mode's default,
 ## Streaks.default_for). A match setup preset (Profile.match_presets) holds a copy of it.
 static var _choice := default_choice()
-const MODE_IDS: Array[String] = ["ffa", "tdm", "ctf", "gungame", "oitc", "koth", "infected", "tactical"]
+const MODE_IDS: Array[String] = ["ffa", "tdm", "ctf", "gungame", "oitc", "koth", "infected", "tag", "hideseek", "blockhunt", "tactical"]
 const MODE_HINTS := {
 	"ffa": "Bots fill every empty slot up to the player count.",
 	"tdm": "Two teams, bots fill both evenly. The kill limit is the team score; friendly fire is off.",
@@ -23,6 +23,9 @@ const MODE_HINTS := {
 	"oitc": "Everyone has the Cuber .44 with one round and their melee weapon. Any .44 hit kills; every kill gives a round. Out of lives, you watch the rest. Last one standing wins, else the most lives. No grenades, ammo crates, mutators or killstreaks.",
 	"koth": "A glowing zone moves every minute (10 s warning). Stand in it alone for a point a second; two or more contest it. First to the score limit wins.",
 	"infected": "10 s in, one player turns Infected: melee only (their own melee weapon), faster, tougher. Everyone they kill turns too. Survivors win if any are left at the end. Rocket Party and Snipers Only are off.",
+	"tag": "No guns, nobody gets hurt. One player is IT: swing your melee weapon at someone or run into them to make them IT (no tag-backs for 4 s). A point a second while you're not IT, +3 a tag. Most points wins.",
+	"hideseek": "One seeker counts blindfolded for 20 s while everyone hides. Catch a hider (swing or bump) and you swap: they seek. No nametags; hiders see the seeker through walls. Hiders score a point a second, catches +10.",
+	"blockhunt": "Pick one of 4 blocks from the map and become it; hold still to snap onto the grid. After 30 s one seeker in five hunts with their melee weapon; found hiders seek too. Balloons score 1 / 3 / 7 but light you up. Hiders win if any are left.",
 	"tactical": "25 v 25 in Block HQ, bots fill every slot. 30 s of planning behind barriers, then find your weapons: everyone starts with their melee weapon. One life; the last team standing wins.",
 }
 ## One line under each mode card's name.
@@ -34,11 +37,15 @@ const MODE_TAGS := {
 	"oitc": "One round, one kill, few lives",
 	"koth": "Hold the moving zone alone",
 	"infected": "Outlast the spreading horde",
+	"tag": "You're IT! Pass it on",
+	"hideseek": "One seeker, hide and swap",
+	"blockhunt": "Become a block, pop balloons",
 	"tactical": "25 v 25, plan, one life",
 }
 const MODE_COLORS := {
 	"ffa": Color("ff8a4c"), "tdm": Color("4fa3ff"), "ctf": Color("ff5d73"), "gungame": Color("ffc531"),
-	"oitc": Color("ffb066"), "koth": Color("c58bff"), "infected": Color("7be05a"), "tactical": Color("9fb3c8"),
+	"oitc": Color("ffb066"), "koth": Color("c58bff"), "infected": Color("7be05a"), "tag": Color("ff6fb5"),
+	"hideseek": Color("5fd3c8"), "blockhunt": Color("b8e05a"), "tactical": Color("9fb3c8"),
 }
 
 
@@ -87,6 +94,25 @@ class ModeIcon extends Control:
 				draw_circle(c + Vector2(-4.5, -2), 2.6, Color(0.05, 0.12, 0.05))
 				draw_circle(c + Vector2(4.5, -2), 2.6, Color(0.05, 0.12, 0.05))
 				draw_line(c + Vector2(-5, 5), c + Vector2(5, 5), Color(0.05, 0.12, 0.05), 2.0, true)
+			"tag":
+				# A hand mid-tap: palm block and four fingers, motion lines behind.
+				draw_rect(Rect2(c + Vector2(-4, -2), Vector2(12, 12)), color)
+				for i in 4:
+					draw_rect(Rect2(c + Vector2(-4 + i * 3.2, -12), Vector2(2.4, 10)), color)
+				for i in 3:
+					draw_line(c + Vector2(-15, -6 + i * 6), c + Vector2(-8, -6 + i * 6), Color(color, 0.6), 2.0, true)
+			"hideseek":
+				# An eye peeking over a wall.
+				draw_rect(Rect2(c + Vector2(-14, 2), Vector2(28, 11)), color.darkened(0.35))
+				draw_circle(c + Vector2(0, -3), 8.0, Color(0.95, 0.97, 1.0))
+				draw_circle(c + Vector2(0, -3), 4.0, color)
+				draw_circle(c + Vector2(0, -3), 1.8, Color(0.05, 0.08, 0.1))
+			"blockhunt":
+				# A grass block with a balloon on a string.
+				draw_rect(Rect2(c + Vector2(-13, -1), Vector2(14, 14)), Color(0.55, 0.38, 0.22))
+				draw_rect(Rect2(c + Vector2(-13, -1), Vector2(14, 4)), color)
+				draw_line(c + Vector2(-2, -1), c + Vector2(7, -6), Color(0.92, 0.92, 0.95), 1.5, true)
+				draw_circle(c + Vector2(8, -10), 5.5, Color("ff5d73"))
 			"tactical":
 				draw_rect(Rect2(c + Vector2(-11, -13), Vector2(22, 26)), color)
 				for y in 3:
@@ -228,7 +254,7 @@ func _ready() -> void:
 	modes.custom_minimum_size.x = 274
 	body.add_child(modes)
 	modes.add_child(UIKit.label("MODE", &"SubheaderLabel"))
-	_mode_row = UIKit.vbox(6)
+	_mode_row = UIKit.vbox(4)
 	_mode_row.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	modes.add_child(_mode_row)
 	var mode_group := ButtonGroup.new()
@@ -329,7 +355,7 @@ func _ready() -> void:
 	_players_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	players_row.add_child(_players_label)
 	_rule(rules, "PLAYERS", players_row)
-	_mode_rule(rules, ["ffa", "tdm", "ctf", "gungame", "oitc", "koth", "infected"])
+	_mode_rule(rules, ["ffa", "tdm", "ctf", "gungame", "oitc", "koth", "infected", "tag", "hideseek", "blockhunt"])
 	_update_players_label()
 
 	var difficulty_names: Array[String] = []
@@ -429,7 +455,7 @@ func _mode_card(id: String, group: ButtonGroup) -> Button:
 	card.toggle_mode = true
 	card.button_group = group
 	card.name = id
-	card.custom_minimum_size = Vector2(0, 50)
+	card.custom_minimum_size = Vector2(0, 40)
 	card.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	card.button_pressed = id == _choice.mode
 	card.pressed.connect(func() -> void: pick_mode(id))
@@ -1001,9 +1027,11 @@ static func describe_config(cfg: Dictionary) -> Array:
 		"koth":
 			rows.append(["POINTS", "%d points" % int(cfg.kill_limit)])
 	rows.append(["TIME LIMIT", "%d min" % (int(cfg.time_limit) / 60)])
-	if mode != "tactical" and mode != "oitc":
+	var gunless := mode in ["tag", "hideseek", "blockhunt"]
+	if mode != "tactical" and mode != "oitc" and not gunless:
 		rows.append(["MUTATORS", "Random mutators" if cfg.mutators else "No mutators"])
-	rows.append(["KILLSTREAKS", "Killstreaks on" if cfg.streaks else "Killstreaks off"])
+	if not gunless:
+		rows.append(["KILLSTREAKS", "Killstreaks on" if cfg.streaks else "Killstreaks off"])
 	var pick := str(cfg.get("weather_pick", "auto"))
 	rows.append(["WEATHER", "Random weather" if pick == "auto" else str(Data.WEATHERS[pick].name)])
 	return rows

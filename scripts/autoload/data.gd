@@ -665,6 +665,7 @@ const MAP_ROTATION: Array[String] = ["village", "desert", "factory", "sky", "sno
 ## `teams` marks the two-team modes (Teams.is_team_mode), which may name and colour their sides
 ## (`team_names`, else ALPHA / BRAVO; `team_colors`: Palette roles, else team_a / team_b). Each mode's rules are a
 ## MatchMode subclass (MatchMode.create). Tactical always plays TACTICAL_MAP, outside the rotation.
+## `no_kills` marks modes where nobody can be hurt (Tag, Hide and Seek): no kill challenges there.
 const MODES := {
 	"ffa": {"name": "Deathmatch", "short": "DEATHMATCH", "desc": "Free-for-all. First to the kill limit wins."},
 	"tdm": {"name": "Team Deathmatch", "short": "TEAM DM", "teams": true,
@@ -679,6 +680,12 @@ const MODES := {
 	"infected": {"name": "Infected", "short": "INFECTED", "teams": true,
 		"team_names": ["SURVIVORS", "INFECTED"], "team_colors": ["survivors", "infected"],
 		"desc": "One player turns. Every survivor they knife joins them. Survive the clock."},
+	"tag": {"name": "Tag", "short": "TAG", "no_kills": true,
+		"desc": "No guns. One player is IT: swing at or run into someone to pass it on. Score while you're not IT."},
+	"hideseek": {"name": "Hide and Seek", "short": "HIDE & SEEK", "no_kills": true,
+		"desc": "One seeker counts while everyone hides. A catch swaps seeker and hider. No nametags; hiders see the seeker through walls."},
+	"blockhunt": {"name": "Block Hunt", "short": "BLOCK HUNT", "teams": true, "team_names": ["HIDERS", "SEEKERS"],
+		"desc": "Hiders pick one of four blocks and become it. Seekers whack blocks; a found hider seeks too. Balloons score points but show where you are."},
 	"tactical": {"name": "Tactical", "short": "TACTICAL", "teams": true,
 		"desc": "25 v 25 in an office block. Plan, find your weapons, one life each."},
 }
@@ -763,7 +770,7 @@ const CHALLENGE_TEMPLATES := {
 		"group": "style", "daily": [2, 4], "weekly": [10, 15]},
 	"streak": {"text": ["Get a {n}-kill streak in one match", "Get a {n}-kill streak in one match"], "key": "best_streak", "param": "",
 		"group": "style", "per_match": true, "daily": [4, 6], "weekly": [7, 9]},
-	"mode_kills": {"text": ["Get a kill in {p}", "Get {n} kills in {p}"], "key": "mode_kills:%s", "param": "mode", "group": "mode",
+	"mode_kills": {"text": ["Get a kill in {p}", "Get {n} kills in {p}"], "key": "mode_kills:%s", "param": "kill_mode", "group": "mode",
 		"daily": [10, 20], "weekly": [60, 100]},
 	"mode_play": {"text": ["Play a match of {p}", "Play {n} matches of {p}"], "key": "mode_matches:%s", "param": "mode", "group": "mode",
 		"daily": [2, 3], "weekly": [6, 10]},
@@ -812,6 +819,10 @@ const MEDALS := {
 	"last_standing": {"name": "Last One Standing", "desc": "The only player left with lives in One in the Chamber.", "mode": "oitc"},
 	"dead_eye": {"name": "Dead Eye", "desc": "Most Cuber .44 kills in One in the Chamber.", "mode": "oitc"},
 	"flawless": {"name": "Flawless", "desc": "Won One in the Chamber without losing a life.", "mode": "oitc"},
+	"top_tagger": {"name": "Hot Potato", "desc": "Most tags in Tag.", "mode": "tag"},
+	"top_seeker": {"name": "Eagle Eye", "desc": "Most catches in Hide and Seek.", "mode": "hideseek"},
+	"never_found": {"name": "Never Found", "desc": "Still hidden when Block Hunt ended.", "mode": "blockhunt"},
+	"party_animal": {"name": "Party Animal", "desc": "Most balloons released in Block Hunt.", "mode": "blockhunt"},
 }
 
 ## Permanent achievements (Profile.achievements: id -> unlock time). `key` is a lifetime value

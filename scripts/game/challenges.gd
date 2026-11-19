@@ -44,6 +44,8 @@ static func param_pool(param: String, owned: Array) -> Array:
 					out.append(id)
 		"mode":
 			out.assign(Data.MODES.keys())
+		"kill_mode":
+			out.assign(Data.MODES.keys().filter(func(m: String) -> bool: return not Data.MODES[m].get("no_kills", false)))
 		"map":
 			out.assign(Data.MAP_ROTATION)
 		_:
@@ -124,7 +126,7 @@ static func param_name(param: String, id: String) -> String:
 	match param:
 		"gun", "gun_hs":
 			return str(Data.WEAPONS[id].name)
-		"mode":
+		"mode", "kill_mode":
 			return str(Data.MODES[id].name)
 		"map":
 			return str(Data.MAPS[id].name)

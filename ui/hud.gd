@@ -1533,6 +1533,10 @@ func _update_mode_hud() -> void:
 	var cam := get_viewport().get_camera_3d()
 	_compass.pips = world.rules.compass_pips(cam) + world.streaks.compass_pips(cam) + world.pings.compass_pips(cam) if cam != null else []
 	if not Teams.is_team_mode():
+		# A free-for-all mode with its own goal line (Tag: who is IT) keeps it over the race leader.
+		var goal := world.rules.hud_goal()
+		if not goal.is_empty():
+			_goal_label.text = goal
 		return
 	var bars := world.rules.hud_bars()
 	for i in mini(2, bars.size()):

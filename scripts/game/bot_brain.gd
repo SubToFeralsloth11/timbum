@@ -242,6 +242,12 @@ func think(delta: float) -> void:
 		_perceive()
 	_prone_cooldown -= delta
 	_choose_weapon()
+	# The mode may run the bot itself (hide-and-seek hiders: hide, hold still, flee).
+	if p.world.rules.bot_drive(p, self, delta):
+		if p.pad_flight:
+			p.in_move = Vector2.ZERO
+		_check_stuck(delta)
+		return
 	if target != null and _target_visible:
 		_tracking_time += delta
 		_reaction_left -= delta
@@ -348,6 +354,9 @@ func _perceive() -> void:
 			continue
 		var was_attacker := other.id == p.last_attacker and now - p.last_hurt_time < 2.5
 		if not _can_see(other, not was_attacker and other != target):
+			continue
+		# The mode may hide a visible enemy from the bot (a disguised block, a hider in cover).
+		if other != target and not p.world.rules.bot_notices(p, other):
 			continue
 		# Prefer close, weak, and whoever is already shooting us; lean toward whoever is ahead on
 		# kills, away from players other bots are already busy with, and toward whoever the mode
@@ -900,6 +909,44 @@ func _set_goal(point: Vector3) -> void:
 	_goal = point
 	_has_goal = true
 	_repath_timer = 0.0
+
+
+# ---------------------------------------------------------------- mode-driven bots (MatchMode.bot_drive)
+
+## Walks the navmesh route toward `point`; true once the route is used up (arrived, or as close
+## as the navmesh gets).
+func move_to(point: Vector3, delta: float, sprint := false) -> bool:
+	_go_toward(point, delta)
+	p.in_sprint = sprint and difficulty > 0
+	return _path_index >= _path.size()
+
+
+## Turns the view toward `point` at `rate` times the bot's turn speed.
+func look_toward(point: Vector3, delta: float, rate := 0.5) -> void:
+	_turn_toward(point, delta * rate)
+
+
+## Forgets the current route so the next move_to plans afresh.
+func drop_route() -> void:
+	_path = PackedVector3Array()
+	_path_index = 0
+	_has_goal = false
+	_repath_timer = 0.0
+
+
+## Line of sight to `other` within view distance (`fov`: only inside the bot's view cone).
+func can_see(other: Player, fov := true) -> bool:
+	return _can_see(other, fov)
+
+
+## Something worth a look happened at `pos` (a Block Hunt balloon): a bot with no target in sight
+## goes there like to a fresh sighting.
+func investigate(pos: Vector3) -> void:
+	if target != null and _target_visible:
+		return
+	_last_seen_pos = pos
+	_last_seen_time = World.now()
+	_has_goal = false
 
 
 func _go_toward(point: Vector3, delta: float) -> void:

@@ -58,7 +58,10 @@ const GAME_ID := "timbum"
 ## 28: Weather (`weather_pick` / `weather` in the config).
 ## 29: Custom map flag stands (`flags` in the map file every peer builds from) and the Capture the
 ##     Flag stands of a custom map without them (CaptureTheFlag.spawn_stands).
-const PROTOCOL_VERSION := 29
+## 30: Tag, Hide and Seek and Block Hunt (config.mode "tag" / "hideseek" / "blockhunt", their
+##     controllers' RPCs, `seeker` / `disguise` / `block_choices` in a player's info), and the
+##     new weapons appended to Data.WEAPONS.
+const PROTOCOL_VERSION := 30
 const CONNECT_TIMEOUT := 8.0
 ## A room-code join first tries a direct (NAT punch-through) link this long, then the relay.
 const NAT_CONNECT_TIMEOUT := 6.0
@@ -78,7 +81,8 @@ const MAX_SPECTATORS := 4
 const MAP_CHUNK := 1000
 
 const DEFAULT_CONFIG := {
-	## A Data.MODES id: "ffa" (deathmatch), "tdm", "ctf", "gungame", "oitc", "koth", "infected" or "tactical"
+	## A Data.MODES id: "ffa" (deathmatch), "tdm", "ctf", "gungame", "oitc", "koth", "infected", "tag",
+	## "hideseek", "blockhunt" or "tactical"
 	## (see MatchMode).
 	"mode": "ffa",
 	"map": "rotation",
@@ -777,8 +781,9 @@ static func sanitize_config(cfg: Dictionary) -> Dictionary:
 		out.bots_fill = Tactical.PLAYERS
 		out.mutators = false
 		out.mutator = "none"
-	elif out.mode == "oitc":
-		# One in the Chamber is the Cuber .44 and one round: no mutators or killstreaks.
+	elif out.mode in ["oitc", "tag", "hideseek", "blockhunt"]:
+		# One in the Chamber is the Cuber .44 and one round; Tag, Hide and Seek and Block Hunt
+		# have no guns at all: no mutators or killstreaks.
 		out.mutators = false
 		out.mutator = "none"
 		out.streaks = false

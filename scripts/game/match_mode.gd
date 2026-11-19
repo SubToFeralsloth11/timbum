@@ -12,6 +12,9 @@ extends Node
 ##   - `KingOfTheBlock` (scripts/game/king_of_the_block.gd, "koth")
 ##   - `Infected` (scripts/game/infected.gd, "infected")
 ##   - `OneInTheChamber` (scripts/game/one_in_the_chamber.gd, "oitc")
+##   - `TagMode` (scripts/game/tag_mode.gd, "tag") and its subclass `HideAndSeek`
+##     (scripts/game/hide_and_seek.gd, "hideseek")
+##   - `BlockHunt` (scripts/game/block_hunt.gd, "blockhunt")
 ##   - `Tactical` (scripts/game/tactical.gd, "tactical")
 ## and, for the offline practice sessions (`Net.config.session`), `FiringRange`
 ## (scripts/game/firing_range.gd, "range") and its subclass `Tutorial` (scripts/game/tutorial.gd).
@@ -41,6 +44,9 @@ static func create(p_world: World) -> MatchMode:
 				"koth": m = KingOfTheBlock.new()
 				"infected": m = Infected.new()
 				"oitc": m = OneInTheChamber.new()
+				"tag": m = TagMode.new()
+				"hideseek": m = HideAndSeek.new()
+				"blockhunt": m = BlockHunt.new()
 				"tactical": m = Tactical.new()
 				_: m = MatchMode.new()
 	m.world = p_world
@@ -99,13 +105,27 @@ func on_match_over() -> void:
 	pass
 
 
-## A player entity was created on this peer: team look (armbands, nametags) in team modes.
+## A player entity was created on this peer: team look (armbands, nametags) in team modes; no
+## nametag at all where the mode hides them (`shows_nametags`).
 func on_player_added(p: Player) -> void:
-	if Teams.of(p) < 0:
-		return
-	Teams.decorate(p, Teams.of(world.local_player))
-	if p == world.local_player:
-		Teams.refresh_tags(world)
+	if Teams.of(p) >= 0:
+		Teams.decorate(p, Teams.of(world.local_player))
+		if p == world.local_player:
+			Teams.refresh_tags(world)
+	if not shows_nametags() and p.nametag != null:
+		p.nametag.queue_free()
+		p.nametag = null
+
+
+## Whether players carry nametags (the hide-and-seek modes: no, names would give hiders away).
+func shows_nametags() -> bool:
+	return true
+
+
+## Whether `p` may fire, swing or throw at all (the hide-and-seek modes: only seekers). Read by
+## whichever peer simulates `p`; the server drops a hit by someone who can't attack anyway.
+func can_attack(_p: Player) -> bool:
+	return true
 
 
 ## The local player was killed by `killer_id`.
@@ -517,3 +537,16 @@ func bot_target_bias(_p: Player, _other: Player) -> float:
 ## [] to roam and chase freely.
 func bot_hold_area(_p: Player) -> Array:
 	return []
+
+
+## Whether bot `p` notices `other`, an enemy it has a clear line of sight to (asked on every
+## perception pass; false: the bot looks right past them). Block Hunt and Hide and Seek: hiders
+## blend in by colour, cover and stillness.
+func bot_notices(_p: Player, _other: Player) -> bool:
+	return true
+
+
+## The mode drives bot `p` itself this frame (true: BotBrain skips its own fight and roam). The
+## hide-and-seek modes run their hiders this way; `brain` offers move_to / look_toward / stay.
+func bot_drive(_p: Player, _brain: BotBrain, _delta: float) -> bool:
+	return false
