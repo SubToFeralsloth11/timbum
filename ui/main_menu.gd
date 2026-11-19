@@ -313,10 +313,13 @@ func _get_screen(screen_name: String) -> Control:
 		"join":
 			s = JoinScreen.new()
 		"shop":
-			s = ShopScreen.new()
+			var shop := ShopScreen.new()
+			shop.scope_builder_requested.connect(func(wid: String) -> void: open_scope_builder(wid, "shop"))
+			s = shop
 		"locker":
 			var locker := LockerScreen.new()
 			locker.shop_requested.connect(func() -> void: go("shop"))
+			locker.scope_builder_requested.connect(func(wid: String) -> void: open_scope_builder(wid, "locker"))
 			s = locker
 		"stats":
 			s = StatsScreen.new()
@@ -330,11 +333,27 @@ func _get_screen(screen_name: String) -> Control:
 			s = GalleryScreen.new()
 		"settings":
 			s = _build_settings_screen()
+		"scope_builder":
+			s = ScopeBuilderScreen.new()
 	s.visible = false
-	s.back_requested.connect(func() -> void: go("home"))
+	if s is ScopeBuilderScreen:
+		# BACK saves the builder's pending edits and returns to the screen it was opened from.
+		var builder := s as ScopeBuilderScreen
+		s.back_requested.connect(func() -> void:
+			builder.flush()
+			go(builder.return_to))
+	else:
+		s.back_requested.connect(func() -> void: go("home"))
 	_screens[screen_name] = s
 	_screen_layer.add_child(s)
 	return s
+
+
+## Opens the scope builder for gun `wid` (one with a bought custom scope); BACK returns to `from`.
+func open_scope_builder(wid: String, from: String) -> void:
+	var builder := _get_screen("scope_builder") as ScopeBuilderScreen
+	builder.open(wid, from)
+	go("scope_builder")
 
 
 # ------------------------------------------------------------------ layers

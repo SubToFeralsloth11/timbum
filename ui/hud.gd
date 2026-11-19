@@ -1251,10 +1251,11 @@ func _process(delta: float) -> void:
 	_grapple_bar.value = 1.0 if p.grappling else 1.0 - clampf(p.grapple_cooldown / p.grapple_cooldown_time(), 0.0, 1.0)
 	_hook_box.visible = world.tactical == null
 
-	var scoped: bool = w.get("scope", false) and p.aim_blend > 0.85 and p.alive
+	var scoped: bool = p.is_scoped_weapon() and p.aim_blend > 0.85 and p.alive
 	_scope.visible = scoped
 	if scoped:
 		_scope.style = w.get("scope_style", "sniper")
+		_scope.design = p.custom_scope()
 	_crosshair.visible = p.alive and not _results.visible
 	_crosshair.show_lines = (not scoped and p.aim_blend < 0.6) or Data.is_melee(wid)
 	_crosshair.spread = p.current_spread()

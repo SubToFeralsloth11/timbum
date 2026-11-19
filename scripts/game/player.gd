@@ -113,6 +113,9 @@ static var _weapon_ids: Array = []
 
 var id := 0
 var info := {}
+## custom_scope()'s cache: the weapon id it was looked up for ("" = stale) and the design.
+var _scope_wid := ""
+var _scope_design := {}
 var mode := Mode.REMOTE
 var is_bot := false
 var world: World
@@ -336,6 +339,7 @@ func _refill_equipment() -> void:
 ## stays the server's to set. A reload or burst of the old gun ends.
 func apply_info(p_info: Dictionary) -> void:
 	info = p_info
+	_scope_wid = ""
 	slots = slots_from(info)
 	_cancel_reload()
 	cancel_charge()
@@ -419,6 +423,7 @@ func _ready() -> void:
 
 	avatar = Models.build_avatar(str(info.outfit), str(info.hat))
 	avatar.charm_id = str(info.get("charm", "none"))
+	avatar.scopes = info.get("scopes", {}) if typeof(info.get("scopes")) == TYPE_DICTIONARY else {}
 	add_child(avatar)
 	if int((info.get("mods", {}) as Dictionary).get("laser", 0)) > 0:
 		laser = LaserSight.new()
@@ -484,7 +489,7 @@ func _ready() -> void:
 		viewmodel = Viewmodel.new()
 		var camos: Variant = info.get("camos", [])
 		viewmodel.setup(str(info.outfit), str(info.skin), str(info.get("charm", "none")), str(info.get("draw", "standard")),
-			camos if typeof(camos) == TYPE_ARRAY else [])
+			camos if typeof(camos) == TYPE_ARRAY else [], avatar.scopes)
 		camera.add_child(viewmodel)
 	else:
 		nametag = Label3D.new()
@@ -701,6 +706,21 @@ func weapon_id() -> String:
 
 func weapon_data() -> Dictionary:
 	return Data.WEAPONS[weapon_id()]
+
+
+## The custom scope design on the held gun ({}: its own sights; CustomScopes.from_info).
+func custom_scope() -> Dictionary:
+	var wid := weapon_id()
+	if wid != _scope_wid:
+		_scope_wid = wid
+		_scope_design = CustomScopes.from_info(info, wid)
+	return _scope_design
+
+
+## True when aiming the held gun looks through a scope: its own (`scope` in Data.WEAPONS) or a
+## custom one. The scope overlay draws the view and the gun hides.
+func is_scoped_weapon() -> bool:
+	return weapon_data().get("scope", false) or not custom_scope().is_empty()
 
 
 func _simulate(delta: float) -> void:
@@ -1972,7 +1992,7 @@ func _update_visuals(delta: float) -> void:
 		var roll := -lean * _lean_reach * LEAN_ROLL + (deg_to_rad(-4.0) if sliding else 0.0)
 		camera.rotation.z = lerpf(camera.rotation.z, roll, minf(1.0, delta * 12.0))
 		var base_fov := world.admin.fov_for(self, float(Profile.get_setting("fov")))
-		var target_fov := lerpf(base_fov, minf(float(weapon_data().ads_fov), base_fov), aim_blend)
+		var target_fov := lerpf(base_fov, minf(CustomScopes.ads_fov(weapon_id(), custom_scope()), base_fov), aim_blend)
 		if sprinting:
 			target_fov += 4.0
 		elif sliding:
@@ -2049,7 +2069,7 @@ func update_laser(delta := 0.0) -> void:
 		var to_aim := (aim_point(aim) - from).normalized()
 		if to_aim.length_squared() > 0.5:
 			dir = dir.slerp(to_aim, _laser_ready).normalized()
-	var scoped: bool = first_person and weapon_data().get("scope", false) and aim_blend > 0.85
+	var scoped: bool = first_person and is_scoped_weapon() and aim_blend > 0.85
 	laser.aim(from, from, dir, _exclude, not scoped)
 
 

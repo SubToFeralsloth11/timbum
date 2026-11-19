@@ -232,14 +232,16 @@ func _set_target(p: Player) -> void:
 	_apply_target_look()
 	var info := p.info
 	var camos: Variant = info.get("camos", [])
-	var key := "%s|%s|%s|%s|%s" % [info.outfit, info.skin, info.get("charm", "none"), info.get("draw", "standard"), str(camos)]
+	var scopes: Dictionary = info.get("scopes", {}) if typeof(info.get("scopes")) == TYPE_DICTIONARY else {}
+	var key := "%s|%s|%s|%s|%s|%d" % [info.outfit, info.skin, info.get("charm", "none"), info.get("draw", "standard"), str(camos),
+		str(scopes).hash()]
 	if key != _vm_key or _viewmodel == null:
 		if _viewmodel != null:
 			_viewmodel.queue_free()
 		_vm_key = key
 		_viewmodel = Viewmodel.new()
 		_viewmodel.setup(str(info.outfit), str(info.skin), str(info.get("charm", "none")), str(info.get("draw", "standard")),
-			camos if typeof(camos) == TYPE_ARRAY else [])
+			camos if typeof(camos) == TYPE_ARRAY else [], scopes)
 		_cam.add_child(_viewmodel)
 	_vm_weapon = ""
 	_reloading = false
@@ -296,7 +298,7 @@ func _update_follow(delta: float) -> void:
 	if wid != _vm_weapon:
 		_viewmodel.set_weapon(wid, 0.05 if _vm_weapon.is_empty() else Player.SWITCH_TIME)
 		_vm_weapon = wid
-		_ads_fov = float(Data.WEAPONS[wid].ads_fov)
+		_ads_fov = CustomScopes.ads_fov(wid, CustomScopes.from_info(p.info, wid))
 	_ads = move_toward(_ads, 1.0 if (fl & Player.FLAG_AIM) != 0 else 0.0, delta * 6.0)
 	var sliding := (fl & Player.FLAG_SLIDE) != 0
 	var roll := -Player.flags_lean(fl) * Player.LEAN_ROLL + (deg_to_rad(-4.0) if sliding else 0.0)

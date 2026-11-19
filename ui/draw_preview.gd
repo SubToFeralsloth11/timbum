@@ -16,14 +16,16 @@ var _t := DRAW_TIME
 var _frozen := false
 
 
-## `frozen_d` >= 0 holds the pose at that point of the draw (1 = start) instead of looping.
-static func create(p_style: String, weapon_id: String, skin_id: String, charm_id: String, frozen_d := -1.0) -> DrawPreview:
+## `frozen_d` >= 0 holds the pose at that point of the draw (1 = start) instead of looping;
+## `scope` is a custom scope design on the gun ({}: none).
+static func create(p_style: String, weapon_id: String, skin_id: String, charm_id: String, frozen_d := -1.0,
+		scope: Dictionary = {}) -> DrawPreview:
 	var p := DrawPreview.new()
 	p.name = "DrawPreview"
 	p.style = p_style
 	p._pivot = Node3D.new()
 	p.add_child(p._pivot)
-	p._gun = Models.build_gun(weapon_id, skin_id, charm_id)
+	p._gun = Models.build_gun(weapon_id, skin_id, charm_id, scope)
 	p._pivot.add_child(p._gun)
 	if frozen_d >= 0.0:
 		p._apply(frozen_d)

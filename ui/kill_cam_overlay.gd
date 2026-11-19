@@ -99,9 +99,11 @@ func set_progress(fraction: float) -> void:
 	_bar.value = fraction
 
 
-func set_scope(on: bool, style: String) -> void:
+## `design` is the killer's custom scope on that gun ({}: the gun's own `style`).
+func set_scope(on: bool, style: String, design: Dictionary = {}) -> void:
 	if on:
 		_scope.style = style
+		_scope.design = design
 	_scope.visible = on
 
 

@@ -239,6 +239,14 @@ func _warm_first_use() -> void:
 	var spray := str(Profile.peer_info().get("spray", ""))
 	if Data.SPRAYS.has(spray):
 		SprayArt.texture(spray)
+	# Custom scopes: their unit meshes, materials and pattern textures, for every player's designs.
+	for pid: int in Net.players:
+		var scopes: Variant = (Net.players[pid] as Dictionary).get("scopes", {})
+		if typeof(scopes) == TYPE_DICTIONARY:
+			for wid: Variant in scopes:
+				var design := CustomScopes.design_in(scopes, str(wid))
+				if not design.is_empty():
+					CustomScopes.build(design, str(Net.players[pid].get("skin", "default"))).free()
 
 
 func _exit_tree() -> void:

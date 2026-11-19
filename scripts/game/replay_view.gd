@@ -29,6 +29,10 @@ var base_fov := 90.0
 ## After each step: the POV gun is scoped and aimed in (the owner draws the scope).
 var scoped := false
 var scope_style := "sniper"
+## The POV gun's custom scope design ({}: its own sights or scope), for the scope overlay.
+var scope_design := {}
+## The POV player's peer_info.scopes.
+var _pov_scopes := {}
 ## The replayed moment of the last step or seek.
 var replay_t := 0.0
 var frames_played := 0
@@ -127,15 +131,16 @@ func set_pov(eid: int) -> void:
 		return
 	var info: Dictionary = info_of.call(eid)
 	var camos: Variant = info.get("camos", [])
-	var key := "%s|%s|%s|%s|%s" % [info.get("outfit", "classic"), info.get("skin", "default"), info.get("charm", "none"),
-		info.get("draw", "standard"), str(camos)]
+	_pov_scopes = info.get("scopes", {}) if typeof(info.get("scopes")) == TYPE_DICTIONARY else {}
+	var key := "%s|%s|%s|%s|%s|%d" % [info.get("outfit", "classic"), info.get("skin", "default"), info.get("charm", "none"),
+		info.get("draw", "standard"), str(camos), str(_pov_scopes).hash()]
 	if key != _vm_key or _viewmodel == null:
 		if _viewmodel != null:
 			_viewmodel.queue_free()
 		_vm_key = key
 		_viewmodel = Viewmodel.new()
 		_viewmodel.setup(str(info.get("outfit", "classic")), str(info.get("skin", "default")), str(info.get("charm", "none")),
-			str(info.get("draw", "standard")), camos if typeof(camos) == TYPE_ARRAY else [])
+			str(info.get("draw", "standard")), camos if typeof(camos) == TYPE_ARRAY else [], _pov_scopes)
 		camera.add_child(_viewmodel)
 	_cam_weapon = ""
 	_viewmodel.visible = true
@@ -244,8 +249,9 @@ func _pose_pov(t: float, delta: float) -> void:
 		var w: Dictionary = Data.WEAPONS[wid]
 		_viewmodel.set_weapon(wid, 0.05 if _cam_weapon.is_empty() else Player.SWITCH_TIME)
 		_cam_weapon = wid
-		_cam_ads_fov = float(w.ads_fov)
-		_cam_scoped = w.get("scope", false)
+		scope_design = CustomScopes.design_in(_pov_scopes, wid)
+		_cam_ads_fov = CustomScopes.ads_fov(wid, scope_design)
+		_cam_scoped = w.get("scope", false) or not scope_design.is_empty()
 		scope_style = str(w.get("scope_style", "sniper"))
 	_ads = move_toward(_ads, 1.0 if (fl & Player.FLAG_AIM) != 0 else 0.0, delta * 6.0)
 	var sliding := (fl & Player.FLAG_SLIDE) != 0
@@ -337,6 +343,7 @@ func _ghost(s: int, eid: int) -> Avatar:
 		g.queue_free()
 	g = Models.build_avatar(str(info.get("outfit", "classic")), str(info.get("hat", "none")))
 	g.charm_id = str(info.get("charm", "none"))
+	g.scopes = info.get("scopes", {}) if typeof(info.get("scopes")) == TYPE_DICTIONARY else {}
 	g.name = "Ghost%d" % s
 	add_child(g)
 	if look_of.is_valid():

@@ -33,6 +33,9 @@ var weapon_id := ""
 var skin_id := ""
 ## Charm hung on held guns (Data.CHARMS id); set before hold_weapon().
 var charm_id := "none"
+## Custom scopes on held guns (peer_info.scopes: weapon id -> CustomScopes bytes); set before
+## hold_weapon().
+var scopes := {}
 ## Win emote being performed (Data.EMOTES id, "" for none) and its running time.
 var emote := ""
 var _emote_t := 0.0
@@ -238,7 +241,7 @@ func hold_weapon(p_weapon_id: String, p_skin_id: String) -> void:
 		_grip = Vector3(0.1, -0.25, -0.35)
 		_twist_target = 0.0
 	else:
-		_gun = Models.build_gun(weapon_id, skin_id, charm_id)
+		_gun = Models.build_gun(weapon_id, skin_id, charm_id, CustomScopes.design_in(scopes, weapon_id))
 		_gun.scale = Vector3.ONE * Models.THIRD_PERSON_GUN_SCALE
 		_gun_mount.add_child(_gun)
 		_gun.visible = emote.is_empty()

@@ -61,6 +61,7 @@ const GAME_ID := "timbum"
 ## 30: Tag, Hide and Seek and Block Hunt (config.mode "tag" / "hideseek" / "blockhunt", their
 ##     controllers' RPCs, `seeker` / `disguise` / `block_choices` in a player's info), and the
 ##     new weapons appended to Data.WEAPONS.
+##     Also custom scopes: `scopes` in peer_info (weapon id -> CustomScopes.encode bytes).
 const PROTOCOL_VERSION := 30
 const CONNECT_TIMEOUT := 8.0
 ## A room-code join first tries a direct (NAT punch-through) link this long, then the relay.
@@ -1127,6 +1128,9 @@ static func sanitize_info(info: Dictionary) -> Dictionary:
 		for id: Variant in (camos as Array).slice(0, Data.WEAPONS.size()):
 			if typeof(id) in [TYPE_STRING, TYPE_STRING_NAME] and Data.WEAPONS.has(str(id)) and not clean.camos.has(str(id)):
 				clean.camos.append(str(id))
+	# Custom scopes: gun ids -> designs, decoded and re-encoded (values clamped, unknown parts
+	# dropped, size capped), designs without parts left out (CustomScopes.sanitize_wire).
+	clean.scopes = CustomScopes.sanitize_wire(info.get("scopes", {}))
 	return clean
 
 

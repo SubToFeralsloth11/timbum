@@ -44,6 +44,8 @@ const PARTY_COLORS: Array[Color] = [Color("ff3fa4"), Color("2ad8ff"), Color("ffd
 	Color("a66bff"), Color("ff8a2a")]
 
 static var _guns: Dictionary = {}
+## True while _gun_info builds a gun without its own scope (see _gun_info).
+static var _bare := false
 static var _skin_materials: Dictionary = {}
 static var _flat_materials: Dictionary = {}
 static var _outfit_materials: Dictionary = {}
@@ -60,12 +62,17 @@ static var _infected_overlay: StandardMaterial3D
 ## Children: MeshInstance3D "Mesh", Marker3D "Muzzle" (barrel tip / knife tip),
 ## Marker3D "Sight" (rear sight line, for aiming down sights) and, for two-handed holds,
 ## Marker3D "Support" (where the off hand goes; absent on the knife). A `charm_id` other than
-## "none" hangs that GunCharm off the left side of the receiver (never on the knife).
-static func build_gun(weapon_id: String, skin_id: String, charm_id := "none") -> Node3D:
+## "none" hangs that GunCharm off the left side of the receiver (never on the knife). A custom
+## scope design `scope` (CustomScopes; {} for none, never on melee weapons) adds its model as
+## "CustomScope" on the receiver, moves "Sight" to its eyepiece, and builds a gun that has a scope
+## of its own without it.
+static func build_gun(weapon_id: String, skin_id: String, charm_id := "none", scope: Dictionary = {}) -> Node3D:
 	if not CATALOG.WEAPONS.has(weapon_id):
 		push_warning("Models: unknown weapon '%s'" % weapon_id)
 		weapon_id = "pistol"
-	var info := _gun_info(weapon_id)
+	var custom: bool = not scope.is_empty() and CATALOG.WEAPONS[weapon_id].slot != "melee"
+	var own_scope: bool = CATALOG.WEAPONS[weapon_id].get("scope", false)
+	var info := _gun_info(weapon_id, custom and own_scope)
 	var root := Node3D.new()
 	root.name = "Gun"
 	root.set_meta(&"weapon_id", weapon_id)
@@ -76,7 +83,13 @@ static func build_gun(weapon_id: String, skin_id: String, charm_id := "none") ->
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 	root.add_child(mi)
 	_add_marker(root, "Muzzle", info.muzzle)
-	_add_marker(root, "Sight", info.sight)
+	var sight: Vector3 = info.sight
+	if custom:
+		var model := CustomScopes.build(scope, skin_id)
+		model.position = CustomScopes.mount_point(sight, own_scope, scope)
+		root.add_child(model)
+		sight = model.position + Vector3(0.0, float(scope.get("rise", CustomScopes.DEFAULT_RISE)), 0.0)
+	_add_marker(root, "Sight", sight)
 	if info.support != null:
 		_add_marker(root, "Support", info.support)
 	if info.has("coil"):
@@ -923,9 +936,13 @@ static func _skin_image(skin: Dictionary, seed: int) -> Image:
 
 # --- Guns ------------------------------------------------------------------------------------
 
-static func _gun_info(weapon_id: String) -> Dictionary:
-	if _guns.has(weapon_id):
-		return _guns[weapon_id]
+## A gun's mesh and markers, cached. `bare` builds a gun that has a scope of its own (sniper,
+## DMR, crossbow) without it, for a custom scope to take its place (the builders read _bare).
+static func _gun_info(weapon_id: String, bare := false) -> Dictionary:
+	var key := weapon_id + ("#bare" if bare else "")
+	if _guns.has(key):
+		return _guns[key]
+	_bare = bare
 	var k := MeshKit.new()
 	var info: Dictionary
 	match weapon_id:
@@ -958,8 +975,9 @@ static func _gun_info(weapon_id: String) -> Dictionary:
 		"pulse_rifle": info = _gun_pulse_rifle(k)
 		"rapid_dmr": info = _gun_rapid_dmr(k)
 		_: info = _gun_knife(k)
+	_bare = false
 	info.mesh = k.build(_gun_accent_materials())
-	_guns[weapon_id] = info
+	_guns[key] = info
 	return info
 
 
@@ -1142,15 +1160,16 @@ static func _gun_sniper(k: MeshKit) -> Dictionary:
 	k.box(DARK, Vector3(0, -0.01, -0.1), Vector3(0.034, 0.05, 0.07))
 	k.box(METAL, Vector3(0.04, 0.05, 0.02), Vector3(0.05, 0.012, 0.012))
 	k.box(METAL, Vector3(0.068, 0.045, 0.025), Vector3(0.02, 0.02, 0.02))
-	k.box(DARK, Vector3(0, 0.125, -0.08), Vector3(0.04, 0.04, 0.26))
-	k.box(DARK, Vector3(0, 0.125, -0.25), Vector3(0.058, 0.058, 0.08))
-	k.box(DARK, Vector3(0, 0.125, 0.07), Vector3(0.05, 0.05, 0.05))
-	k.box(METAL, Vector3(0, 0.155, -0.08), Vector3(0.02, 0.02, 0.02))
-	k.box(METAL, Vector3(0.03, 0.125, -0.08), Vector3(0.02, 0.02, 0.02))
-	k.box(METAL, Vector3(0, 0.1, -0.15), Vector3(0.046, 0.03, 0.016))
-	k.box(METAL, Vector3(0, 0.1, -0.01), Vector3(0.046, 0.03, 0.016))
-	k.box(LENS, Vector3(0, 0.125, -0.2915), Vector3(0.046, 0.046, 0.004))
-	k.box(LENS, Vector3(0, 0.125, 0.0955), Vector3(0.036, 0.036, 0.004))
+	if not _bare:
+		k.box(DARK, Vector3(0, 0.125, -0.08), Vector3(0.04, 0.04, 0.26))
+		k.box(DARK, Vector3(0, 0.125, -0.25), Vector3(0.058, 0.058, 0.08))
+		k.box(DARK, Vector3(0, 0.125, 0.07), Vector3(0.05, 0.05, 0.05))
+		k.box(METAL, Vector3(0, 0.155, -0.08), Vector3(0.02, 0.02, 0.02))
+		k.box(METAL, Vector3(0.03, 0.125, -0.08), Vector3(0.02, 0.02, 0.02))
+		k.box(METAL, Vector3(0, 0.1, -0.15), Vector3(0.046, 0.03, 0.016))
+		k.box(METAL, Vector3(0, 0.1, -0.01), Vector3(0.046, 0.03, 0.016))
+		k.box(LENS, Vector3(0, 0.125, -0.2915), Vector3(0.046, 0.046, 0.004))
+		k.box(LENS, Vector3(0, 0.125, 0.0955), Vector3(0.036, 0.036, 0.004))
 	_trigger(k, -0.01)
 	return {"muzzle": Vector3(0, 0.055, -0.858), "sight": Vector3(0, 0.125, 0.1),
 		"support": Vector3(0, 0.0, -0.34)}
@@ -1275,12 +1294,13 @@ static func _gun_dmr(k: MeshKit) -> Dictionary:
 	k.box(METAL, Vector3(0, 0.05, -0.65), Vector3(0.032, 0.026, 0.04))
 	k.box(DARK, Vector3(0, 0.05, -0.6705), Vector3(0.012, 0.012, 0.002))
 	k.box(DARK, Vector3(0, 0.018, -0.45), Vector3(0.05, 0.01, 0.03))
-	k.box(DARK, Vector3(0, 0.122, -0.04), Vector3(0.036, 0.036, 0.18))
-	k.box(DARK, Vector3(0, 0.122, -0.15), Vector3(0.048, 0.048, 0.05))
-	k.box(METAL, Vector3(0, 0.095, -0.08), Vector3(0.04, 0.022, 0.014))
-	k.box(METAL, Vector3(0, 0.095, 0.0), Vector3(0.04, 0.022, 0.014))
-	k.box(LENS, Vector3(0, 0.122, -0.1765), Vector3(0.038, 0.038, 0.004))
-	k.box(LENS, Vector3(0, 0.122, 0.0515), Vector3(0.028, 0.028, 0.004))
+	if not _bare:
+		k.box(DARK, Vector3(0, 0.122, -0.04), Vector3(0.036, 0.036, 0.18))
+		k.box(DARK, Vector3(0, 0.122, -0.15), Vector3(0.048, 0.048, 0.05))
+		k.box(METAL, Vector3(0, 0.095, -0.08), Vector3(0.04, 0.022, 0.014))
+		k.box(METAL, Vector3(0, 0.095, 0.0), Vector3(0.04, 0.022, 0.014))
+		k.box(LENS, Vector3(0, 0.122, -0.1765), Vector3(0.038, 0.038, 0.004))
+		k.box(LENS, Vector3(0, 0.122, 0.0515), Vector3(0.028, 0.028, 0.004))
 	k.box(DARK, Vector3(0, 0.05, 0.12), Vector3(0.026, 0.026, 0.06))
 	k.box(BODY, Vector3(0, 0.035, 0.21), Vector3(0.044, 0.08, 0.16))
 	k.box(DARK, Vector3(0, 0.07, 0.2), Vector3(0.03, 0.02, 0.1))
@@ -1342,14 +1362,15 @@ static func _gun_crossbow(k: MeshKit) -> Dictionary:
 	k.box(RED, Vector3(0, 0.074, -0.1), Vector3(0.002, 0.014, 0.06))
 	k.box(RED, Vector3(0.008, 0.066, -0.1), Vector3(0.014, 0.002, 0.06))
 	k.box(RED, Vector3(-0.008, 0.066, -0.1), Vector3(0.014, 0.002, 0.06))
-	# Scope on two rings; the rear lens is the sight.
-	k.box(METAL, Vector3(0, 0.09, -0.16), Vector3(0.036, 0.03, 0.014))
-	k.box(METAL, Vector3(0, 0.09, 0.0), Vector3(0.036, 0.03, 0.014))
-	k.box(DARK, Vector3(0, 0.12, -0.08), Vector3(0.036, 0.036, 0.24))
-	k.box(DARK, Vector3(0, 0.12, -0.21), Vector3(0.05, 0.05, 0.06))
-	k.box(DARK, Vector3(0, 0.12, 0.06), Vector3(0.044, 0.044, 0.04))
-	k.box(LENS, Vector3(0, 0.12, -0.2415), Vector3(0.04, 0.04, 0.004))
-	k.box(LENS, Vector3(0, 0.12, 0.0815), Vector3(0.032, 0.032, 0.004))
+	# Scope on two rings; the rear lens is the sight (left off under a custom scope).
+	if not _bare:
+		k.box(METAL, Vector3(0, 0.09, -0.16), Vector3(0.036, 0.03, 0.014))
+		k.box(METAL, Vector3(0, 0.09, 0.0), Vector3(0.036, 0.03, 0.014))
+		k.box(DARK, Vector3(0, 0.12, -0.08), Vector3(0.036, 0.036, 0.24))
+		k.box(DARK, Vector3(0, 0.12, -0.21), Vector3(0.05, 0.05, 0.06))
+		k.box(DARK, Vector3(0, 0.12, 0.06), Vector3(0.044, 0.044, 0.04))
+		k.box(LENS, Vector3(0, 0.12, -0.2415), Vector3(0.04, 0.04, 0.004))
+		k.box(LENS, Vector3(0, 0.12, 0.0815), Vector3(0.032, 0.032, 0.004))
 	k.box(METAL, Vector3(0, -0.005, -0.4), Vector3(0.05, 0.012, 0.06))
 	_trigger(k, -0.01)
 	return {"muzzle": Vector3(0, 0.066, -0.51), "sight": Vector3(0, 0.12, 0.085),

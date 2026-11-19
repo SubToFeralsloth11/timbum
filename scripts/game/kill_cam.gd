@@ -742,7 +742,7 @@ func _step(delta: float) -> void:
 	_overlay.set_progress(r / _len)
 	_hide_live_projectiles()
 	_view.step(_t0 + r, delta)
-	_overlay.set_scope(_view.scoped, _view.scope_style)
+	_overlay.set_scope(_view.scoped, _view.scope_style, _view.scope_design)
 
 
 ## Team armbands, a tint (Infected) and Big Heads' scaled head, copied from the live avatar.

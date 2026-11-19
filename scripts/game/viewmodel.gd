@@ -171,6 +171,8 @@ var _flash_light: OmniLight3D
 var _skin := "default"
 ## Weapon ids that wear their mastery camo instead of _skin (peer_info `camos`).
 var _camos: Array = []
+## Custom scopes (peer_info `scopes`: weapon id -> CustomScopes bytes).
+var _scopes := {}
 var _weapon := ""
 var _ads_pos := Vector3(0.0, -0.12, ADS_DEPTH)
 var _scoped := false
@@ -222,9 +224,11 @@ var _charge := 0.0
 var _charge_glow: GeometryInstance3D
 
 
-func setup(outfit_id: String, skin_id: String, charm_id := "none", draw_style := "standard", camos: Array = []) -> void:
+func setup(outfit_id: String, skin_id: String, charm_id := "none", draw_style := "standard", camos: Array = [],
+		scopes: Dictionary = {}) -> void:
 	_skin = skin_id
 	_camos = camos
+	_scopes = scopes
 	_charm = charm_id
 	_draw_style = draw_style if Data.DRAWS.has(draw_style) else "standard"
 	_pivot = Node3D.new()
@@ -270,7 +274,8 @@ func set_weapon(wid: String, draw_len := 0.3) -> void:
 	if wid == _weapon:
 		return
 	_weapon = wid
-	_gun = Models.build_gun(wid, Data.mastery_skin(wid) if _camos.has(wid) else _skin, _charm)
+	var scope := CustomScopes.design_in(_scopes, wid)
+	_gun = Models.build_gun(wid, Data.mastery_skin(wid) if _camos.has(wid) else _skin, _charm, scope)
 	_arms.attach_gun(_gun)
 	_convert(_gun)
 	_muzzle = _gun.get_node_or_null(^"Muzzle") as Node3D
@@ -278,7 +283,7 @@ func set_weapon(wid: String, draw_len := 0.3) -> void:
 	if _charge_glow != null:
 		_charge_glow.material_override = Models.charge_glow_material(true)
 	_charge = 0.0
-	_scoped = Data.WEAPONS[wid].get("scope", false)
+	_scoped = Data.WEAPONS[wid].get("scope", false) or not scope.is_empty()
 	_ads_pos = _compute_ads_pos()
 	play_draw(draw_len)
 

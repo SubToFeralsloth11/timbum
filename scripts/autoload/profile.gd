@@ -150,6 +150,12 @@ var weapon_stats := {}
 var mastery_paid := {}
 ## Weapon ids whose mastery camo the player switched on (only Gold guns; see set_camo).
 var camos: Array = []
+## Custom scopes (CustomScopes): the guns one was bought for, each gun's design (weapon id ->
+## CustomScopes.to_text) and the guns whose scope is switched off (kept, with its design, but the
+## gun uses its own sights and peer_info leaves it out).
+var scope_unlocks: Array = []
+var scope_designs := {}
+var scopes_off: Array = []
 ## Prestige rank 0..Data.PRESTIGE_MAX.
 var prestige := 0
 ## Daily and weekly challenges: "daily" / "weekly" -> {period (Challenges.period_of), list
@@ -368,6 +374,7 @@ func peer_info() -> Dictionary:
 		"level": level,
 		"prestige": prestige,
 		"camos": camos.duplicate(),
+		"scopes": active_scopes(),
 	}
 
 
@@ -989,6 +996,94 @@ func gun_skin(wid: String) -> String:
 	return Data.gun_skin_for(peer_info(), wid)
 
 
+# ---------------------------------------------------------------- custom scopes
+
+func has_custom_scope(wid: String) -> bool:
+	return scope_unlocks.has(wid)
+
+
+## Buys `wid`'s custom scope (an owned gun, not a melee weapon) for CustomScopes.UNLOCK_PRICE; it
+## starts as CustomScopes.starter(), switched on.
+func buy_custom_scope(wid: String) -> bool:
+	if not CustomScopes.is_scope_gun(wid) or not is_owned("weapons", wid) or has_custom_scope(wid) \
+			or coins < CustomScopes.UNLOCK_PRICE:
+		return false
+	coins -= CustomScopes.UNLOCK_PRICE
+	scope_unlocks.append(wid)
+	scope_designs[wid] = CustomScopes.to_text(CustomScopes.starter())
+	scopes_off.erase(wid)
+	save()
+	changed.emit()
+	return true
+
+
+## `wid`'s saved design (a fresh copy to edit); {} without the unlock.
+func custom_scope_design(wid: String) -> Dictionary:
+	if not has_custom_scope(wid):
+		return {}
+	var d := CustomScopes.from_text(str(scope_designs.get(wid, "")))
+	return d if not d.is_empty() else CustomScopes.starter()
+
+
+## Parts in `wid`'s saved design.
+func custom_scope_parts(wid: String) -> int:
+	return (custom_scope_design(wid).get("parts", []) as Array).size()
+
+
+## Saves `design` as `wid`'s scope. Adding parts costs CustomScopes.PART_PRICE each: `paid_parts`
+## is how many `design` adds over the saved one, charged here; a design with more new parts than
+## that, or more than the player can pay for, is refused. Removing parts refunds nothing; changing
+## colours, finishes, sizes, positions and the optics is free.
+func save_custom_scope(wid: String, design: Dictionary, paid_parts := 0) -> bool:
+	if not has_custom_scope(wid):
+		return false
+	var clean := CustomScopes.sanitize(design)
+	if clean.is_empty():
+		return false
+	var added := (clean.parts as Array).size() - custom_scope_parts(wid)
+	var cost := maxi(0, paid_parts) * CustomScopes.PART_PRICE
+	if added > maxi(0, paid_parts) or coins < cost:
+		return false
+	coins -= cost
+	scope_designs[wid] = CustomScopes.to_text(clean)
+	save()
+	changed.emit()
+	return true
+
+
+func is_custom_scope_on(wid: String) -> bool:
+	return has_custom_scope(wid) and not scopes_off.has(wid)
+
+
+## Switches `wid`'s custom scope on or off (free both ways; the purchase and design stay).
+func set_custom_scope_on(wid: String, on: bool) -> void:
+	if not has_custom_scope(wid) or on == is_custom_scope_on(wid):
+		return
+	if on:
+		scopes_off.erase(wid)
+	else:
+		scopes_off.append(wid)
+	save()
+	changed.emit()
+
+
+## peer_info.scopes: the encoded design of every gun whose scope is on and has parts.
+func active_scopes() -> Dictionary:
+	var out := {}
+	for wid: String in scope_unlocks:
+		if scopes_off.has(wid):
+			continue
+		var d := custom_scope_design(wid)
+		if not (d.parts as Array).is_empty():
+			out[wid] = CustomScopes.encode(d)
+	return out
+
+
+## The design `wid` wears in this player's hands ({}: its own sights), for menu models.
+func worn_scope(wid: String) -> Dictionary:
+	return CustomScopes.design_in(active_scopes(), wid)
+
+
 # ---------------------------------------------------------------- prestige
 
 func can_prestige() -> bool:
@@ -1287,6 +1382,7 @@ func _payload() -> Dictionary:
 		"owned": owned, "loadout": loadout, "equipped": equipped, "upgrades": upgrades, "attachments_off": attachments_off,
 		"settings": settings, "stats": stats, "last_daily": last_daily, "bindings": bindings, "pad_bindings": pad_bindings,
 		"weapon_stats": weapon_stats, "mastery_paid": mastery_paid, "camos": camos, "prestige": prestige,
+		"scope_unlocks": scope_unlocks, "scope_designs": scope_designs, "scopes_off": scopes_off,
 		"challenges": challenges, "feats": feats, "achievements": achievements, "match_presets": match_presets,
 		"loadout_presets": loadout_presets, "active_preset": active_preset,
 		"tutorial_offered": tutorial_offered, "tutorial_paid": tutorial_paid,
@@ -1492,6 +1588,26 @@ func load_from_dict(d: Dictionary) -> void:
 		for id: Variant in saved_camos:
 			if has_camo(str(id)) and not camos.has(str(id)):
 				camos.append(str(id))
+	# Custom scopes: owned guns only (not melee), each design decoded (clamped, unknown parts
+	# dropped; an unreadable one becomes the starter design), switches only for unlocked guns.
+	scope_unlocks = []
+	scope_designs = {}
+	scopes_off = []
+	var saved_unlocks: Variant = d.get("scope_unlocks", [])
+	var saved_designs: Variant = d.get("scope_designs", {})
+	var saved_scopes_off: Variant = d.get("scopes_off", [])
+	if typeof(saved_unlocks) == TYPE_ARRAY:
+		for id: Variant in saved_unlocks:
+			var wid := str(id)
+			if CustomScopes.is_scope_gun(wid) and is_owned("weapons", wid) and not scope_unlocks.has(wid):
+				scope_unlocks.append(wid)
+				var text: Variant = saved_designs.get(wid, "") if typeof(saved_designs) == TYPE_DICTIONARY else ""
+				var design := CustomScopes.from_text(str(text))
+				scope_designs[wid] = CustomScopes.to_text(design if not design.is_empty() else CustomScopes.starter())
+	if typeof(saved_scopes_off) == TYPE_ARRAY:
+		for id: Variant in saved_scopes_off:
+			if scope_unlocks.has(str(id)) and not scopes_off.has(str(id)):
+				scopes_off.append(str(id))
 	prestige = clampi(_num(d.get("prestige"), 0), 0, Data.PRESTIGE_MAX)
 	# A save from before the tutorial belongs to someone who has played: no first-launch offer.
 	var offered: Variant = d.get("tutorial_offered", true)

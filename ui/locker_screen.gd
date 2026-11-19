@@ -3,6 +3,8 @@ extends MenuScreen
 ## Locker: pick loadout and cosmetics from owned items, shown on a live rotating avatar.
 
 signal shop_requested
+## The player asked for the scope builder of gun `wid` (MainMenu opens ScopeBuilderScreen).
+signal scope_builder_requested(wid: String)
 
 ## [profile category, label, slot key]
 const ROWS: Array = [
@@ -30,6 +32,8 @@ var _name_tag: Label
 var _mastery_box: VBoxContainer
 ## One ON/OFF switch per owned attachment upgrade (Profile.set_attachment_on), refilled on show.
 var _attach_box: VBoxContainer
+## One row per bought custom scope: ON/OFF switch (Profile.set_custom_scope_on) and EDIT.
+var _scope_box: VBoxContainer
 ## Loadout presets: one tab per preset (the pressed one is active, and the pickers below edit it)
 ## and a name field with RENAME.
 var _preset_tabs: Array[Button] = []
@@ -93,6 +97,10 @@ func _ready() -> void:
 			_attach_box = UIKit.vbox(4)
 			v.add_child(_attach_box)
 			v.add_child(HSeparator.new())
+			v.add_child(UIKit.label("CUSTOM SCOPES", &"SubheaderLabel"))
+			_scope_box = UIKit.vbox(4)
+			v.add_child(_scope_box)
+			v.add_child(HSeparator.new())
 			v.add_child(UIKit.label("STYLE", &"SubheaderLabel"))
 		var row: Array = ROWS[i]
 		var h := UIKit.hbox(10)
@@ -152,6 +160,7 @@ func on_shown() -> void:
 	_fill_pickers()
 	_fill_mastery()
 	_fill_attachments()
+	_fill_scopes()
 	_rebuild_models()
 
 
@@ -250,6 +259,46 @@ func _fill_attachments() -> void:
 		_attach_box.add_child(none)
 
 
+## Every gun with a bought custom scope: its part count, an ON/OFF switch (off: the gun uses its
+## own sights and nobody sees the scope; the purchase and design stay) and EDIT (the builder).
+func _fill_scopes() -> void:
+	for c in _scope_box.get_children():
+		c.queue_free()
+	for wid: String in Profile.scope_unlocks:
+		var h := UIKit.hbox(8)
+		_scope_box.add_child(h)
+		var on := Profile.is_custom_scope_on(wid)
+		var parts := Profile.custom_scope_parts(wid)
+		var text := UIKit.label("%s  ·  %d PART%s" % [str(Data.WEAPONS[wid].name).to_upper(), parts, "" if parts == 1 else "S"], &"SmallLabel")
+		text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		text.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		text.clip_text = true
+		text.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		text.add_theme_color_override("font_color", UITheme.TEXT if on else UITheme.TEXT_DIM)
+		h.add_child(text)
+		var sw := CheckButton.new()
+		sw.text = "ON" if on else "OFF"
+		sw.custom_minimum_size.x = 96
+		sw.button_pressed = on
+		sw.tooltip_text = "Switch the custom scope off to use the gun's own sights (the scope and its design stay; switching back on is free)."
+		UIKit.wire(sw)
+		sw.toggled.connect(func(pressed: bool) -> void:
+			Profile.set_custom_scope_on(wid, pressed)
+			sw.text = "ON" if pressed else "OFF"
+			text.add_theme_color_override("font_color", UITheme.TEXT if pressed else UITheme.TEXT_DIM)
+			_rebuild_models())
+		h.add_child(sw)
+		var edit := UIKit.button("EDIT", &"IconButton")
+		edit.tooltip_text = "Open the scope builder for the %s." % Data.WEAPONS[wid].name
+		edit.pressed.connect(func() -> void: scope_builder_requested.emit(wid))
+		h.add_child(edit)
+	if Profile.scope_unlocks.is_empty():
+		var none := UIKit.label("Buy a custom scope for any gun in the shop (%s coins), then build it part by part." \
+			% UIKit.format_int(CustomScopes.UNLOCK_PRICE), &"DimLabel")
+		none.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		_scope_box.add_child(none)
+
+
 ## Owned item ids in `category`; for weapons, only those that go in loadout `slot`.
 static func owned_ids(category: String, slot: String) -> Array[String]:
 	var ids: Array[String] = []
@@ -312,11 +361,12 @@ func _on_pick(key: String, idx: int) -> void:
 func _rebuild_models() -> void:
 	var avatar := Models.build_avatar(Profile.equipped.outfit, Profile.equipped.hat)
 	avatar.charm_id = Profile.equipped.charm
+	avatar.scopes = Profile.active_scopes()
 	avatar.hold_weapon(Profile.loadout.primary, Profile.gun_skin(Profile.loadout.primary))
 	# Three-quarter side view so the held gun reads clearly.
 	_preview.show_model(avatar, true, PI - 1.1, 0.95)
 	_gun_preview.show_model(DrawPreview.create(Profile.equipped.draw, Profile.loadout.secondary, Profile.gun_skin(Profile.loadout.secondary),
-		Profile.equipped.charm), false, ShopScreen.GUN_YAW, 1.0)
+		Profile.equipped.charm, -1.0, Profile.worn_scope(Profile.loadout.secondary)), false, ShopScreen.GUN_YAW, 1.0)
 	_name_tag.text = Data.badged_name(Profile.player_name.to_upper(), Profile.prestige)
 	_summary.text = "Melee: %s  ·  Secondary: %s  ·  %s" % [Data.WEAPONS[Profile.loadout.melee].name,
 		Data.WEAPONS[Profile.loadout.secondary].name, Data.TACTICALS[Profile.loadout.tactical].name]

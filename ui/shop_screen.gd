@@ -9,6 +9,11 @@ extends MenuScreen
 ## Dev Pack pieces (`dev: true`) get a neon-edged card and a CODE ONLY tag instead of a price and
 ## no Buy button; season pass pieces (`season: true`) a Season.COLOR card and a SEASON · TIER N tag
 ## (the tier that unlocks them, Season.item_tier). Owned, both equip like anything else.
+## A gun's detail panel also sells its custom scope (CustomScopes.UNLOCK_PRICE, per gun) and,
+## once bought, opens the scope builder (`scope_builder_requested`).
+
+## The player asked for the scope builder of gun `wid` (MainMenu opens ScopeBuilderScreen).
+signal scope_builder_requested(wid: String)
 
 ## Group name -> its sub-tabs ([tab id, label]); a tab id is a Data catalog, or "melee".
 const GROUPS := {
@@ -44,6 +49,10 @@ var _price_row: HBoxContainer
 var _buy: Button
 var _equip: Button
 var _state: Label
+## Custom scope row under the actions (guns only): state text and BUY / SCOPE BUILDER.
+var _scope_row: HBoxContainer
+var _scope_text: Label
+var _scope_btn: Button
 ## Sub-tab chips of the open group (tab id -> Button), and the group tabs (name -> Button).
 var _tab_buttons := {}
 var _group_buttons := {}
@@ -154,6 +163,17 @@ func _build_detail() -> Control:
 	_equip.custom_minimum_size = Vector2(140, 52)
 	_equip.pressed.connect(_on_equip)
 	actions.add_child(_equip)
+	_scope_row = UIKit.hbox(10)
+	v.add_child(_scope_row)
+	_scope_text = UIKit.label("", &"SmallLabel")
+	_scope_text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_scope_text.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_scope_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_scope_row.add_child(_scope_text)
+	_scope_btn = UIKit.button("", &"GoldButton", false)
+	_scope_btn.custom_minimum_size = Vector2(200, 44)
+	_scope_btn.pressed.connect(_on_scope_button)
+	_scope_row.add_child(_scope_btn)
 	return panel
 
 
@@ -401,9 +421,9 @@ static func _yaw_for(cat: String) -> float:
 static func _preview_model(cat: String, id: String) -> Node3D:
 	match cat:
 		"weapons":
-			return Models.build_gun(id, Profile.gun_skin(id), Profile.equipped.charm)
+			return Models.build_gun(id, Profile.gun_skin(id), Profile.equipped.charm, Profile.worn_scope(id))
 		"skins":
-			return Models.build_gun(Profile.loadout.primary, id, Profile.equipped.charm)
+			return Models.build_gun(Profile.loadout.primary, id, Profile.equipped.charm, Profile.worn_scope(Profile.loadout.primary))
 		"hats":
 			if id == "none":
 				return Models.build_avatar(Profile.equipped.outfit, "none")
@@ -411,17 +431,19 @@ static func _preview_model(cat: String, id: String) -> Node3D:
 		"outfits":
 			var avatar := Models.build_avatar(id, Profile.equipped.hat)
 			avatar.charm_id = Profile.equipped.charm
+			avatar.scopes = Profile.active_scopes()
 			avatar.hold_weapon(Profile.loadout.primary, Profile.gun_skin(Profile.loadout.primary))
 			return avatar
 		"charms":
 			# On the equipped primary, so it swings as the preview turns.
-			return Models.build_gun(Profile.loadout.primary, Profile.gun_skin(Profile.loadout.primary), id)
+			return Models.build_gun(Profile.loadout.primary, Profile.gun_skin(Profile.loadout.primary), id, Profile.worn_scope(Profile.loadout.primary))
 		"emotes":
 			var dancer := Models.build_avatar(Profile.equipped.outfit, Profile.equipped.hat)
 			dancer.play_emote(id)
 			return dancer
 		"draws":
-			return DrawPreview.create(id, Profile.loadout.secondary, Profile.gun_skin(Profile.loadout.secondary), Profile.equipped.charm)
+			return DrawPreview.create(id, Profile.loadout.secondary, Profile.gun_skin(Profile.loadout.secondary), Profile.equipped.charm,
+				-1.0, Profile.worn_scope(Profile.loadout.secondary))
 		"sprays":
 			return Models.build_spray(id)
 		"attachments":
@@ -436,6 +458,7 @@ func _refresh_detail() -> void:
 	var id := _selected
 	for c in _stats.get_children():
 		c.queue_free()
+	_scope_row.visible = false
 	for c in _price_row.get_children():
 		c.queue_free()
 	var dev := cat != "attachments" and UIKit.is_dev_item(cat, id)
@@ -465,6 +488,7 @@ func _refresh_detail() -> void:
 			var tier := Profile.mastery_tier(id)
 			_stats.add_child(UIKit.stat_bar("MASTERY", minf(1.0, float(kills) / gold), "%s  %d/%d" % [
 				"NONE" if tier == 0 else str(Data.MASTERY_TIERS[tier - 1].name).to_upper(), mini(kills, gold), gold]))
+			_refresh_scope_row(id)
 		"skins":
 			_kind.text = "WEAPON SKIN"
 		"hats":
@@ -597,6 +621,46 @@ func _on_equip() -> void:
 			_flash_text("EQUIPPED!")
 		else:
 			_flash_text("EQUIPPED AS %s" % String(Data.WEAPONS[_selected].slot).to_upper())
+
+
+## The custom scope row of gun `id`: BUY CUSTOM SCOPE (an owned gun, CustomScopes.UNLOCK_PRICE)
+## or, once bought, its part count and ON / OFF state with SCOPE BUILDER.
+func _refresh_scope_row(id: String) -> void:
+	_scope_row.visible = CustomScopes.is_scope_gun(id)
+	if not _scope_row.visible:
+		return
+	_scope_btn.disabled = false
+	_scope_btn.tooltip_text = ""
+	if Profile.has_custom_scope(id):
+		var parts := Profile.custom_scope_parts(id)
+		_scope_text.text = "CUSTOM SCOPE  ·  %d PART%s  ·  %s" % [parts, "" if parts == 1 else "S",
+			"ON" if Profile.is_custom_scope_on(id) else "OFF (SWITCH IT ON IN THE BUILDER OR LOCKER)"]
+		_scope_btn.text = "SCOPE BUILDER"
+		_scope_btn.theme_type_variation = &"PrimaryButton"
+		return
+	_scope_text.text = "CUSTOM SCOPE FOR THIS GUN  ·  %s COINS, THEN %d PER PART" % [
+		UIKit.format_int(CustomScopes.UNLOCK_PRICE), CustomScopes.PART_PRICE]
+	_scope_btn.text = "BUY CUSTOM SCOPE"
+	_scope_btn.theme_type_variation = &"GoldButton"
+	if not Profile.is_owned("weapons", id):
+		_scope_btn.disabled = true
+		_scope_btn.tooltip_text = "Buy the gun first."
+	elif Profile.coins < CustomScopes.UNLOCK_PRICE:
+		_scope_btn.disabled = true
+		_scope_btn.tooltip_text = "You need %s more coins." % UIKit.format_int(CustomScopes.UNLOCK_PRICE - Profile.coins)
+
+
+func _on_scope_button() -> void:
+	var id := _selected
+	if Profile.has_custom_scope(id):
+		Sfx.play(&"ui_click")
+		scope_builder_requested.emit(id)
+	elif Profile.buy_custom_scope(id):
+		Sfx.play(&"ui_buy")
+		_select(id)
+		_flash_text("SCOPE UNLOCKED!")
+	else:
+		Sfx.play(&"ui_error")
 
 
 func _on_profile_changed() -> void:
