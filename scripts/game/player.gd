@@ -32,6 +32,11 @@ const PRONE_HEAD_Z := -0.1
 const PRONE_BODY := Vector3(0.72, 0.42, 1.5)
 const PRONE_BODY_Z := 0.6
 const RADIUS := 0.4
+## Nametags float this far above the avatar's neck pivot (1.35 m when standing, so 2.45 m),
+## which clears the tallest hat tip (2.27 m); Big Heads adds NAMETAG_BIG_HEAD_LIFT (hat tips
+## reach 2.99 m). The tag follows the neck as the player crouches, lies prone or leans.
+const NAMETAG_ABOVE_NECK := 1.1
+const NAMETAG_BIG_HEAD_LIFT := 0.72
 const SWITCH_TIME := 0.32
 const MELEE_TIME := 0.45
 const GRENADE_COOLDOWN := 0.9
@@ -193,6 +198,8 @@ var viewmodel: Viewmodel
 ## Controller aim assist (local player only; inert online, see AimAssist).
 var aim_assist: AimAssist
 var nametag: Label3D
+## The nametag's height above the avatar's neck (NAMETAG_ABOVE_NECK, plus the Big Heads lift).
+var _nametag_lift := NAMETAG_ABOVE_NECK
 var brain: BotBrain
 ## Laser Sight attachment beam (null without the upgrade, or with it switched off).
 var laser: LaserSight
@@ -482,8 +489,8 @@ func _ready() -> void:
 	else:
 		nametag = Label3D.new()
 		nametag.text = "%s  Lv %d" % [Data.badged_name(str(info.name), int(info.get("prestige", 0))), int(info.get("level", 1))]
-		# Clears the tallest hat tip (2.27 m, or 2.99 m when Big Heads scales head and hat 1.8x).
-		nametag.position.y = 2.45 + (0.72 if Net.config.mutator == "big_heads" else 0.0)
+		_nametag_lift = NAMETAG_ABOVE_NECK + (NAMETAG_BIG_HEAD_LIFT if Net.config.mutator == "big_heads" else 0.0)
+		nametag.position.y = 1.35 + _nametag_lift
 		nametag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 		nametag.pixel_size = 0.004
 		nametag.font_size = 44
@@ -954,10 +961,21 @@ func _apply_head_pose() -> void:
 	_hit_body_col.position.x = side * 0.35
 
 
-## Whether a collider `height` tall fits here (a sphere where its top would be is clear).
+## Whether a collider `height` tall fits here: a sphere swept up from the top of the current
+## collider to where the taller one's top would be meets nothing. A sweep from inside free space
+## only meets front faces, so a ceiling block's underside always counts (an overlap test centred
+## just above that underside sat behind the one-sided trimesh face and missed it, which let a
+## prone player stand up into a block they had crawled under).
 func _has_headroom(height: float) -> bool:
-	_stand_query.transform = Transform3D(Basis.IDENTITY, global_position + Vector3.UP * (height - RADIUS + 0.02))
-	return get_world_3d().direct_space_state.intersect_shape(_stand_query, 1).is_empty()
+	var low := maxf(_shape.height - RADIUS, RADIUS)
+	var rise := height - RADIUS + 0.02 - low
+	if rise <= 0.0:
+		# The collider is already that tall: nothing above it to check.
+		return true
+	_stand_query.transform = Transform3D(Basis.IDENTITY, global_position + Vector3.UP * low)
+	_stand_query.motion = Vector3.UP * rise
+	var r := get_world_3d().direct_space_state.cast_motion(_stand_query)
+	return r.size() == 2 and r[0] >= 1.0
 
 
 func _apply_crouch_shape() -> void:
@@ -1941,6 +1959,8 @@ func _update_visuals(delta: float) -> void:
 		avatar.set_look_pitch(pitch)
 		avatar.set_inspect(inspecting())
 		avatar.animate(delta, anim_speed, on_floor_visual, crouching, prone)
+		if nametag != null:
+			nametag.position = to_local(avatar.get_head().global_position) + Vector3.UP * _nametag_lift
 		_footsteps(delta)
 	_update_rope(delta)
 	_update_charge(delta)

@@ -955,6 +955,8 @@ static func _gun_info(weapon_id: String) -> Dictionary:
 		"rail_cube": info = _gun_rail_cube(k)
 		"cube_lobber": info = _gun_cube_lobber(k)
 		"pixel_scythe": info = _melee_pixel_scythe(k)
+		"pulse_rifle": info = _gun_pulse_rifle(k)
+		"rapid_dmr": info = _gun_rapid_dmr(k)
 		_: info = _gun_knife(k)
 	info.mesh = k.build(_gun_accent_materials())
 	_guns[weapon_id] = info
@@ -999,6 +1001,8 @@ static func _gun_pistol(k: MeshKit) -> Dictionary:
 		"support": Vector3(-0.02, -0.05, 0.0)}
 
 
+## The sights stand tall on the top strap so aiming looks over the hammer and the firing hand
+## (with low sights the right hand's knuckles reached the line of sight).
 static func _gun_revolver(k: MeshKit) -> Dictionary:
 	k.box(DARK, Vector3(0, -0.045, 0.03), Vector3(0.03, 0.1, 0.04), Vector3(-0.35, 0, 0))
 	k.box(METAL, Vector3(0, -0.092, 0.047), Vector3(0.032, 0.01, 0.042), Vector3(-0.35, 0, 0))
@@ -1010,11 +1014,11 @@ static func _gun_revolver(k: MeshKit) -> Dictionary:
 	k.box(BODY, Vector3(0, 0.012, -0.12), Vector3(0.018, 0.016, 0.1))
 	k.box(METAL, Vector3(0, 0.044, -0.135), Vector3(0.008, 0.006, 0.135))
 	k.box(DARK, Vector3(0, 0.03, -0.2035), Vector3(0.01, 0.01, 0.002))
-	k.box(METAL, Vector3(0, 0.05, -0.195), Vector3(0.006, 0.012, 0.01))
+	k.box(METAL, Vector3(0, 0.057, -0.195), Vector3(0.006, 0.026, 0.01))
 	k.box(METAL, Vector3(0, 0.04, 0.042), Vector3(0.01, 0.02, 0.016), Vector3(0.3, 0, 0))
-	k.box(METAL, Vector3(0, 0.04, 0.03), Vector3(0.022, 0.008, 0.008))
+	k.box(METAL, Vector3(0, 0.054, 0.03), Vector3(0.022, 0.016, 0.008))
 	_trigger(k, -0.002, 0.042)
-	return {"muzzle": Vector3(0, 0.03, -0.205), "sight": Vector3(0, 0.048, 0.03),
+	return {"muzzle": Vector3(0, 0.03, -0.205), "sight": Vector3(0, 0.062, 0.03),
 		"support": Vector3(-0.02, -0.05, 0.0)}
 
 
@@ -1090,6 +1094,8 @@ static func _gun_shotgun(k: MeshKit) -> Dictionary:
 		"support": Vector3(0, 0.0, -0.32)}
 
 
+## The carry handle sits low on the left of the receiver, clear of the line of sight (centred
+## over the receiver its posts stood in front of the rear sight, right where the crosshair is).
 static func _gun_lmg(k: MeshKit) -> Dictionary:
 	k.box(DARK, Vector3(0, -0.045, 0.02), Vector3(0.034, 0.095, 0.042), Vector3(-0.25, 0, 0))
 	k.box(BODY, Vector3(0, 0.055, -0.05), Vector3(0.07, 0.1, 0.32))
@@ -1106,10 +1112,10 @@ static func _gun_lmg(k: MeshKit) -> Dictionary:
 	k.box(METAL, Vector3(0, 0.065, -0.585), Vector3(0.024, 0.024, 0.11))
 	k.box(METAL, Vector3(0, 0.065, -0.655), Vector3(0.034, 0.034, 0.03))
 	k.box(DARK, Vector3(0, 0.065, -0.6705), Vector3(0.014, 0.014, 0.002))
-	k.box(METAL, Vector3(0, 0.11, -0.5), Vector3(0.008, 0.04, 0.012))
-	k.box(DARK, Vector3(0, 0.13, -0.02), Vector3(0.014, 0.04, 0.014))
-	k.box(DARK, Vector3(0, 0.13, -0.14), Vector3(0.014, 0.04, 0.014))
-	k.box(DARK, Vector3(0, 0.155, -0.08), Vector3(0.018, 0.016, 0.14))
+	k.box(METAL, Vector3(0, 0.115, -0.5), Vector3(0.008, 0.05, 0.012))
+	k.box(DARK, Vector3(-0.03, 0.115, -0.02), Vector3(0.012, 0.024, 0.014))
+	k.box(DARK, Vector3(-0.03, 0.115, -0.14), Vector3(0.012, 0.024, 0.014))
+	k.box(DARK, Vector3(-0.03, 0.132, -0.08), Vector3(0.016, 0.014, 0.14))
 	k.box(METAL, Vector3(-0.018, 0.026, -0.46), Vector3(0.012, 0.012, 0.18))
 	k.box(METAL, Vector3(0.018, 0.026, -0.46), Vector3(0.012, 0.012, 0.18))
 	k.box(BODY, Vector3(0, 0.04, 0.24), Vector3(0.05, 0.095, 0.26))
@@ -1526,6 +1532,71 @@ static func _gun_cube_lobber(k: MeshKit) -> Dictionary:
 	_trigger(k, -0.012)
 	return {"muzzle": Vector3(0, 0.05, -0.475), "sight": Vector3(0, 0.152, 0.055),
 		"support": Vector3(0, -0.05, -0.33)}
+
+
+## Pulse Cube: compact high-rate rifle with a curved 35-round mag, a short handguard lit by cyan
+## pulse cells, a full-length flat-top rail and a cube muzzle.
+static func _gun_pulse_rifle(k: MeshKit) -> Dictionary:
+	k.box(DARK, Vector3(0, -0.045, 0.018), Vector3(0.03, 0.095, 0.04), Vector3(-0.28, 0, 0))
+	k.box(BODY, Vector3(0, 0.048, -0.05), Vector3(0.048, 0.056, 0.28))
+	k.box(BODY, Vector3(0, 0.01, -0.05), Vector3(0.044, 0.03, 0.18))
+	k.box(DARK, Vector3(0, -0.055, -0.1), Vector3(0.03, 0.1, 0.05), Vector3(0.15, 0, 0))
+	k.box(DARK, Vector3(0, -0.125, -0.118), Vector3(0.03, 0.065, 0.05), Vector3(0.38, 0, 0))
+	k.box(BODY, Vector3(0, 0.045, -0.29), Vector3(0.052, 0.052, 0.2))
+	for i in 3:
+		k.box(LENS, Vector3(0.0265, 0.05, -0.23 - i * 0.05), Vector3(0.002, 0.012, 0.022))
+		k.box(LENS, Vector3(-0.0265, 0.05, -0.23 - i * 0.05), Vector3(0.002, 0.012, 0.022))
+	k.box(METAL, Vector3(0, 0.045, -0.44), Vector3(0.02, 0.02, 0.1))
+	k.box(METAL, Vector3(0, 0.045, -0.505), Vector3(0.03, 0.03, 0.03))
+	k.box(DARK, Vector3(0, 0.045, -0.5205), Vector3(0.012, 0.012, 0.002))
+	k.box(METAL, Vector3(0, 0.081, -0.1), Vector3(0.03, 0.01, 0.34))
+	for i in 8:
+		k.box(DARK, Vector3(0, 0.0865, 0.05 - i * 0.04), Vector3(0.031, 0.002, 0.012))
+	k.box(METAL, Vector3(0, 0.1, 0.05), Vector3(0.032, 0.028, 0.02))
+	k.box(METAL, Vector3(0, 0.074, -0.36), Vector3(0.024, 0.01, 0.024))
+	k.box(METAL, Vector3(0, 0.095, -0.36), Vector3(0.008, 0.04, 0.012))
+	k.box(DARK, Vector3(0.026, 0.055, -0.03), Vector3(0.003, 0.02, 0.05))
+	k.box(DARK, Vector3(0, 0.05, 0.13), Vector3(0.026, 0.026, 0.08))
+	k.box(BODY, Vector3(0, 0.035, 0.21), Vector3(0.04, 0.07, 0.1))
+	k.box(DARK, Vector3(0, 0.03, 0.27), Vector3(0.046, 0.095, 0.02))
+	_trigger(k, -0.022)
+	return {"muzzle": Vector3(0, 0.045, -0.522), "sight": Vector3(0, 0.11, 0.055),
+		"support": Vector3(0, 0.005, -0.29)}
+
+
+## Rapid Block: light marksman rifle with a straight 10-round mag, vented handguard, a ported
+## muzzle brake and an open reflex sight (a frame with a red dot) instead of a scope.
+static func _gun_rapid_dmr(k: MeshKit) -> Dictionary:
+	k.box(DARK, Vector3(0, -0.045, 0.018), Vector3(0.03, 0.095, 0.04), Vector3(-0.3, 0, 0))
+	k.box(BODY, Vector3(0, 0.05, -0.04), Vector3(0.05, 0.055, 0.26))
+	k.box(BODY, Vector3(0, 0.012, -0.05), Vector3(0.045, 0.03, 0.18))
+	k.box(DARK, Vector3(0, -0.035, -0.1), Vector3(0.03, 0.07, 0.055))
+	k.box(METAL, Vector3(0, -0.072, -0.1), Vector3(0.034, 0.008, 0.059))
+	k.box(BODY, Vector3(0, 0.048, -0.31), Vector3(0.05, 0.05, 0.28))
+	for i in 4:
+		k.box(DARK, Vector3(0.0255, 0.048, -0.22 - i * 0.06), Vector3(0.002, 0.014, 0.03))
+		k.box(DARK, Vector3(-0.0255, 0.048, -0.22 - i * 0.06), Vector3(0.002, 0.014, 0.03))
+	k.box(METAL, Vector3(0, 0.05, -0.53), Vector3(0.02, 0.02, 0.16))
+	k.box(METAL, Vector3(0, 0.05, -0.625), Vector3(0.034, 0.026, 0.04))
+	k.box(DARK, Vector3(0.0175, 0.05, -0.625), Vector3(0.002, 0.012, 0.024))
+	k.box(DARK, Vector3(-0.0175, 0.05, -0.625), Vector3(0.002, 0.012, 0.024))
+	k.box(DARK, Vector3(0, 0.05, -0.6455), Vector3(0.012, 0.012, 0.002))
+	k.box(METAL, Vector3(0, 0.082, -0.1), Vector3(0.03, 0.01, 0.34))
+	k.box(RED, Vector3(0.0255, 0.03, -0.02), Vector3(0.003, 0.012, 0.012))
+	# Reflex sight: an open frame around the line of sight with the dot at its centre.
+	k.box(METAL, Vector3(0, 0.092, -0.06), Vector3(0.03, 0.012, 0.03))
+	k.box(DARK, Vector3(0, 0.15, -0.06), Vector3(0.056, 0.006, 0.01))
+	k.box(DARK, Vector3(0, 0.1, -0.06), Vector3(0.056, 0.006, 0.01))
+	k.box(DARK, Vector3(0.025, 0.125, -0.06), Vector3(0.006, 0.044, 0.01))
+	k.box(DARK, Vector3(-0.025, 0.125, -0.06), Vector3(0.006, 0.044, 0.01))
+	k.box(RED, Vector3(0, 0.125, -0.06), Vector3(0.003, 0.003, 0.002))
+	k.box(DARK, Vector3(0, 0.05, 0.12), Vector3(0.026, 0.026, 0.06))
+	k.box(BODY, Vector3(0, 0.035, 0.2), Vector3(0.044, 0.08, 0.14))
+	k.box(DARK, Vector3(0, 0.072, 0.2), Vector3(0.03, 0.016, 0.1))
+	k.box(DARK, Vector3(0, 0.03, 0.28), Vector3(0.048, 0.1, 0.02))
+	_trigger(k, -0.022)
+	return {"muzzle": Vector3(0, 0.05, -0.647), "sight": Vector3(0, 0.119, 0.06),
+		"support": Vector3(0, 0.01, -0.31)}
 
 
 # --- Melee weapons (origin = grip, the head or blade towards -Z; "muzzle" marks the tip) ---------

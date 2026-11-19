@@ -152,14 +152,16 @@ void vertex() {
 	v_emit = UV2.y;
 	vec4 props = layer_props[int(UV2.x + 0.5)];
 	vec3 w = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
-	// Offsets depend only on world position, so neighbouring blocks' shared corners move together.
+	// Offsets depend only on world position, so neighbouring blocks' shared corners move together;
+	// COLOR.a 0 pins a corner shared with a block that moves differently or not at all (VoxelMesher).
+	float movable = COLOR.a;
 	if (props.z > 0.0) {
-		VERTEX.x += sin(TIME * 1.7 + w.x * 0.8 + w.z * 0.6 + w.y * 0.3) * 0.035 * props.z * detail;
-		VERTEX.z += cos(TIME * 1.3 + w.z * 0.7 + w.x * 0.4) * 0.03 * props.z * detail;
+		VERTEX.x += sin(TIME * 1.7 + w.x * 0.8 + w.z * 0.6 + w.y * 0.3) * 0.035 * props.z * detail * movable;
+		VERTEX.z += cos(TIME * 1.3 + w.z * 0.7 + w.x * 0.4) * 0.03 * props.z * detail * movable;
 	}
 	if (props.w > 0.0) {
 		float flow = props.w > 1.5 ? 0.35 : 1.0;
-		VERTEX.y += (sin(TIME * 1.2 * flow + w.x * 0.9) + sin(TIME * 0.9 * flow + w.z * 1.1)) * 0.035 * detail;
+		VERTEX.y += (sin(TIME * 1.2 * flow + w.x * 0.9) + sin(TIME * 0.9 * flow + w.z * 1.1)) * 0.035 * detail * movable;
 	}
 	v_world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 }
@@ -168,18 +170,20 @@ void fragment() {
 	vec4 props = layer_props[int(v_layer + 0.5)];
 	vec2 uv = UV;
 	float lava = props.w > 1.5 ? 1.0 : 0.0;
-	if (props.w > 0.0 && detail > 0.5) {
-		float tf = TIME * (1.0 - 0.65 * lava);
-		uv = fract(uv + vec2(tf * 0.02, tf * 0.013) + 0.04 * vec2(sin(tf + v_world.z * 1.3), cos(tf * 0.8 + v_world.x * 1.1)));
-	}
-	vec4 t = texture(tiles, vec3(uv, v_layer));
-	// The bump fades out by 35 m and never applies to liquids: past that, skip its four extra
-	// samples (the result is identical). Derivatives are taken outside the branch, where every
-	// pixel of a quad runs them, and the samples use them explicitly.
+	// Derivatives are taken here, where every pixel of a quad runs them. Every sample uses them
+	// explicitly: the liquids' fract() wraps their uv, and implicit derivatives across that wrap
+	// would drop to the smallest mip and draw a seam line through the tile.
 	vec3 dp1 = dFdx(VERTEX);
 	vec3 dp2 = dFdy(VERTEX);
 	vec2 duv1 = dFdx(UV);
 	vec2 duv2 = dFdy(UV);
+	if (props.w > 0.0 && detail > 0.5) {
+		float tf = TIME * (1.0 - 0.65 * lava);
+		uv = fract(uv + vec2(tf * 0.02, tf * 0.013) + 0.04 * vec2(sin(tf + v_world.z * 1.3), cos(tf * 0.8 + v_world.x * 1.1)));
+	}
+	vec4 t = textureGrad(tiles, vec3(uv, v_layer), duv1, duv2);
+	// The bump fades out by 35 m and never applies to liquids: past that, skip its four extra
+	// samples (the result is identical).
 	float bump = detail > 0.5 ? clamp(1.0 - length(VERTEX) / 35.0, 0.0, 1.0) * bump_strength * (1.0 - min(props.w, 1.0)) : 0.0;
 	if (bump > 0.0) {
 		vec3 dp2perp = cross(dp2, NORMAL);
@@ -234,12 +238,31 @@ static var _opaque_material: ShaderMaterial
 static var _glass_material: ShaderMaterial
 static var _detail := 1.0
 static var _icons := {}
+static var _motion := PackedByteArray()
 
 
 ## Tile layer for `block`'s face: 0 top, 1 side, 2 bottom.
 static func face_layers() -> PackedInt32Array:
 	_ensure()
 	return _face_layers
+
+
+## Vertex motion class per block id: 0 for still blocks; blocks whose tiles sway in the wind or
+## ripple as a liquid (`_SURFACES` z / w, read from the side tile: a moving block's tiles all move
+## alike) get one class per distinct (sway, liquid) pair. VoxelMesher pins the corners a block
+## shares with another class, so the shader's offsets never open cracks between them.
+static func motion_classes() -> PackedByteArray:
+	if _motion.is_empty():
+		_motion.resize(BLOCK_COUNT)
+		var classes := {}
+		for b in BLOCK_COUNT:
+			var s: Array = _SURFACES.get(_FACES[b][1], [0.0, 0.0, 0.0, 0.0])
+			var key := Vector2(s[2], s[3])
+			if key != Vector2.ZERO:
+				if not classes.has(key):
+					classes[key] = classes.size() + 1
+				_motion[b] = classes[key]
+	return _motion
 
 
 ## Glow strength of a block's faces (the shader's EMISSION is the texture times this).

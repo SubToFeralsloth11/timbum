@@ -5,6 +5,14 @@ extends Node3D
 ## so the gun draws over walls instead of clipping into them, while still being lit by the scene.
 
 const HIP_POS := Vector3(0.13, -0.15, -0.4)
+## Per-weapon hip-fire hold adjustment [pivot offset, pivot rotation], faded out while aiming. The
+## Stacker LMG's long, high barrel and front sight converged on the crosshair from the shared hold,
+## so it sits lower and further right and yaws its muzzle outward; the Cuber .44 sits a little lower
+## and wider so its tall sights and big kick stay clear of the centre too.
+const HIP_SHIFT := {
+	"revolver": [Vector3(0.012, -0.018, 0.0), Vector3.ZERO],
+	"lmg": [Vector3(0.025, -0.03, 0.0), Vector3(0.0, -0.05, 0.0)],
+}
 const ADS_DEPTH := -0.24
 const SPRINT_ROT := Vector3(-0.35, 0.7, 0.25)
 
@@ -90,6 +98,8 @@ const MAGS := {
 	"rail_cube": [Vector3(0, 0.1, 0.02), Vector3(0.05, 0.04, 0.05), 0.0, Color(0.3, 0.75, 1.0), Vector3.UP],
 	# Cube Lobber: a whole new six-round drum slides in from the left.
 	"cube_lobber": [Vector3(0, 0.0, -0.14), Vector3(0.14, 0.14, 0.12), 0.0, Color(0.33, 0.36, 0.24), Vector3.LEFT],
+	"pulse_rifle": [Vector3(0, -0.07, -0.105), Vector3(0.03, 0.14, 0.05), 0.2, Color(0.36, 0.38, 0.42), Vector3.DOWN],
+	"rapid_dmr": [Vector3(0, -0.035, -0.1), Vector3(0.03, 0.07, 0.055), 0.0, Color(0.36, 0.38, 0.42), Vector3.DOWN],
 }
 ## Charge weapons: the gun trembles up to this far (m) at full charge, and the coil light reaches
 ## CHARGE_LIGHT energy.
@@ -466,6 +476,10 @@ func pose(delta: float, ads: float, sprinting: bool, sliding: bool, grappling: b
 
 	var pos := HIP_POS.lerp(_ads_pos, ads)
 	var rot := Vector3.ZERO
+	var hip_shift: Array = HIP_SHIFT.get(_weapon, [])
+	if not hip_shift.is_empty():
+		pos += (hip_shift[0] as Vector3) * (1.0 - ads)
+		rot += (hip_shift[1] as Vector3) * (1.0 - ads)
 	# Walk bob traces a figure eight; sprinting swings it wider and rolls the gun with each step.
 	var bob_amt := (1.0 - ads * 0.9) * speed_k * (1.0 + 0.8 * _sprint_blend)
 	pos += Vector3(sin(_bob_t) * 0.012, -absf(cos(_bob_t)) * 0.014, 0.0) * bob_amt

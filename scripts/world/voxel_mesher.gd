@@ -8,6 +8,13 @@ extends RefCounted
 ## `snapshot().mesh_chunks` on a worker thread, then `apply_chunk` on the main thread. Its
 ## collision is split into one body per SUB x SUB column of a chunk, and only the parts whose
 ## triangles changed are rebuilt (Jolt builds a trimesh at about 1 us per triangle on assignment).
+## Watertight by construction: every face is a unit quad on integer grid corners (no T-junctions),
+## and every chunk node sits at the same `origin` with its vertices in map space, so the GPU
+## transforms a corner two chunks share with the very same matrix (chunk nodes placed at their
+## own offsets rounded those corners differently and left pixel cracks along chunk borders).
+## Swaying and rippling blocks (BlockAtlas.motion_classes) mark the corners they share with a
+## block that moves differently (or not at all) in vertex colour alpha 0, which the shader holds
+## still, so leaves never pull away from logs nor water from its shore.
 
 const CHUNK := 16
 ## Editable builds: side (cells) of the collision parts a chunk is split into.
@@ -60,14 +67,20 @@ var _corner := PackedVector3Array()
 var _uv := PackedVector2Array()
 var _ao_off := PackedInt32Array()
 var _rev: Array[bool] = []
+## Vertex motion class per block id (BlockAtlas.motion_classes; 0: still).
+var _motion := PackedByteArray()
+## Per cube corner code (x + 2y + 4z, each 0 or 1): the padded-grid offsets of the 8 cells
+## sharing that corner.
+var _corner_cells := PackedInt32Array()
 var _opaque := Surface.new()
 var _glass := Surface.new()
 var _coll := PackedVector3Array()
 ## Where each SUB-column part's triangles start in _coll (plus the end), from _mesh_chunk.
 var _sub_start := PackedInt32Array()
 ## Editable builds, by chunk key Vector2i(cx / CHUNK, cz / CHUNK): its MeshInstance3D, its
-## collision triangles in chunk space (navmesh rebakes), and per collision part (SUB-column,
-## row-major in z then x) the part's triangles and its CollisionShape3D (null when it has none).
+## collision triangles in its node's space (map space from `origin`; navmesh rebakes), and per
+## collision part (SUB-column, row-major in z then x) the part's triangles and its CollisionShape3D
+## (null when it has none).
 var chunks := {}
 var faces := {}
 var part_faces := {}
@@ -100,7 +113,7 @@ static func build(g: VoxelGrid, parent: Node3D, origin: Vector3, nav_source: Nav
 			var mi := MeshInstance3D.new()
 			mi.name = "Chunk_%d_%d" % [cx / CHUNK, cz / CHUNK]
 			mi.mesh = _chunk_mesh(_arrays_of(m._opaque), _arrays_of(m._glass))
-			mi.position = origin + Vector3(cx, 0, cz)
+			mi.position = origin
 			parent.add_child(mi)
 			if nav_source == null:
 				continue
@@ -205,6 +218,8 @@ func snapshot() -> VoxelMesher:
 	s._uv = _uv
 	s._ao_off = _ao_off
 	s._rev = _rev
+	s._motion = _motion
+	s._corner_cells = _corner_cells
 	s._grid = _grid
 	return s
 
@@ -233,7 +248,7 @@ func apply_chunk(key: Vector2i, data: Array) -> int:
 			return 0
 		mi = MeshInstance3D.new()
 		mi.name = "Chunk_%d_%d" % [key.x, key.y]
-		mi.position = _origin + Vector3(key.x * CHUNK, 0, key.y * CHUNK)
+		mi.position = _origin
 		_parent.add_child(mi)
 		chunks[key] = mi
 		var empty_parts := []
@@ -316,6 +331,12 @@ func _prepare(g: VoxelGrid) -> void:
 	_uv.resize(24)
 	_ao_off.resize(72)
 	_rev.resize(6)
+	_motion = BlockAtlas.motion_classes()
+	_corner_cells.resize(64)
+	for c in 8:
+		for k in 8:
+			_corner_cells[c * 8 + k] = _offset(Vector3i((c & 1) - 1 + (k & 1), ((c >> 1) & 1) - 1 + ((k >> 1) & 1),
+				((c >> 2) & 1) - 1 + ((k >> 2) & 1)))
 	for d in 6:
 		var n := _N[d]
 		var t1 := _T1[d]
@@ -368,7 +389,7 @@ func _mesh_chunk(g: VoxelGrid, cx: int, cz: int, sub: int) -> void:
 					for x in range(sx, sx1):
 						var b := _pb[i]
 						if b != 0:
-							var cell := Vector3(x - cx, y, z - cz)
+							var cell := Vector3(x, y, z)
 							var shape := _ps[i]
 							if shape == VoxelGrid.CUBE:
 								var surf := _glass if b == BlockAtlas.GLASS else _opaque
@@ -411,6 +432,17 @@ func _ao(j: int, o: int) -> int:
 	return 3 - s1 - s2 - c
 
 
+## Whether corner `p` (a cube corner, coordinates 0 or 1) of cell `i` may sway with motion class
+## `m`: every block around the corner is air or moves the same way.
+func _corner_free(i: int, p: Vector3, m: int) -> bool:
+	var o := (int(p.x) + 2 * int(p.y) + 4 * int(p.z)) * 8
+	for k in 8:
+		var q := _pb[i + _corner_cells[o + k]]
+		if q != 0 and _motion[q] != m:
+			return false
+	return true
+
+
 ## Emits face `d` of cell `i`. `skip` drops one corner (ramp side triangles);
 ## `facing` > 0 bends the top face into a ramp slope rising toward that facing.
 func _face(s: Surface, i: int, d: int, b: int, cell: Vector3, skip: int, facing: int) -> void:
@@ -424,6 +456,7 @@ func _face(s: Surface, i: int, d: int, b: int, cell: Vector3, skip: int, facing:
 	var j := i + _noff[d]
 	var base := s.verts.size()
 	var ao_diag := 0
+	var m := _motion[b]
 	for k in 4:
 		if k == skip:
 			continue
@@ -441,7 +474,7 @@ func _face(s: Surface, i: int, d: int, b: int, cell: Vector3, skip: int, facing:
 		s.uvs.append(_uv[ci])
 		s.uv2s.append(uv2)
 		var l := AO_CURVE[a]
-		s.colors.append(Color(l, l, l))
+		s.colors.append(Color(l, l, l, 1.0 if m == 0 or _corner_free(i, p, m) else 0.0))
 	# Split quads along the brighter diagonal so AO interpolates evenly.
 	var tris := _TRI if skip >= 0 else (_QUAD_A if ao_diag >= 0 else _QUAD_B)
 	var rev := _rev[d]

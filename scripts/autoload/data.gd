@@ -67,7 +67,7 @@ const WEAPONS := {
 	"rifle": {
 		"name": "AR-Cube", "slot": "primary", "price": 600,
 		"desc": "All-round assault rifle. Strong at every range.",
-		"damage": 25.0, "head_mult": 1.8, "rpm": 640.0, "auto": true,
+		"damage": 23.0, "head_mult": 1.8, "rpm": 640.0, "auto": true,
 		"mag": 30, "reserve": 150, "reload": 2.0, "pellets": 1,
 		"spread_hip": 2.2, "spread_ads": 0.45, "recoil": 0.9,
 		"falloff_start": 35.0, "falloff_end": 70.0, "min_mult": 0.7,
@@ -285,6 +285,25 @@ const WEAPONS := {
 		"falloff_start": 999.0, "falloff_end": 999.0, "min_mult": 1.0,
 		"ads_fov": 75.0, "move_mult": 1.0, "sound": "swing_scythe", "range": 2.9, "swing": "sweep",
 		"sweep_radius": 0.9, "icon": "scythe",
+	},
+	# Appended after the 2.0 weapons, again keeping every older id's weapon_index.
+	"pulse_rifle": {
+		"name": "Pulse Cube", "slot": "primary", "price": 650,
+		"desc": "Fast-firing assault rifle. Lighter rounds at a higher rate: matches the AR-Cube up close, fades sooner at range.",
+		"damage": 19.0, "head_mult": 1.7, "rpm": 800.0, "auto": true,
+		"mag": 35, "reserve": 175, "reload": 2.2, "pellets": 1,
+		"spread_hip": 2.5, "spread_ads": 0.55, "recoil": 0.75,
+		"falloff_start": 25.0, "falloff_end": 55.0, "min_mult": 0.65,
+		"ads_fov": 52.0, "move_mult": 0.99, "sound": "shot_rifle", "pitch": 1.15,
+	},
+	"rapid_dmr": {
+		"name": "Rapid Block", "slot": "primary", "price": 1000,
+		"desc": "Fast semi-auto marksman rifle on iron sights. Within 40 m: 50 to the body, 84 to the head. Two quick hits put anyone down.",
+		"damage": 50.0, "head_mult": 1.68, "rpm": 360.0, "auto": false,
+		"mag": 10, "reserve": 50, "reload": 2.4, "pellets": 1,
+		"spread_hip": 4.0, "spread_ads": 0.2, "recoil": 2.2,
+		"falloff_start": 40.0, "falloff_end": 80.0, "min_mult": 0.75,
+		"ads_fov": 44.0, "move_mult": 0.92, "sound": "shot_dmr", "pitch": 1.12,
 	},
 }
 
