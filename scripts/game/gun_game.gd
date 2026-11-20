@@ -16,11 +16,11 @@ extends MatchMode
 
 ## The guns in ladder order: automatics first, then the long guns, the Rail Cube and the
 ## launchers, then the sidearms; the knife always follows as the last step.
-const FULL_LADDER: Array[String] = ["smg", "burst_smg", "rifle", "carbine", "burst_rifle", "lmg", "minigun", "shotgun",
-	"drum_shotgun", "dmr", "crossbow", "sniper", "rail_cube", "cube_lobber", "rocket",
+const FULL_LADDER: Array[String] = ["smg", "burst_smg", "rifle", "pulse_rifle", "carbine", "burst_rifle", "lmg", "minigun",
+	"shotgun", "drum_shotgun", "rapid_dmr", "dmr", "crossbow", "sniper", "rail_cube", "cube_lobber", "rocket",
 	"machine_pistol", "sawed_off", "burst_pistol", "revolver", "suppressed", "pistol"]
 ## Ladder lengths offered in match setup (the last is the full ladder).
-const LENGTHS: Array[int] = [6, 10, 15, 22]
+const LENGTHS: Array[int] = [6, 10, 15, 24]
 const SWAP_GRACE := 0.6
 
 ## Weapon id per step; the last is "knife" (every peer, from Net.config).

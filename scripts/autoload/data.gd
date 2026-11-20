@@ -298,8 +298,8 @@ const WEAPONS := {
 	},
 	"rapid_dmr": {
 		"name": "Rapid Block", "slot": "primary", "price": 1000,
-		"desc": "Fast semi-auto marksman rifle on iron sights. Within 40 m: 50 to the body, 84 to the head. Two quick hits put anyone down.",
-		"damage": 50.0, "head_mult": 1.68, "rpm": 360.0, "auto": false,
+		"desc": "Semi-auto marksman rifle on iron sights. Within 40 m: 42 to the body, 70 to the head. Three body hits or a head and a body hit put anyone down.",
+		"damage": 42.0, "head_mult": 1.68, "rpm": 200.0, "auto": false,
 		"mag": 10, "reserve": 50, "reload": 2.4, "pellets": 1,
 		"spread_hip": 4.0, "spread_ads": 0.2, "recoil": 2.2,
 		"falloff_start": 40.0, "falloff_end": 80.0, "min_mult": 0.75,
