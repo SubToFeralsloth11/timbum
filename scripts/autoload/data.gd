@@ -626,6 +626,7 @@ const MAPS := {
 	"range": {"name": "Firing Range", "desc": "Practice lanes at 10, 25, 50 and 75 m with target dummies and a weapon console."},
 }
 ## Match modifiers. When mutators are on, each match rolls one (or none) so matches feel different.
+## The host's own custom mutators (CustomMutators, Net.config.custom) stack on top of the roll.
 const MUTATORS := {
 	"none": {"name": "Classic", "desc": "Standard free-for-all."},
 	"low_gravity": {"name": "Low Gravity", "desc": "Moon jumps! Gravity is cut by more than half."},

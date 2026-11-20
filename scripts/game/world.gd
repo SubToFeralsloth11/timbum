@@ -436,7 +436,7 @@ func _server_add_entity(eid: int, info: Dictionary, is_bot: bool, team := -1, is
 	scores[eid] = {"name": str(info.name), "level": int(info.get("level", 1)), "prestige": int(info.get("prestige", 0)),
 		"kills": 0, "deaths": 0, "headshots": 0, "streak": 0, "best_streak": 0, "bot": is_bot}
 	_refill_equipment(eid, info)
-	_broadcast(&"_s_spawn_entity", [eid, info, is_bot, spawn[0], spawn[1], float(info.get("max_hp", Data.MAX_HEALTH)), is_alive])
+	_broadcast(&"_s_spawn_entity", [eid, info, is_bot, spawn[0], spawn[1], float(info.get("max_hp", Data.MAX_HEALTH)) * CustomMutators.health_mult(), is_alive])
 	# Tactical teams wait out the planning phase behind barriers instead.
 	if rules.spawn_protection():
 		_server_protect(eid)
@@ -769,7 +769,7 @@ func _server_shot(shooter_id: int, wid: String, ends: PackedVector3Array, normal
 			_s_shot_fx.rpc_id(pid, shooter_id, wid, ends, normals)
 	if shooter.mode == Player.Mode.REMOTE:
 		_s_shot_fx(shooter_id, wid, ends, normals)
-	if not rate_ok or not (rules.server_take_shot(shooter, wid) or admin.ammo_free(shooter)):
+	if not rate_ok or not (rules.server_take_shot(shooter, wid) or admin.ammo_free(shooter) or CustomMutators.flag("infinite_ammo")):
 		return
 	_server_unprotect(shooter_id)
 	# One shot can never deal more to a single target than every pellet landing as a headshot (a
@@ -813,6 +813,9 @@ func _server_shot(shooter_id: int, wid: String, ends: PackedVector3Array, normal
 			var cap := Player.damage_at(w, near, shooter.mod("barrel")) * float(w.pellets) \
 				* (float(w.head_mult) if head_hit[tid] else 1.0) * _charge_cap(shooter_id, wid) + 0.01
 			dmg = minf(dmg, cap)
+		# Custom mutator Headshots Only: a gun's body hits do nothing (melee always counts).
+		if not melee and not head_hit[tid] and CustomMutators.flag("headshots"):
+			continue
 		_server_damage(target, rules.hit_damage(shooter, target, wid, dmg), shooter_id, wid, head_hit[tid], shooter.global_position)
 	admin.after_shot(shooter, wid, ends)
 	if w.has("charge_time"):
@@ -889,6 +892,7 @@ func _server_damage(target: Player, amount: float, attacker_id: int, wid: String
 		return
 	if Net.config.mutator == "glass_cannon":
 		amount *= 2.0
+	amount *= CustomMutators.mult("damage")
 	# An Overshield (Streaks) soaks up damage first; health takes the rest.
 	var absorbed := minf(target.shield, amount)
 	var shield_left := target.shield - absorbed
@@ -1866,16 +1870,16 @@ func _s_map_votes(counts: Array) -> void:
 ## Loadout mutators hand everyone the mutator's gun as the primary and keep their own primary as
 ## the backup in place of the sidearm, so the gun they bought still matters (a player whose own
 ## primary already is that gun keeps their sidearm). Rocket Party: the Boom Block; Snipers Only:
-## the Voxel Longshot.
+## the Voxel Longshot. Then the custom mutators' one weapon and no grenades (CustomMutators).
 static func _apply_loadout_mutator(info: Dictionary) -> Dictionary:
 	var gun: String = LOADOUT_MUTATORS.get(str(Net.config.mutator), "")
 	if gun.is_empty():
-		return info
+		return CustomMutators.apply_loadout(info)
 	var out := info.duplicate()
 	out.primary = gun
 	if str(info.primary) != gun:
 		out.secondary = info.primary
-	return out
+	return CustomMutators.apply_loadout(out)
 
 
 ## Re-lights the built map for sunset or night. Every peer gets the same value from Net.config.

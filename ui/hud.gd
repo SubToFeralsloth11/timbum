@@ -861,12 +861,17 @@ func pick_preset(index: int) -> void:
 
 
 ## "MODE  ·  MAP  ·  MUTATOR  ·  TIME OF DAY  ·  WEATHER" for this match: the Tab scoreboard's
-## title and the line under the results title.
+## title and the line under the results title. Custom mutators (CustomMutators) add a second
+## line listing them.
 func _match_line() -> String:
 	var mut: Dictionary = Data.MUTATORS[str(Net.config.mutator)]
 	var mode: Dictionary = Data.MODES.get(str(Net.config.mode), Data.MODES.ffa)
-	return "%s  ·  %s  ·  %s  ·  %s  ·  %s" % [str(mode.name).to_upper(), MapBuilder.map_name(Net.current_map).to_upper(),
+	var line := "%s  ·  %s  ·  %s  ·  %s  ·  %s" % [str(mode.name).to_upper(), MapBuilder.map_name(Net.current_map).to_upper(),
 		str(mut.name).to_upper(), str(Net.config.time_of_day).to_upper(), Weather.label(str(Net.config.weather))]
+	var custom := CustomMutators.describe(Net.config.get("custom", {}))
+	if not custom.is_empty():
+		line += "\nCUSTOM: " + ", ".join(custom).to_upper()
+	return line
 
 
 func _build_scoreboard() -> void:

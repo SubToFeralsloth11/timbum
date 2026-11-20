@@ -63,7 +63,8 @@ const GAME_ID := "timbum"
 ##     new weapons appended to Data.WEAPONS.
 ##     Also custom scopes: `scopes` in peer_info (weapon id -> CustomScopes.encode bytes).
 ## 31: Parkour (config.mode "parkour" on map "parkour", ParkourMode's RPCs).
-const PROTOCOL_VERSION := 31
+## 32: custom mutators (config.custom, CustomMutators) and Bedwars (config.mode "bedwars").
+const PROTOCOL_VERSION := 32
 const CONNECT_TIMEOUT := 8.0
 ## A room-code join first tries a direct (NAT punch-through) link this long, then the relay.
 const NAT_CONNECT_TIMEOUT := 6.0
@@ -107,6 +108,8 @@ const DEFAULT_CONFIG := {
 	## A Data.SESSIONS id: "match", or an offline practice session ("range": FiringRange,
 	## "tutorial": Tutorial) on Data.RANGE_MAP.
 	"session": "match",
+	## The host's custom mutators (CustomMutators.sanitize; empty in practice sessions).
+	"custom": {},
 }
 
 ## peer id -> peer_info dictionary (see Profile.peer_info()). Kept in sync on every peer.
@@ -796,6 +799,10 @@ static func sanitize_config(cfg: Dictionary) -> Dictionary:
 		# Infected keeps everyone's own loadout, Gun Game hands out the ladder's guns: no
 		# loadout mutators.
 		out.mutator = "none"
+	out.custom = CustomMutators.sanitize(cfg.get("custom", {}), out.mode)
+	if not str(out.custom.weapon).is_empty() and World.LOADOUT_MUTATORS.has(out.mutator):
+		# The host's one weapon for everyone replaces the loadout mutators.
+		out.mutator = "none"
 	return out
 
 
@@ -821,7 +828,7 @@ func _roll_match_variety(previous: String) -> Dictionary:
 		var options: Array = Data.MUTATORS.keys()
 		options.erase("none")
 		options.erase(previous)
-		if config.mode == "infected" or config.mode == "gungame":
+		if config.mode == "infected" or config.mode == "gungame" or not str(CustomMutators.value("weapon")).is_empty():
 			for m: String in World.LOADOUT_MUTATORS:
 				options.erase(m)
 		if previous == "none" or randf() < 0.5:

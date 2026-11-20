@@ -246,6 +246,11 @@ func _build_settings() -> Control:
 		grid.add_child(UIKit.label(str(row[0]), &"SmallLabel"))
 		var value := UIKit.label(str(row[1]), &"ValueLabel")
 		value.add_theme_font_size_override("font_size", 15)
+		# The CUSTOM row (CustomMutators) can list several mutators: it wraps.
+		if str(row[0]) == "CUSTOM":
+			value.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			value.custom_minimum_size.x = 220
+			value.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		grid.add_child(value)
 	# Join info for the host (clients have none), as in the pause menu.
 	if multiplayer.is_server():

@@ -258,11 +258,16 @@ var _pad_air := 0.0
 ## The pad the feet were on last frame: a launch and its effects happen once per entry.
 var _pad_on: JumpPad = null
 var _stand_query: PhysicsShapeQueryParameters3D
-## Match mutator effects (see Data.MUTATORS), set once in _ready from Net.config.
+## Match mutator effects (see Data.MUTATORS and CustomMutators), set once in _ready from Net.config.
 var gravity_scale := 1.0
-## Movement speed multiplier: the Turbo mutator times the role's `info.speed` (Infected).
+## Movement speed multiplier: the Turbo mutator and the custom speed times the role's
+## `info.speed` (Infected).
 var speed_scale := 1.0
 var _mutator_speed := 1.0
+## Custom mutator jump speed multiplier (CustomMutators.jump_speed_mult).
+var jump_scale := 1.0
+## Custom mutator player size: the avatar, collider, hitboxes and eye height all scale by it.
+var size_scale := 1.0
 var _head_hit_y := 1.56
 ## REMOTE: seconds the reload flag has stayed on with no reload pose playing.
 var _reload_gap := 0.0
@@ -325,7 +330,7 @@ func setup(p_world: World, p_id: int, p_info: Dictionary, p_mode: Mode, p_is_bot
 
 ## Most health this player can have: `info.max_hp` (Infected have more), else Data.MAX_HEALTH.
 func max_health() -> float:
-	return float(info.get("max_hp", Data.MAX_HEALTH))
+	return float(info.get("max_hp", Data.MAX_HEALTH)) * CustomMutators.health_mult()
 
 
 ## Whether a player with `p_info` carries frags and a tactical: not when knife only (Infected)
@@ -419,17 +424,19 @@ func _ready() -> void:
 	floor_max_angle = deg_to_rad(50.0)
 	floor_snap_length = 0.4
 	floor_constant_speed = true
+	size_scale = CustomMutators.mult("size")
 	_shape = CapsuleShape3D.new()
-	_shape.radius = RADIUS
-	_shape.height = STAND_HEIGHT
+	_shape.radius = RADIUS * size_scale
+	_shape.height = STAND_HEIGHT * size_scale
 	_collider = CollisionShape3D.new()
 	_collider.shape = _shape
-	_collider.position.y = STAND_HEIGHT * 0.5
+	_collider.position.y = STAND_HEIGHT * size_scale * 0.5
 	add_child(_collider)
 
 	avatar = Models.build_avatar(str(info.outfit), str(info.hat))
 	avatar.charm_id = str(info.get("charm", "none"))
 	avatar.scopes = info.get("scopes", {}) if typeof(info.get("scopes")) == TYPE_DICTIONARY else {}
+	avatar.scale = Vector3.ONE * size_scale
 	add_child(avatar)
 	if int((info.get("mods", {}) as Dictionary).get("laser", 0)) > 0:
 		laser = LaserSight.new()
@@ -437,7 +444,7 @@ func _ready() -> void:
 
 	head = Node3D.new()
 	head.name = "Head"
-	head.position.y = STAND_EYE
+	head.position.y = STAND_EYE * size_scale
 	add_child(head)
 
 	var head_box := BoxShape3D.new()
@@ -452,6 +459,9 @@ func _ready() -> void:
 			head_box.size = Vector3.ONE * 0.52 * BIG_HEAD
 			_head_hit_y = 1.35 + 0.225 * BIG_HEAD
 			avatar.grow_head(BIG_HEAD)
+	gravity_scale *= CustomMutators.mult("gravity")
+	_mutator_speed *= CustomMutators.mult("speed")
+	jump_scale = CustomMutators.jump_speed_mult()
 	speed_scale = _mutator_speed * float(info.get("speed", 1.0))
 	_hit_head = _make_hitbox("HitHead", "head", head_box)
 	_hit_head_col = _hit_head.get_child(0)
@@ -459,10 +469,13 @@ func _ready() -> void:
 	_hit_body_shape.size = Vector3(0.72, 1.35, 0.42)
 	_hit_body = _make_hitbox("HitBody", "body", _hit_body_shape)
 	_hit_body_col = _hit_body.get_child(0)
+	# The hitbox shapes and offsets stay in unscaled units; their areas scale with the body.
+	_hit_head.scale = Vector3.ONE * size_scale
+	_hit_body.scale = Vector3.ONE * size_scale
 	_exclude = [get_rid(), _hit_head.get_rid(), _hit_body.get_rid()]
 
 	var sphere := SphereShape3D.new()
-	sphere.radius = RADIUS - 0.03
+	sphere.radius = RADIUS * size_scale - 0.03
 	_stand_query = PhysicsShapeQueryParameters3D.new()
 	_stand_query.shape = sphere
 	_stand_query.collision_mask = MASK_WORLD
@@ -501,7 +514,7 @@ func _ready() -> void:
 		nametag = Label3D.new()
 		nametag.text = "%s  Lv %d" % [Data.badged_name(str(info.name), int(info.get("prestige", 0))), int(info.get("level", 1))]
 		_nametag_lift = NAMETAG_ABOVE_NECK + (NAMETAG_BIG_HEAD_LIFT if Net.config.mutator == "big_heads" else 0.0)
-		nametag.position.y = 1.35 + _nametag_lift
+		nametag.position.y = (1.35 + _nametag_lift) * size_scale
 		nametag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 		nametag.pixel_size = 0.004
 		nametag.font_size = 44
@@ -830,7 +843,7 @@ func _simulate(delta: float) -> void:
 				# Slide-jump: keep the slide's speed and stand up in the air.
 				_end_slide()
 				crouching = in_crouch or not _has_headroom(STAND_HEIGHT)
-			velocity.y = JUMP_VELOCITY * world.admin.jump_mult(self)
+			velocity.y = JUMP_VELOCITY * jump_scale * world.admin.jump_mult(self)
 			Sfx.play(&"jump", global_position, -6.0)
 	elif not grappling:
 		velocity.y -= GRAVITY * gravity_scale * world.admin.gravity_mult(self) * delta
@@ -992,7 +1005,7 @@ func _apply_head_pose() -> void:
 	var side := lean * LEAN_DIST * _lean_reach
 	var lean_drop := absf(lean) * LEAN_DROP * _lean_reach
 	var fwd := PRONE_HEAD_Z * prone_blend
-	head.position = Vector3(side, STAND_EYE - drop - lean_drop, fwd)
+	head.position = Vector3(side, STAND_EYE - drop - lean_drop, fwd) * size_scale
 	_hit_head_col.position = Vector3(side, _head_hit_y - drop - lean_drop, fwd)
 	_hit_body_col.position.x = side * 0.35
 
@@ -1003,8 +1016,10 @@ func _apply_head_pose() -> void:
 ## just above that underside sat behind the one-sided trimesh face and missed it, which let a
 ## prone player stand up into a block they had crawled under).
 func _has_headroom(height: float) -> bool:
-	var low := maxf(_shape.height - RADIUS, RADIUS)
-	var rise := height - RADIUS + 0.02 - low
+	height *= size_scale
+	var radius := RADIUS * size_scale
+	var low := maxf(_shape.height - radius, radius)
+	var rise := height - radius + 0.02 - low
 	if rise <= 0.0:
 		# The collider is already that tall: nothing above it to check.
 		return true
@@ -1022,8 +1037,8 @@ func _apply_crouch_shape() -> void:
 	_applied_prone = prone_blend
 	_applied_block = block
 	var h := BLOCK_HEIGHT if block else lerpf(lerpf(STAND_HEIGHT, CROUCH_HEIGHT, crouch_blend), PRONE_HEIGHT, prone_blend)
-	_shape.height = h
-	_collider.position.y = h * 0.5
+	_shape.height = h * size_scale
+	_collider.position.y = h * size_scale * 0.5
 	var body := Vector3(0.72, 1.35 - CROUCH_DROP * crouch_blend, 0.42).lerp(PRONE_BODY, prone_blend)
 	_hit_body_shape.size = body
 	_hit_body_col.position.y = body.y * 0.5
@@ -1546,7 +1561,7 @@ func _continue_burst(wid: String, w: Dictionary) -> void:
 ## with LOB_LIFT m/s of extra rise.
 func _shoot(wid: String, w: Dictionary) -> void:
 	var a: Vector2i = ammo[wid]
-	if not world.admin.ammo_free(self):
+	if not world.admin.ammo_free(self) and not CustomMutators.flag("infinite_ammo"):
 		a.x -= 1
 		ammo[wid] = a
 	var aim := world.admin.aim_for(self, aim_transform())
@@ -1872,7 +1887,7 @@ func motion_caps(now: float) -> Vector2:
 	var h := SLIDE_MAX_SPEED * speed_scale
 	if world != null and world.tactical != null:
 		h = SPRINT_SPEED * _max_move_mult() * speed_scale
-	var v := JUMP_VELOCITY
+	var v := JUMP_VELOCITY * jump_scale
 	if not _motion.is_empty():
 		var peak := -INF
 		for s: Array in _motion:
@@ -2007,7 +2022,7 @@ func _update_visuals(delta: float) -> void:
 		avatar.set_inspect(inspecting())
 		avatar.animate(delta, anim_speed, on_floor_visual, crouching, prone)
 		if nametag != null:
-			nametag.position = to_local(avatar.get_head().global_position) + Vector3.UP * _nametag_lift
+			nametag.position = to_local(avatar.get_head().global_position) + Vector3.UP * _nametag_lift * size_scale
 		_footsteps(delta)
 	_update_rope(delta)
 	_update_charge(delta)
