@@ -44,7 +44,10 @@ var projectiles := {}
 var pickup_nodes: Array[PickupNode] = []
 var match_over := false
 var time_left := 0.0
-## entity id -> {name, kills, deaths, headshots, streak, best_streak, bot}
+## World.now() when this match began (server): the results' match time (MatchScore).
+var match_started := 0.0
+## entity id -> {name, kills, deaths, headshots, streak, best_streak, bot, joined (World.now() at
+## joining: the time-played part of MatchScore)}
 var scores := {}
 var results: Array = []
 ## The next match the results screen announces: {map, mutator, time_of_day, weather}.
@@ -211,6 +214,7 @@ func _ready() -> void:
 	admin.world = self
 	add_child(admin)
 	time_left = float(Net.config.time_limit)
+	match_started = now()
 	_warm_first_use()
 	# Today's challenges exist before the first kill (live toasts compare against them).
 	Profile.refresh_challenges()
@@ -434,7 +438,7 @@ func _server_add_entity(eid: int, info: Dictionary, is_bot: bool, team := -1, is
 	var spawn := rules.spawn_point(eid, team)
 	info = _apply_loadout_mutator(rules.prepare_info(info, team))
 	scores[eid] = {"name": str(info.name), "level": int(info.get("level", 1)), "prestige": int(info.get("prestige", 0)),
-		"kills": 0, "deaths": 0, "headshots": 0, "streak": 0, "best_streak": 0, "bot": is_bot}
+		"kills": 0, "deaths": 0, "headshots": 0, "streak": 0, "best_streak": 0, "bot": is_bot, "joined": now()}
 	_refill_equipment(eid, info)
 	_broadcast(&"_s_spawn_entity", [eid, info, is_bot, spawn[0], spawn[1], float(info.get("max_hp", Data.MAX_HEALTH)) * CustomMutators.health_mult(), is_alive])
 	# Tactical teams wait out the planning phase behind barriers instead.
@@ -1065,13 +1069,18 @@ func _server_pickups(t: float) -> void:
 func _server_end_match() -> void:
 	if match_over:
 		return
+	# Elapsed match time (World.now() leaves out offline pauses), and each player's time in it.
+	var t := now()
+	var match_time := maxf(0.0, t - match_started)
 	var rows: Array = []
 	for eid: int in scores:
 		var s: Dictionary = scores[eid]
+		var played := clampf(t - float(s.get("joined", match_started)), 0.0, match_time)
 		rows.append({"id": eid, "name": s.name, "kills": s.kills, "deaths": s.deaths,
-			"headshots": s.headshots, "best_streak": s.best_streak, "bot": s.bot, "level": s.level,
-			"prestige": int(s.get("prestige", 0))})
+			"headshots": s.headshots, "best_streak": s.best_streak, "bot": s.bot, "level": s.level, "time": int(played)})
 	var extra := rules.server_finish(rows)
+	extra["match_time"] = int(match_time)
+	MatchScore.score_rows(rows, rules, Teams.is_team_mode(), extra.has("winner") and int(extra.winner) < 0)
 	if not rules.has_next_match():
 		# Tactical: `wait` only times the winner's emote (WIN_SHOW); the results screen waits for
 		# NEW GAME (Tactical.request_new_game).

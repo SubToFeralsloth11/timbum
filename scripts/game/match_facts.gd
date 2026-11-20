@@ -77,7 +77,8 @@ func on_kill(p: Player, wid: String, dist: float, multi: int, t: float) -> void:
 
 
 ## The record_match dictionary for this match so far: `row` is the local player's scoreboard row
-## (kills, deaths, headshots, best_streak), `weapons` World.my_weapon_stats, `medals` the
+## (kills, deaths, headshots, best_streak; the final row also has `time`, seconds played, and
+## `score`, the MatchScore total), `weapons` World.my_weapon_stats, `medals` the
 ## Data.MEDALS ids of the match highlights this player earned (only known at the end), `draw` a
 ## team result that nobody won (paid as `placement` 2, labelled "Draw").
 func result(row: Dictionary, weapons: Dictionary, placement: int, players: int, won: bool, medals: Array = [], draw := false) -> Dictionary:
@@ -86,12 +87,14 @@ func result(row: Dictionary, weapons: Dictionary, placement: int, players: int, 
 		"best_streak": int(row.get("best_streak", 0)), "placement": placement, "players": players, "won": won,
 		"draw": draw, "weapons": weapons, "mode": str(Net.config.mode), "map": Net.current_map,
 		"moves": moves.duplicate(), "best_multi": best_multi, "medals": medals, "objectives": objectives.duplicate(),
+		"seconds": int(row.get("time", 0)), "score": int(row.get("score", 0)),
 	}
 
 
 ## Named counters of one match result (see result()), only those above 0:
 ## kills, headshots, deaths, matches, wins (a win needs someone to beat, as in record_match),
-## best_streak / best_multi (per-match bests, MAX_KEYS), w_kills:<source> / w_heads:<source> (per
+## best_streak / best_multi (per-match bests, MAX_KEYS), seconds (time played) and match_score
+## (the MatchScore total; season quests read both), w_kills:<source> / w_heads:<source> (per
 ## weapon, grenade and Bomber), the MOVE_KEYS and OBJECTIVE_KEYS, mode_kills|mode_matches|wins_mode:<mode>,
 ## map_kills|map_matches|wins_map:<map>, and medal:<id> per medal plus medals (their count).
 static func tally(result: Dictionary) -> Dictionary:
@@ -105,6 +108,8 @@ static func tally(result: Dictionary) -> Dictionary:
 	_put(t, "wins", 1 if won else 0)
 	_put(t, "best_streak", int(result.get("best_streak", 0)))
 	_put(t, "best_multi", int(result.get("best_multi", 0)))
+	_put(t, "seconds", int(result.get("seconds", 0)))
+	_put(t, "match_score", int(result.get("score", 0)))
 	var weapons := Profile.clean_weapon_stats(result.get("weapons", {}))
 	for id: String in weapons:
 		_put(t, "w_kills:" + id, int(weapons[id].kills))
