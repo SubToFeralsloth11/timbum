@@ -550,7 +550,28 @@ func settled(p: Player) -> bool:
 	return float(_still.get(p.id, 0.0)) >= SETTLE_TIME
 
 
+## Local hider: the camera pulls back behind the disguise (third person); back at the eye otherwise.
+func _third_person() -> void:
+	var p: Player = world.local_player
+	if p == null or p.camera == null or p.camera.top_level:
+		return
+	var cam := p.camera
+	if not (p.alive and is_hider(p)):
+		cam.position = Vector3.ZERO
+		return
+	if p.viewmodel != null:
+		p.viewmodel.visible = false
+	var pivot := p.head.global_position
+	var want := pivot + p.head.global_basis * (Basis(Vector3.RIGHT, cam.rotation.x) * Vector3(0.0, 0.4, 3.5))
+	var q := PhysicsRayQueryParameters3D.create(pivot, want, Player.MASK_WORLD)
+	var r := p.get_world_3d().direct_space_state.intersect_ray(q)
+	if not r.is_empty():
+		want = (r.position as Vector3).lerp(pivot, 0.1)
+	cam.position = p.head.global_basis.inverse() * (want - pivot)
+
+
 func _process(delta: float) -> void:
+	_third_person()
 	var origin := world.map_info.bounds.position
 	var now := World.now()
 	for eid: int in _disguise_nodes.keys():
