@@ -1,12 +1,43 @@
 class_name MatchSetupScreen
 extends MenuScreen
 ## Match configuration shared by "Play vs Bots" (offline) and "Host Game" (ENet server).
+##
+## Everything fits the 1280 x 720 base resolution without scrolling (canvas_items stretch: a bigger
+## window only adds room); only the CUSTOM maps below the built-in map cards scroll. The budget:
+##   page: 720 - 2 x 28 margins = 664 tall, 1280 - 2 x 40 = 1200 wide (MenuScreen.make_page).
+##   top bar: BACK, the title (34 px) over its subtitle (15 px) ~ 66, and on the right the presets
+##   strip and its EDIT row (2 x 32 + 4 = 68); then the page's 18 separation:
+##   body = 664 - 68 - 18 = 578 tall.
+##   Left column, 1200 - 16 - RULES_W = 764 wide:
+##     mode cards: MODE_COLUMNS 5 x 3 rows (13 modes) of MODE_CARD_H 52 + 2 x 8 = 172
+##     + 8 + the mode's hint (13 px, at most HINT_LINES 3 lines) 54 + 8
+##     + MAP heading 28 + 8 + built-in map cards (Rotation and the 10 rotation maps):
+##     MAP_COLUMNS 4 x 3 rows of MAP_CARD_H 84 + 2 x 10 = 272
+##     = 550 <= 578, the rest shows the top of the CUSTOM heading. A mode's own map (Tactical,
+##     Parkour, Bedwars) is one FIXED_MAP_CARD_H 260 card in place of the grid.
+##   Right panel, RULES_W wide, 16 padding: 578 - 32 = 546 inside:
+##     rule rows: a chip row is 32 (14 px text + 2 x 6 padding), RULE_GAP 6 apart. The most any
+##     mode shows is 8 (PLAYERS, BOTS, its limit, TIME, MUTATORS, STREAKS, WEATHER, CUSTOM);
+##     hosting adds LINK and up to MAX_ADDRESSES 2 address rows (PORT sits on the last one):
+##     11 x 32 + 10 x 6 = 412, + 10 + status (13 px, 2 lines) 36 + 10 + START 50 = 518 <= 546.
 
 const KILL_LIMITS: Array[int] = [10, 15, 20, 30, 50]
 ## Team Deathmatch's limit is on the team score, so it runs higher.
 const TEAM_KILL_LIMITS: Array[int] = [25, 40, 50, 75, 100]
 const TIME_LIMITS: Array[int] = [5, 8, 10, 15]
 const ROTATION := "rotation"
+## Layout (see the budget above).
+const RULES_W := 420
+const RULE_GAP := 6
+const MODE_COLUMNS := 5
+const MODE_CARD_H := 52
+const HINT_LINES := 3
+const MAP_COLUMNS := 4
+const MAP_CARD_H := 84
+const FIXED_MAP_CARD_H := 260
+const START_H := 50
+## Host: address rows shown (LAN first, NetLinkAddresses.local_addresses).
+const MAX_ADDRESSES := 2
 
 ## Last choices this session, shared by both modes. Each mode with its own limit keeps it apart
 ## (sent as `kill_limit`): the team score, Capture the Flag's captures, the Gun Game ladder length,
@@ -14,7 +45,7 @@ const ROTATION := "rotation"
 ## `streaks`: mode -> killstreaks on, once picked for that mode (until then the mode's default,
 ## Streaks.default_for). A match setup preset (Profile.match_presets) holds a copy of it.
 static var _choice := default_choice()
-const MODE_IDS: Array[String] = ["ffa", "tdm", "ctf", "gungame", "oitc", "koth", "infected", "tag", "hideseek", "blockhunt", "parkour", "tactical"]
+const MODE_IDS: Array[String] = ["ffa", "tdm", "ctf", "gungame", "oitc", "koth", "infected", "tag", "hideseek", "blockhunt", "parkour", "bedwars", "tactical"]
 const MODE_HINTS := {
 	"ffa": "Bots fill every empty slot up to the player count.",
 	"tdm": "Two teams, bots fill both evenly. The kill limit is the team score; friendly fire is off.",
@@ -27,6 +58,7 @@ const MODE_HINTS := {
 	"hideseek": "One seeker counts blindfolded for 20 s while everyone hides. Catch a hider (swing or bump) and you swap: they seek. No nametags; hiders see the seeker through walls. Hiders score a point a second, catches +10.",
 	"blockhunt": "Pick one of 4 blocks from the map and become it; hold still to snap onto the grid. After 30 s one seeker in five hunts with their melee weapon; found hiders seek too. Balloons score 1 / 3 / 7 but light you up. Hiders win if any are left.",
 	"parkour": "Race up the Parkour Run: 14 stages over a lava sea, from stepping stones to 1x1 pillars, long jumps and jump pads. Gold pads save your checkpoint; fall and you're straight back on it. First to the finish wins, 20 s later the match ends; else the furthest checkpoint. No guns, no grapple.",
+	"bedwars": "Two teams, a bed each. Gather iron, gold, diamonds and emeralds, buy blocks, swords, bows and armour, bridge over and break the enemy bed. No bed, no respawn.",
 	"tactical": "25 v 25 in Block HQ, bots fill every slot. 30 s of planning behind barriers, then find your weapons: everyone starts with their melee weapon. One life; the last team standing wins.",
 }
 ## One line under each mode card's name.
@@ -42,12 +74,14 @@ const MODE_TAGS := {
 	"hideseek": "One seeker, hide and swap",
 	"blockhunt": "Become a block, pop balloons",
 	"parkour": "Jump, climb, don't look down",
+	"bedwars": "Bridge over, break their bed",
 	"tactical": "25 v 25, plan, one life",
 }
 const MODE_COLORS := {
 	"ffa": Color("ff8a4c"), "tdm": Color("4fa3ff"), "ctf": Color("ff5d73"), "gungame": Color("ffc531"),
 	"oitc": Color("ffb066"), "koth": Color("c58bff"), "infected": Color("7be05a"), "tag": Color("ff6fb5"),
-	"hideseek": Color("5fd3c8"), "blockhunt": Color("b8e05a"), "parkour": Color("ffd84a"), "tactical": Color("9fb3c8"),
+	"hideseek": Color("5fd3c8"), "blockhunt": Color("b8e05a"), "parkour": Color("ffd84a"), "bedwars": Color("e0484f"),
+	"tactical": Color("9fb3c8"),
 }
 
 
@@ -121,6 +155,13 @@ class ModeIcon extends Control:
 					draw_rect(Rect2(c + Vector2(-14 + i * 10, 8 - i * 6), Vector2(7, 6 + i * 6)), color.darkened(0.15 * i))
 				draw_arc(c + Vector2(-2, 0), 9.0, PI * 1.1, PI * 1.9, 10, Color(color, 0.7), 1.5, true)
 				draw_circle(c + Vector2(3, -11), 2.6, Color(0.95, 0.97, 1.0))
+			"bedwars":
+				# A bed side-on: frame and legs, a red blanket, a white pillow at the head.
+				draw_rect(Rect2(c + Vector2(-14, 2), Vector2(28, 5)), Color(0.55, 0.38, 0.22))
+				draw_rect(Rect2(c + Vector2(-14, 7), Vector2(3, 5)), Color(0.55, 0.38, 0.22))
+				draw_rect(Rect2(c + Vector2(11, 7), Vector2(3, 5)), Color(0.55, 0.38, 0.22))
+				draw_rect(Rect2(c + Vector2(-5, -5), Vector2(19, 7)), color)
+				draw_rect(Rect2(c + Vector2(-13, -4), Vector2(8, 6)), Color(0.95, 0.97, 1.0))
 			"tactical":
 				draw_rect(Rect2(c + Vector2(-11, -13), Vector2(22, 26)), color)
 				for y in 3:
@@ -171,7 +212,11 @@ var _preview_queue: Array[TextureRect] = []
 var _mode_row: Container
 ## Rule rows (name label and control) and the modes that show them.
 var _mode_rules: Array = []
+## The chosen mode's hint, under the mode cards.
 var _rules_hint: Label
+## The CUSTOM row's button (a summary of the picks) and the overlay it opens.
+var _custom_button: Button
+var _custom_panel: CustomMutatorsPanel
 ## Second preset row (name, SAVE, RENAME, DELETE), opened with the EDIT toggle.
 var _preset_manage: Container
 var _preset_edit: Button
@@ -193,13 +238,14 @@ func _init(host_mode: bool) -> void:
 
 
 ## The setup screen's starting choices (also what a preset's missing or invalid fields fall back to).
+## `custom`: the custom mutators (CustomMutators.sanitize with no mode: picks a mode ignores stay).
 static func default_choice() -> Dictionary:
 	return {"mode": "ffa", "map": ROTATION, "bots_fill": 8, "difficulty": 1, "kill_limit": 20,
 		"team_kill_limit": TeamDeathmatch.DEFAULT_KILL_LIMIT, "ctf_limit": CaptureTheFlag.DEFAULT_CAPTURES,
 		"ladder": GunGame.max_length(), "oitc_lives": OneInTheChamber.DEFAULT_LIVES,
 		"koth_limit": KingOfTheBlock.DEFAULT_SCORE_LIMIT, "time_minutes": 8,
 		"mutators": true, "link": Net.Link.DIRECT,
-		"streaks": {}, "weather": "auto"}
+		"streaks": {}, "weather": "auto", "custom": CustomMutators.DEFAULTS.duplicate()}
 
 
 ## A full, valid set of setup choices from saved data (a preset from an old or edited save): each
@@ -236,6 +282,7 @@ static func sanitize_choice(raw: Variant) -> Dictionary:
 		for m: String in MODE_IDS:
 			if typeof((streaks as Dictionary).get(m)) == TYPE_BOOL:
 				out.streaks[m] = streaks[m]
+	out.custom = CustomMutators.sanitize(d.get("custom"))
 	return out
 
 
@@ -251,28 +298,43 @@ static func current_choice() -> Dictionary:
 
 func _ready() -> void:
 	var page := make_page()
-	page.add_child(make_header("HOST GAME" if hosting else "PLAY VS BOTS",
-		"Friends join by room code, Wi-Fi or Steam. Bots fill the empty slots." if hosting else "Offline match against bots."))
-	# Top: the modes as a grid of tiles.
-	page.add_child(UIKit.label("MODE", &"SubheaderLabel"))
-	var mode_grid := GridContainer.new()
-	mode_grid.columns = 6
-	mode_grid.add_theme_constant_override("h_separation", 8)
-	mode_grid.add_theme_constant_override("v_separation", 8)
-	_mode_row = mode_grid
-	page.add_child(mode_grid)
-	var mode_group := ButtonGroup.new()
-	for id: String in MODE_IDS:
-		_mode_row.add_child(_mode_card(id, mode_group))
+	# Top bar: BACK and the title on the left, the presets strip (and its EDIT row) on the right.
+	var top := make_header("HOST GAME" if hosting else "PLAY VS BOTS",
+		"Friends join by room code, Wi-Fi or Steam. Bots fill the empty slots." if hosting else "Offline match against bots.")
+	top.add_child(UIKit.spacer())
+	var presets := UIKit.vbox(4)
+	presets.custom_minimum_size.x = RULES_W
+	presets.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	top.add_child(presets)
+	_build_presets(presets)
+	page.add_child(top)
 
 	var body := UIKit.hbox(16)
 	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	page.add_child(body)
 
-	# Left: map preview cards.
+	# Left: the modes as a grid of tiles, the chosen mode's hint, then the map preview cards.
 	var mv := UIKit.vbox(8)
 	mv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	body.add_child(mv)
+	var mode_grid := GridContainer.new()
+	mode_grid.columns = MODE_COLUMNS
+	mode_grid.add_theme_constant_override("h_separation", 8)
+	mode_grid.add_theme_constant_override("v_separation", 8)
+	_mode_row = mode_grid
+	mv.add_child(mode_grid)
+	var mode_group := ButtonGroup.new()
+	for id: String in MODE_IDS:
+		_mode_row.add_child(_mode_card(id, mode_group))
+	# A fixed height, so the map cards below never move when the mode changes.
+	_rules_hint = UIKit.label(MODE_HINTS.ffa, &"DimLabel")
+	_rules_hint.add_theme_font_size_override("font_size", 13)
+	_rules_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_rules_hint.max_lines_visible = HINT_LINES
+	_rules_hint.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	_rules_hint.custom_minimum_size.y = 18 * HINT_LINES
+	_rules_hint.mouse_filter = Control.MOUSE_FILTER_PASS
+	mv.add_child(_rules_hint)
 	var map_head := UIKit.hbox(12)
 	mv.add_child(map_head)
 	map_head.add_child(UIKit.label("MAP", &"SubheaderLabel"))
@@ -282,8 +344,8 @@ func _ready() -> void:
 	_map_desc.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	_map_desc.add_theme_font_size_override("font_size", 14)
 	map_head.add_child(_map_desc)
-	# Built-in maps, then the playable custom maps (Map Editor) under CUSTOM; they scroll once
-	# custom maps don't fit.
+	# Built-in maps, then the playable custom maps (Map Editor) under CUSTOM. The built-in cards
+	# always fit (MAP_CARD_H); only the custom maps below them scroll.
 	var map_scroll := UIKit.pad_friendly(ScrollContainer.new())
 	map_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	map_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -293,7 +355,7 @@ func _ready() -> void:
 	map_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	map_scroll.add_child(map_list)
 	var grid := GridContainer.new()
-	grid.columns = 3
+	grid.columns = MAP_COLUMNS
 	grid.add_theme_constant_override("h_separation", 10)
 	grid.add_theme_constant_override("v_separation", 10)
 	grid.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -304,7 +366,7 @@ func _ready() -> void:
 	_add_map_card(grid, group, ROTATION, "Rotation", "Play every map in turn.")
 	for id: String in Data.MAP_ROTATION:
 		_add_map_card(grid, group, id, Data.MAPS[id].name, Data.MAPS[id].desc)
-	# The maps of Tactical and Parkour; the only card shown in that mode.
+	# The maps of Tactical, Parkour and Bedwars; the only card shown in that mode.
 	for id: String in Data.MODE_MAPS.values():
 		_add_map_card(grid, group, id, Data.MAPS[id].name, Data.MAPS[id].desc)
 	_custom_head = UIKit.label("CUSTOM", &"SubheaderLabel")
@@ -315,34 +377,24 @@ func _ready() -> void:
 	_custom_hint.visible = false
 	map_list.add_child(_custom_hint)
 	_custom_grid = GridContainer.new()
-	_custom_grid.columns = 3
+	_custom_grid.columns = MAP_COLUMNS
 	_custom_grid.add_theme_constant_override("h_separation", 10)
 	_custom_grid.add_theme_constant_override("v_separation", 10)
 	map_list.add_child(_custom_grid)
 	_refresh_custom_maps()
 
-	# Right: presets strip, the rules that apply to the mode, START.
+	# Right: the rules that apply to the mode (and the host's connection rows), the status line
+	# and START. Every row fits without scrolling (see the budget at the top).
 	var rules_panel := UIKit.panel()
-	rules_panel.custom_minimum_size.x = 400
+	rules_panel.custom_minimum_size.x = RULES_W
 	body.add_child(rules_panel)
 	var rv := UIKit.vbox(10)
 	rules_panel.add_child(rv)
-	_build_presets(rv)
-	rv.add_child(UIKit.label("RULES", &"SubheaderLabel"))
-	# The rules (and the host's connection rows) scroll when a mode's rows outgrow a 720p window,
-	# so the status line and the start button always stay on screen below them.
-	var scroll := UIKit.pad_friendly(ScrollContainer.new())
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	rv.add_child(scroll)
-	var sv := UIKit.vbox(10)
-	sv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.add_child(sv)
 	var rules := GridContainer.new()
 	rules.columns = 2
 	rules.add_theme_constant_override("h_separation", 10)
-	rules.add_theme_constant_override("v_separation", 8)
-	sv.add_child(rules)
+	rules.add_theme_constant_override("v_separation", RULE_GAP)
+	rv.add_child(rules)
 
 	var players_row := UIKit.hbox(8)
 	var players := HSlider.new()
@@ -364,7 +416,7 @@ func _ready() -> void:
 	_players_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	players_row.add_child(_players_label)
 	_rule(rules, "PLAYERS", players_row)
-	_mode_rule(rules, ["ffa", "tdm", "ctf", "gungame", "oitc", "koth", "infected", "tag", "hideseek", "blockhunt", "parkour"])
+	_mode_rule(rules, ["ffa", "tdm", "ctf", "gungame", "oitc", "koth", "infected", "tag", "hideseek", "blockhunt", "parkour", "bedwars"])
 	_update_players_label()
 
 	var difficulty_names: Array[String] = []
@@ -431,24 +483,33 @@ func _ready() -> void:
 	_mode_rule(rules, ["ffa", "tdm", "ctf", "gungame", "koth", "infected", "tactical"])
 	_weather_row = _flow()
 	_rule(rules, "WEATHER", _weather_row)
-	_rules_hint = UIKit.label(MODE_HINTS.ffa, &"DimLabel")
-	_rules_hint.add_theme_font_size_override("font_size", 13)
-	_rules_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	sv.add_child(_rules_hint)
+	_custom_button = UIKit.button("", &"ChipButton")
+	_custom_button.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	_custom_button.clip_text = true
+	_custom_button.pressed.connect(func() -> void: _custom_panel.open(_choice.custom, _choice.mode))
+	_rule(rules, "CUSTOM", _custom_button)
+	_update_custom_button()
 
 	if hosting:
-		sv.add_child(HSeparator.new())
-		_build_host_section(sv)
+		_build_host_section(rules)
 
+	rv.add_child(UIKit.spacer(false))
 	_status = UIKit.label("", &"DimLabel")
 	_status.add_theme_font_size_override("font_size", 13)
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	rv.add_child(_status)
 	_start = UIKit.button("START HOSTING" if hosting else "START MATCH", &"PrimaryButton")
 	_start.add_theme_font_size_override("font_size", 24)
-	_start.custom_minimum_size.y = 58
+	_start.custom_minimum_size.y = START_H
 	_start.pressed.connect(_on_start)
 	rv.add_child(_start)
+
+	_custom_panel = CustomMutatorsPanel.new(page.get_parent())
+	_custom_panel.changed.connect(func(custom: Dictionary) -> void:
+		_choice.custom = custom
+		_update_custom_button())
+	_custom_panel.closed.connect(func() -> void: _custom_button.grab_focus())
+	add_child(_custom_panel)
 
 	Net.status.connect(_on_status)
 	back_requested.connect(func() -> void:
@@ -499,22 +560,22 @@ static func _hover_fx(b: Button) -> void:
 			b.rotation = lerpf(b.rotation, deg_to_rad(2.5 if big else 4.0) * lean * 0.5, 0.35))
 
 
-## A selectable mode tile: emblem beside the name, a one-line description below, and a strip
-## in the mode's colour along the bottom.
+## A selectable mode tile: emblem beside the short name, a one-line description below, and a
+## strip in the mode's colour along the bottom. The full name and line are its tooltip.
 func _mode_card(id: String, group: ButtonGroup) -> Button:
 	var card := UIKit.button("", &"CardButton")
 	card.toggle_mode = true
 	card.button_group = group
 	card.name = id
-	card.custom_minimum_size = Vector2(150, 66)
+	card.custom_minimum_size = Vector2(130, MODE_CARD_H)
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	card.button_pressed = id == _choice.mode
-	card.tooltip_text = MODE_TAGS[id]
+	card.tooltip_text = "%s: %s" % [Data.MODES[id].name, MODE_TAGS[id]]
 	card.pressed.connect(func() -> void: pick_mode(id))
-	var h := UIKit.hbox(10)
+	var h := UIKit.hbox(8)
 	h.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	h.offset_left = 10
-	h.offset_right = -8
+	h.offset_left = 8
+	h.offset_right = -6
 	h.offset_bottom = -4
 	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(h)
@@ -524,13 +585,13 @@ func _mode_card(id: String, group: ButtonGroup) -> Button:
 	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	h.add_child(v)
-	var title := UIKit.label(str(Data.MODES[id].name).to_upper(), &"ValueLabel")
-	title.add_theme_font_size_override("font_size", 15)
+	var title := UIKit.label(str(Data.MODES[id].short), &"ValueLabel")
+	title.add_theme_font_size_override("font_size", 14)
 	title.clip_text = true
 	title.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	v.add_child(title)
 	var tag := UIKit.label(MODE_TAGS[id], &"DimLabel")
-	tag.add_theme_font_size_override("font_size", 12)
+	tag.add_theme_font_size_override("font_size", 11)
 	tag.clip_text = true
 	tag.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	v.add_child(tag)
@@ -646,7 +707,7 @@ func _show_choice() -> void:
 
 
 ## Shows the rules that apply to the chosen mode (the others keep their choices for switching
-## back). Tactical and Parkour fix the map (Tactical also the player count, kill rule and
+## back). Tactical, Parkour and Bedwars fix the map (Tactical also the player count, kill rule and
 ## mutators): only their own map card.
 func _apply_mode() -> void:
 	var fixed := Data.fixed_map(_choice.mode)
@@ -654,6 +715,7 @@ func _apply_mode() -> void:
 		for c: Control in entry[0]:
 			c.visible = (entry[1] as Array).has(_choice.mode)
 	_rules_hint.text = MODE_HINTS[_choice.mode]
+	_rules_hint.tooltip_text = MODE_HINTS[_choice.mode]
 	_pick_segment(_streak_row, 0 if _streaks_on() else 1)
 	for b in _map_group.get_buttons():
 		var id: String = b.get_meta(&"map_id")
@@ -669,6 +731,16 @@ func _apply_mode() -> void:
 	else:
 		_select_map(_choice.map)
 	_fill_weather_row()
+	_update_custom_button()
+
+
+## The CUSTOM button: "OFF", or how many custom mutators the chosen mode plays with; the
+## tooltip lists them.
+func _update_custom_button() -> void:
+	var on := CustomMutators.describe(CustomMutators.sanitize(_choice.custom, _choice.mode))
+	_custom_button.text = "CUSTOM MUTATORS · %s" % ("OFF" if on.is_empty() else "%d ON" % on.size())
+	_custom_button.tooltip_text = ", ".join(on) if not on.is_empty() \
+		else "One weapon for everyone, health, gravity, size, speed, damage, jump and more."
 
 
 ## The WEATHER choices on `map_id` (ROTATION: AUTO, CLEAR, RAIN, STORM; a map in the rotation
@@ -754,14 +826,14 @@ func _add_map_card(grid: GridContainer, group: ButtonGroup, id: String, title: S
 	card.button_group = group
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	card.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	card.custom_minimum_size = Vector2(150, 120)
+	card.custom_minimum_size = Vector2(120, MAP_CARD_H)
 	# Custom map ids hold characters a node name can't, so cards are found by their meta.
 	card.name = id.validate_node_name()
 	card.set_meta(&"map_id", id)
 	card.set_meta(&"desc", desc)
 	card.pressed.connect(func() -> void: _select_map(id))
 	if Data.MODE_MAPS.values().has(id):
-		card.custom_minimum_size.y = 300
+		card.custom_minimum_size.y = FIXED_MAP_CARD_H
 	grid.add_child(card)
 	var v := UIKit.vbox(4)
 	v.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -830,12 +902,10 @@ func _select_map(id: String) -> void:
 		_fill_weather_row()
 
 
-func _build_host_section(parent: VBoxContainer) -> void:
-	var grid := GridContainer.new()
-	grid.columns = 2
-	grid.add_theme_constant_override("h_separation", 10)
-	grid.add_theme_constant_override("v_separation", 8)
-	parent.add_child(grid)
+## The host's rows, in the rules grid: LINK, then (DIRECT only) one row per local address, LAN
+## first and at most MAX_ADDRESSES, each named by its kind, with the port on the last one (only
+## joining by address uses it, and only over the internet does it need forwarding).
+func _build_host_section(grid: GridContainer) -> void:
 	var links: Array[int] = [Net.Link.DIRECT, Net.Link.STEAM, Net.Link.WEBRTC]
 	var link_names: Array[String] = ["CODE · WI-FI", "STEAM", "WEBRTC"]
 	_link_row = _segmented(link_names, links.find(_choice.link), func(i: int) -> void:
@@ -843,40 +913,46 @@ func _build_host_section(parent: VBoxContainer) -> void:
 		_update_link_rows())
 	_rule(grid, "LINK", _link_row)
 
-	# One row per address, then the port (only joining by address uses it, and only over the
-	# internet does it need forwarding).
 	_port_edit = LineEdit.new()
 	_port_edit.text = str(Net.DEFAULT_PORT)
 	_port_edit.max_length = 5
-	_port_edit.custom_minimum_size.x = 84
+	_port_edit.custom_minimum_size.x = 68
 	_port_edit.add_theme_font_size_override("font_size", 15)
 	_port_edit.tooltip_text = "Port for joining by address. Forward it only for internet joins by address."
+	var port_box := UIKit.hbox(6)
+	var port_name := UIKit.label("PORT", &"SmallLabel")
+	port_name.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	port_box.add_child(port_name)
+	port_box.add_child(_port_edit)
 	var addresses := NetLinkAddresses.local_addresses()
 	if addresses.is_empty():
+		var row := UIKit.hbox(6)
 		var none := UIKit.label("No local network found.", &"DimLabel")
+		none.add_theme_font_size_override("font_size", 14)
+		none.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		none.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		_direct_rule(grid, "ADDRESS", none)
-	for i in addresses.size():
+		row.add_child(none)
+		row.add_child(port_box)
+		_direct_rule(grid, "ADDRESS", row)
+	var shown := mini(addresses.size(), MAX_ADDRESSES)
+	for i in shown:
 		var ip: String = addresses[i].address
 		var row := UIKit.hbox(6)
 		var ip_label := UIKit.label(ip, &"ValueLabel")
-		ip_label.add_theme_font_size_override("font_size", 16)
+		ip_label.add_theme_font_size_override("font_size", 15)
 		ip_label.add_theme_color_override("font_color", UITheme.ACCENT_2)
+		ip_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		ip_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		row.add_child(ip_label)
-		var kind := UIKit.label(str(addresses[i].kind).to_upper(), &"SmallLabel")
-		kind.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		kind.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		row.add_child(kind)
 		var copy := UIKit.button("COPY", &"ChipButton")
+		copy.tooltip_text = "Friends on this network type it into Join."
 		copy.pressed.connect(func() -> void:
 			DisplayServer.clipboard_set(ip)
 			_status.text = "Copied %s to the clipboard." % ip)
 		row.add_child(copy)
-		_direct_rule(grid, "ADDRESS" if i == 0 else "", row)
-	var port_row := UIKit.hbox(6)
-	port_row.add_child(_port_edit)
-	_direct_rule(grid, "PORT", port_row)
+		if i == shown - 1:
+			row.add_child(port_box)
+		_direct_rule(grid, str(addresses[i].kind).to_upper(), row)
 	_update_link_rows()
 
 
@@ -1099,13 +1175,16 @@ static func describe_config(cfg: Dictionary) -> Array:
 		"koth":
 			rows.append(["POINTS", "%d points" % int(cfg.kill_limit)])
 	rows.append(["TIME LIMIT", "%d min" % (int(cfg.time_limit) / 60)])
-	var gunless := mode in ["tag", "hideseek", "blockhunt", "parkour"]
+	var gunless := mode in ["tag", "hideseek", "blockhunt", "parkour", "bedwars"]
 	if mode != "tactical" and mode != "oitc" and not gunless:
 		rows.append(["MUTATORS", "Random mutators" if cfg.mutators else "No mutators"])
 	if not gunless:
 		rows.append(["KILLSTREAKS", "Killstreaks on" if cfg.streaks else "Killstreaks off"])
 	var pick := str(cfg.get("weather_pick", "auto"))
 	rows.append(["WEATHER", "Random weather" if pick == "auto" else str(Data.WEATHERS[pick].name)])
+	var custom := CustomMutators.describe(CustomMutators.sanitize(cfg.get("custom", {}), mode))
+	if not custom.is_empty():
+		rows.append(["CUSTOM", ", ".join(custom)])
 	return rows
 
 
@@ -1122,6 +1201,7 @@ static func config_from(choice: Dictionary) -> Dictionary:
 		"mutators": choice.mutators,
 		"streaks": bool(choice.streaks.get(choice.mode, Streaks.default_for(choice.mode))),
 		"weather_pick": choice.weather,
+		"custom": choice.get("custom", {}),
 	}
 
 
