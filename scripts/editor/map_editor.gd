@@ -10,9 +10,18 @@ extends Node3D
 ## ALPHA's first, then BRAVO's (removing one and placing again moves it). A translucent ghost shows where the next
 ## press lands. Edits go through the VoxelMesher of an editable build (set_cells, then
 ## mesh_chunks / apply_chunk of the touched chunks on the spot) and onto the undo stack
-## (UNDO_MAX steps; block edits store the cells' old and new ids, marker edits the marker lists).
+## (UNDO_MAX steps and at most UNDO_CELLS changed cells; block edits store the cells' old and new
+## ids, marker edits the marker lists).
+## Bulk tools (each press pair is one undo step, at most BULK_MAX cells): BOX, WALL and FLOOR take
+## two corners (the first press sets `corner`, the second fills the shape with the hotbar's block;
+## starting with a remove press carves it instead; the other button cancels). BOX fills the cuboid
+## (only its shell when `hollow`), FLOOR a one-block layer at the first corner's height, WALL a
+## gap-free line across the ground `wall_height` tall. Filling only takes empty cells. SELECT takes
+## two corners on blocks (`selection`); then fill, clear, replace the aimed block's type with the
+## hotbar's, copy / cut into `clipboard`, paste it (its low corner on the cell in front of the
+## aimed face; empty cells in it leave the map alone) and mirror the clipboard.
 ## MapEditorHud is the screen: hotbar, info, validation, and the side panel (Tab / Esc / Start)
-## with new / open / save, name, sky, tools, palette, undo / redo, test play and exit.
+## with new / open / save, name, sky, tools, bulk actions, palette, undo / redo, test play and exit.
 
 signal changed
 signal message(text: String, error: bool)
@@ -21,11 +30,21 @@ signal message(text: String, error: bool)
 signal replace_broken_asked(map_name: String)
 
 const SCENE := "res://scenes/map_editor.tscn"
-const TOOLS: Array[String] = ["block", "spawn", "health", "ammo", "grenade", "pad", "flag"]
-const TOOL_NAMES := {"block": "BLOCKS", "spawn": "SPAWN", "health": "HEALTH", "ammo": "AMMO",
-	"grenade": "GRENADES", "pad": "JUMP PAD", "flag": "FLAGS"}
-const TOOL_COLORS := {"block": Color("ffd166"), "spawn": Color("6ee7a0"), "health": Color("ff6b6b"),
+const TOOLS: Array[String] = ["block", "box", "wall", "floor", "select", "spawn", "health", "ammo", "grenade", "pad", "flag"]
+const TOOL_NAMES := {"block": "BLOCKS", "box": "BOX", "wall": "WALL", "floor": "FLOOR", "select": "SELECT",
+	"spawn": "SPAWN", "health": "HEALTH", "ammo": "AMMO", "grenade": "GRENADES", "pad": "JUMP PAD", "flag": "FLAGS"}
+const TOOL_COLORS := {"block": Color("ffd166"), "box": Color("ffb347"), "wall": Color("f78c6b"), "floor": Color("c3e88d"),
+	"select": Color("5fd3ff"), "spawn": Color("6ee7a0"), "health": Color("ff6b6b"),
 	"ammo": Color("ffd166"), "grenade": Color("9fb3c8"), "pad": Color(0.25, 1.0, 0.85), "flag": Color("f2f2f2")}
+## The two-corner shape tools (they build with the hotbar's block, like BLOCKS).
+const SHAPE_TOOLS: Array[String] = ["box", "wall", "floor"]
+## Keys that pick a bulk tool.
+const TOOL_KEYS := {KEY_B: "box", KEY_V: "wall", KEY_F: "floor", KEY_G: "select"}
+const WALL_HEIGHTS: Array[int] = [1, 2, 3, 4, 6, 8, 12]
+## Most cells one bulk edit may cover (a whole 64 x 24 x 64 map is 98304).
+const BULK_MAX := 100000
+## Most changed cells the undo stack keeps in total (the oldest steps go first).
+const UNDO_CELLS := 1500000
 ## Every block the palette offers, in order, with its name.
 const PALETTE := [
 	[BlockAtlas.GRASS, "Grass"], [BlockAtlas.DIRT, "Dirt"], [BlockAtlas.STONE, "Stone"], [BlockAtlas.COBBLE, "Cobble"],
@@ -73,6 +92,18 @@ var file_name := ""
 var pad_start: Variant = null
 var cam: FreeCam
 var hud: MapEditorHud
+## BOX / WALL / FLOOR / SELECT: the first corner (a grid cell) once the first press set it, else
+## null. `corner_remove`: that press was a remove (the shape is carved, not filled).
+var corner: Variant = null
+var corner_remove := false
+## BOX: fill only the shell.
+var hollow := false
+## WALL: blocks tall (one of WALL_HEIGHTS).
+var wall_height := 3
+## SELECT: {from, to} (lowest and highest cell, inclusive), or {}.
+var selection := {}
+## COPY / CUT: {size: Vector3i, blocks: PackedByteArray (x fastest, then z, then y)}, or {}.
+var clipboard := {}
 
 var _mesher: VoxelMesher
 var _map_root: Node3D
@@ -82,6 +113,11 @@ var _ghost: MeshInstance3D
 var _ghost_mat: StandardMaterial3D
 var _undo: Array = []
 var _redo: Array = []
+## Changed cells held by the undo stack (UNDO_CELLS).
+var _undo_cells := 0
+## The SELECT box, shown while the SELECT tool is on.
+var _sel_ghost: MeshInstance3D
+var _sel_mat: StandardMaterial3D
 
 
 func _ready() -> void:
@@ -102,6 +138,15 @@ func _ready() -> void:
 	_ghost.material_override = _ghost_mat
 	_ghost.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(_ghost)
+	_sel_ghost = MeshInstance3D.new()
+	_sel_ghost.name = "Selection"
+	_sel_ghost.mesh = BoxMesh.new()
+	_sel_mat = _ghost_mat.duplicate() as StandardMaterial3D
+	_sel_mat.albedo_color = Color(TOOL_COLORS.select, 0.22)
+	_sel_ghost.material_override = _sel_mat
+	_sel_ghost.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_sel_ghost.visible = false
+	add_child(_sel_ghost)
 	cam = FreeCam.new()
 	add_child(cam)
 	cam.current = true
@@ -215,13 +260,16 @@ func _open(m: Dictionary) -> void:
 	_build_environment()
 	_undo.clear()
 	_redo.clear()
+	_undo_cells = 0
 	pad_start = null
+	corner = null
+	selection = {}
 	aim = {}
 	unsaved = false
 	_rebuild_markers()
 	# Above the south-west corner, looking across the map.
-	var corner := origin + Vector3(-2.0, 12.0, grid.size.z + 2.0)
-	cam.place(Transform3D(Basis.IDENTITY, corner).looking_at(origin + Vector3(grid.size.x * 0.5, 0.0, grid.size.z * 0.5)), float(Profile.get_setting("fov")))
+	var start := origin + Vector3(-2.0, 12.0, grid.size.z + 2.0)
+	cam.place(Transform3D(Basis.IDENTITY, start).looking_at(origin + Vector3(grid.size.x * 0.5, 0.0, grid.size.z * 0.5)), float(Profile.get_setting("fov")))
 	cam.set_bounds(AABB(origin, Vector3(grid.size)))
 	changed.emit()
 
@@ -239,6 +287,7 @@ func set_tool(t: String) -> void:
 	if t in TOOLS and t != tool:
 		tool = t
 		pad_start = null
+		corner = null
 		_rebuild_markers()
 		changed.emit()
 
@@ -251,9 +300,16 @@ func block() -> int:
 	return hotbar[slot]
 
 
+## Whether the tool builds with the hotbar's block (BLOCKS and the shape tools).
+func uses_block() -> bool:
+	return tool == "block" or tool in SHAPE_TOOLS
+
+
+## Picks hotbar slot `i`; a tool that doesn't build with blocks switches to BLOCKS.
 func select_slot(i: int) -> void:
 	slot = wrapi(i, 0, hotbar.size())
-	set_tool("block")
+	if not uses_block():
+		set_tool("block")
 	changed.emit()
 
 
@@ -264,7 +320,8 @@ func pick_block(b: int) -> void:
 		slot = at
 	else:
 		hotbar[slot] = b
-	set_tool("block")
+	if not uses_block():
+		set_tool("block")
 	changed.emit()
 
 
@@ -355,6 +412,12 @@ func aimed_feet() -> Variant:
 
 ## The place press (fire) with the current tool on the current aim.
 func use_primary() -> void:
+	if tool in SHAPE_TOOLS:
+		_shape_press(false)
+		return
+	if tool == "select":
+		_select_press(false)
+		return
 	if aim.is_empty():
 		return
 	if tool == "block":
@@ -406,6 +469,12 @@ func use_primary() -> void:
 
 ## The remove press (aim) with the current tool on the current aim.
 func use_secondary() -> void:
+	if tool in SHAPE_TOOLS:
+		_shape_press(true)
+		return
+	if tool == "select":
+		_select_press(true)
+		return
 	if tool == "pad" and pad_start != null:
 		pad_start = null
 		_rebuild_markers()
@@ -427,18 +496,328 @@ func use_secondary() -> void:
 
 ## Sets the grid cells `cells` (VoxelGrid.index values) to block `value` as one undo step.
 func set_blocks(cells: PackedInt32Array, value: int) -> void:
+	var values := PackedByteArray()
+	values.resize(cells.size())
+	values.fill(value)
+	set_block_values(cells, values)
+
+
+## Sets each grid cell `cells[k]` to block `values[k]` as one undo step.
+func set_block_values(cells: PackedInt32Array, values: PackedByteArray) -> void:
 	var changed_cells := PackedInt32Array()
 	var before := PackedByteArray()
 	var after := PackedByteArray()
-	for i in cells:
-		if grid.blocks[i] != value:
+	for k in cells.size():
+		var i := cells[k]
+		if grid.blocks[i] != values[k]:
 			changed_cells.append(i)
 			before.append(grid.blocks[i])
-			after.append(value)
+			after.append(values[k])
 	if changed_cells.is_empty():
 		return
 	_apply_blocks(changed_cells, after)
 	_push({"cells": changed_cells, "before": before, "after": after})
+
+
+# ---------------------------------------------------------------- bulk tools
+
+## The cell a press works on: the aimed block for a remove press and for SELECT, else the empty
+## cell in front of the aimed face; null with nothing aimed or off the grid.
+func target_cell(remove: bool) -> Variant:
+	if aim.is_empty():
+		return null
+	var c: Vector3i = aim.cell if remove or tool == "select" else aim.cell + aim.normal
+	return c if grid.in_bounds(c.x, c.y, c.z) else null
+
+
+## Drops a first corner without building.
+func cancel_corner() -> void:
+	if corner == null:
+		return
+	corner = null
+	message.emit("%s cancelled." % TOOL_NAMES[tool], false)
+	changed.emit()
+
+
+## BOX / WALL / FLOOR: the first press sets the corner, a second press of the same button fills
+## (place) or carves (remove) the shape, the other button cancels.
+func _shape_press(remove: bool) -> void:
+	if corner != null and remove != corner_remove:
+		cancel_corner()
+		return
+	var c: Variant = target_cell(remove)
+	if c == null:
+		return
+	if corner == null:
+		corner = c
+		corner_remove = remove
+		message.emit("%s: first corner set. Aim at the other end and %s again (%s cancels)." % [TOOL_NAMES[tool],
+			"remove" if remove else "place", "place" if remove else "remove"], false)
+		changed.emit()
+		return
+	var b: Array[Vector3i] = shape_bounds(corner, c)
+	var span := b[1] - b[0] + Vector3i.ONE
+	if span.x * span.y * span.z > BULK_MAX:
+		message.emit("Too big: at most %d blocks at once." % BULK_MAX, true)
+		return
+	var cells := PackedInt32Array()
+	for i in shape_cells(corner, c):
+		if (grid.blocks[i] == BlockAtlas.AIR) != remove:
+			cells.append(i)
+	corner = null
+	set_blocks(cells, BlockAtlas.AIR if remove else block())
+	message.emit("%s: %d block%s %s." % [TOOL_NAMES[tool], cells.size(), "" if cells.size() == 1 else "s",
+		"removed" if remove else "placed"], false)
+	changed.emit()
+
+
+## The box the current shape tool covers from corner `a` to `b`: [lowest cell, highest cell].
+## FLOOR stays at a's height; WALL runs from a's height wall_height up.
+func shape_bounds(a: Vector3i, b: Vector3i) -> Array[Vector3i]:
+	var lo := Vector3i(mini(a.x, b.x), mini(a.y, b.y), mini(a.z, b.z))
+	var hi := Vector3i(maxi(a.x, b.x), maxi(a.y, b.y), maxi(a.z, b.z))
+	if tool == "floor":
+		lo.y = a.y
+		hi.y = a.y
+	elif tool == "wall":
+		lo.y = a.y
+		hi.y = mini(a.y + wall_height, grid.size.y) - 1
+	return [lo, hi]
+
+
+## Grid indices of the current shape tool's cells from corner `a` to `b` (both on the grid): BOX
+## the cuboid (its shell when `hollow`), FLOOR the layer, WALL the line across the ground.
+func shape_cells(a: Vector3i, b: Vector3i) -> PackedInt32Array:
+	var out := PackedInt32Array()
+	var bounds := shape_bounds(a, b)
+	var lo := bounds[0]
+	var hi := bounds[1]
+	if tool == "wall":
+		for p: Vector2i in line_xz(Vector2i(a.x, a.z), Vector2i(b.x, b.z)):
+			for y in range(lo.y, hi.y + 1):
+				out.append(grid.index(p.x, y, p.y))
+		return out
+	var shell := tool == "box" and hollow
+	for y in range(lo.y, hi.y + 1):
+		for z in range(lo.z, hi.z + 1):
+			for x in range(lo.x, hi.x + 1):
+				if shell and x != lo.x and x != hi.x and y != lo.y and y != hi.y and z != lo.z and z != hi.z:
+					continue
+				out.append(grid.index(x, y, z))
+	return out
+
+
+## The cells of a line from `a` to `b` on the ground plane, joined side to side (where a step goes
+## diagonally a cell is added beside it), so a wall along it has no gaps to squeeze through.
+static func line_xz(a: Vector2i, b: Vector2i) -> Array[Vector2i]:
+	var out: Array[Vector2i] = [a]
+	var d := b - a
+	var n := maxi(absi(d.x), absi(d.y))
+	var p := a
+	for i in range(1, n + 1):
+		var q := Vector2i(a.x + roundi(float(d.x) * i / n), a.y + roundi(float(d.y) * i / n))
+		if q.x != p.x and q.y != p.y:
+			out.append(Vector2i(q.x, p.y))
+		out.append(q)
+		p = q
+	return out
+
+
+func toggle_hollow() -> void:
+	hollow = not hollow
+	changed.emit()
+
+
+## Steps the WALL height through WALL_HEIGHTS.
+func step_wall_height(step: int) -> void:
+	var i := clampi(WALL_HEIGHTS.find(wall_height) + step, 0, WALL_HEIGHTS.size() - 1)
+	wall_height = WALL_HEIGHTS[i]
+	changed.emit()
+
+
+func set_wall_height(h: int) -> void:
+	if h in WALL_HEIGHTS:
+		wall_height = h
+		changed.emit()
+
+
+## SELECT: two place presses on blocks select the box between them; a remove press cancels the
+## first corner or clears the selection.
+func _select_press(remove: bool) -> void:
+	if remove:
+		if corner != null:
+			cancel_corner()
+		elif not selection.is_empty():
+			selection = {}
+			message.emit("Selection cleared.", false)
+			changed.emit()
+		return
+	var c: Variant = target_cell(false)
+	if c == null:
+		return
+	if corner == null:
+		corner = c
+		corner_remove = false
+		message.emit("SELECT: first corner set. Aim at the opposite corner and place again.", false)
+	else:
+		var a: Vector3i = corner
+		var b: Vector3i = c
+		selection = {"from": Vector3i(mini(a.x, b.x), mini(a.y, b.y), mini(a.z, b.z)),
+			"to": Vector3i(maxi(a.x, b.x), maxi(a.y, b.y), maxi(a.z, b.z))}
+		corner = null
+		var s := selection_size()
+		message.emit("Selected %d x %d x %d. Ctrl+C copy · Ctrl+X cut · Ctrl+F fill · Del clear · T replace the aimed block." % [s.x, s.z, s.y], false)
+	changed.emit()
+
+
+func selection_size() -> Vector3i:
+	return Vector3i.ZERO if selection.is_empty() else (selection.to as Vector3i) - (selection.from as Vector3i) + Vector3i.ONE
+
+
+## Grid indices of the selected cells (y, then z, then x outermost to innermost: clipboard order).
+func selection_cells() -> PackedInt32Array:
+	var out := PackedInt32Array()
+	if selection.is_empty():
+		return out
+	var lo: Vector3i = selection.from
+	var hi: Vector3i = selection.to
+	for y in range(lo.y, hi.y + 1):
+		for z in range(lo.z, hi.z + 1):
+			for x in range(lo.x, hi.x + 1):
+				out.append(grid.index(x, y, z))
+	return out
+
+
+## The selection's cells, or empty with a message when there is none or it is too big.
+func _selected() -> PackedInt32Array:
+	if selection.is_empty():
+		message.emit("Select an area first: SELECT (G), then two corners.", true)
+		return PackedInt32Array()
+	var s := selection_size()
+	if s.x * s.y * s.z > BULK_MAX:
+		message.emit("The selection is too big: at most %d blocks." % BULK_MAX, true)
+		return PackedInt32Array()
+	return selection_cells()
+
+
+## Fills the selection's empty cells with the hotbar's block.
+func fill_selection() -> void:
+	var sel := _selected()
+	if sel.is_empty():
+		return
+	var cells := PackedInt32Array()
+	for i in sel:
+		if grid.blocks[i] == BlockAtlas.AIR:
+			cells.append(i)
+	set_blocks(cells, block())
+	message.emit("Filled %d cells with %s." % [cells.size(), block_name(block())], false)
+
+
+## Empties the selection.
+func clear_selection() -> void:
+	var sel := _selected()
+	if sel.is_empty():
+		return
+	var cells := PackedInt32Array()
+	for i in sel:
+		if grid.blocks[i] != BlockAtlas.AIR:
+			cells.append(i)
+	set_blocks(cells, BlockAtlas.AIR)
+	message.emit("Cleared %d blocks." % cells.size(), false)
+
+
+## Turns every block of the aimed block's type in the selection into the hotbar's block.
+func replace_in_selection() -> void:
+	if aim.is_empty():
+		message.emit("Aim at a block of the type to replace.", true)
+		return
+	var c: Vector3i = aim.cell
+	var from := grid.get_block(c.x, c.y, c.z)
+	var to := block()
+	if from == to:
+		message.emit("The aimed block already is %s: pick another hotbar block." % block_name(to), true)
+		return
+	var sel := _selected()
+	if sel.is_empty():
+		return
+	var cells := PackedInt32Array()
+	for i in sel:
+		if grid.blocks[i] == from:
+			cells.append(i)
+	set_blocks(cells, to)
+	message.emit("Replaced %d %s with %s." % [cells.size(), block_name(from), block_name(to)], false)
+
+
+## Copies the selection into the clipboard; `cut` also empties it (one undo step).
+func copy_selection(cut := false) -> void:
+	var cells := _selected()
+	if cells.is_empty():
+		return
+	var blocks := PackedByteArray()
+	blocks.resize(cells.size())
+	for k in cells.size():
+		blocks[k] = grid.blocks[cells[k]]
+	clipboard = {"size": selection_size(), "blocks": blocks}
+	var s := selection_size()
+	if cut:
+		clear_selection()
+	message.emit("%s %d x %d x %d. Aim and press Ctrl+V to paste." % ["Cut" if cut else "Copied", s.x, s.z, s.y], false)
+	changed.emit()
+
+
+## Where a paste lands: its lowest corner on the cell in front of the aimed face, else null.
+func paste_origin() -> Variant:
+	if aim.is_empty():
+		return null
+	return (aim.cell as Vector3i) + (aim.normal as Vector3i)
+
+
+## Pastes the clipboard at paste_origin() as one undo step. Its empty cells leave the map alone;
+## the part past the map's edge is dropped.
+func paste() -> void:
+	if clipboard.is_empty():
+		message.emit("Nothing copied yet: select an area (G), then Ctrl+C.", true)
+		return
+	var at: Variant = paste_origin()
+	if at == null:
+		message.emit("Aim at where the paste should go.", true)
+		return
+	var o: Vector3i = at
+	var s: Vector3i = clipboard.size
+	var src: PackedByteArray = clipboard.blocks
+	var cells := PackedInt32Array()
+	var values := PackedByteArray()
+	var k := 0
+	for y in s.y:
+		for z in s.z:
+			for x in s.x:
+				var b := src[k]
+				k += 1
+				if b != BlockAtlas.AIR and grid.in_bounds(o.x + x, o.y + y, o.z + z):
+					cells.append(grid.index(o.x + x, o.y + y, o.z + z))
+					values.append(b)
+	set_block_values(cells, values)
+	message.emit("Pasted %d blocks." % cells.size(), false)
+
+
+## Mirrors the clipboard along x (axis 0) or z (axis 2).
+func mirror_clipboard(axis: int) -> void:
+	if clipboard.is_empty():
+		message.emit("Nothing copied yet: select an area (G), then Ctrl+C.", true)
+		return
+	var s: Vector3i = clipboard.size
+	var src: PackedByteArray = clipboard.blocks
+	var out := PackedByteArray()
+	out.resize(src.size())
+	for y in s.y:
+		for z in s.z:
+			for x in s.x:
+				var fx := s.x - 1 - x if axis == 0 else x
+				var fz := s.z - 1 - z if axis == 2 else z
+				out[(y * s.z + z) * s.x + x] = src[(y * s.z + fz) * s.x + fx]
+	clipboard = {"size": s, "blocks": out}
+	message.emit("Clipboard mirrored %s." % ("left to right" if axis == 0 else "front to back"), false)
+	changed.emit()
 
 
 ## Adds a spawn or a `kind` pickup at `feet` (grid space) as one undo step.
@@ -514,6 +893,7 @@ func undo() -> void:
 		message.emit("Nothing to undo.", false)
 		return
 	var step: Dictionary = _undo.pop_back()
+	_undo_cells -= _step_cells(step)
 	_redo.append(step)
 	_apply_step(step, true)
 
@@ -524,6 +904,7 @@ func redo() -> void:
 		return
 	var step: Dictionary = _redo.pop_back()
 	_undo.append(step)
+	_undo_cells += _step_cells(step)
 	_apply_step(step, false)
 
 
@@ -535,13 +916,20 @@ func can_redo() -> bool:
 	return not _redo.is_empty()
 
 
+## Adds an edit to the undo stack; the oldest steps go past UNDO_MAX steps or UNDO_CELLS cells
+## (the newest step always stays).
 func _push(step: Dictionary) -> void:
 	_undo.append(step)
-	if _undo.size() > UNDO_MAX:
-		_undo.pop_front()
+	_undo_cells += _step_cells(step)
+	while _undo.size() > 1 and (_undo.size() > UNDO_MAX or _undo_cells > UNDO_CELLS):
+		_undo_cells -= _step_cells(_undo.pop_front())
 	_redo.clear()
 	unsaved = true
 	changed.emit()
+
+
+static func _step_cells(step: Dictionary) -> int:
+	return (step.cells as PackedInt32Array).size() if step.has("cells") else 0
 
 
 func _apply_step(step: Dictionary, backwards: bool) -> void:
@@ -686,10 +1074,16 @@ static func _flat_material(c: Color, alpha: float) -> StandardMaterial3D:
 ## marker tool's spot (red when there is no room). With the side panel open the aim holds still,
 ## so the ghost shows where the next press lands with the block or tool just picked.
 func _update_ghost() -> void:
+	_sel_ghost.visible = tool == "select" and not selection.is_empty()
+	if _sel_ghost.visible:
+		_box_ghost(_sel_ghost, selection.from, selection.to)
 	if aim.is_empty():
 		_ghost.visible = false
 		return
 	var box := _ghost.mesh as BoxMesh
+	if tool in SHAPE_TOOLS or tool == "select":
+		_update_bulk_ghost()
+		return
 	if tool == "block":
 		var target: Vector3i = aim.cell + aim.normal
 		var size := Vector3.ONE
@@ -713,6 +1107,47 @@ func _update_ghost() -> void:
 		tint = Teams.color(next_flag_team())
 	_ghost_mat.albedo_color = Color(tint if ok else Color("ff4d4d"), 0.5)
 	_ghost.visible = true
+
+
+## The ghost of a bulk tool: the shape from the first corner to the aimed end (the hotbar block's
+## colour, red when carving), the SELECT box being dragged, the clipboard where a paste would land,
+## or the single aimed cell.
+func _update_bulk_ghost() -> void:
+	var tint := Color(BlockAtlas.top_color(block()).lightened(0.15), 0.4)
+	if tool == "select":
+		tint = Color(TOOL_COLORS.select, 0.35)
+		var aimed: Vector3i = aim.cell
+		if corner != null:
+			var a: Vector3i = corner
+			_box_ghost(_ghost, Vector3i(mini(a.x, aimed.x), mini(a.y, aimed.y), mini(a.z, aimed.z)),
+				Vector3i(maxi(a.x, aimed.x), maxi(a.y, aimed.y), maxi(a.z, aimed.z)))
+		elif not clipboard.is_empty():
+			var o: Vector3i = paste_origin()
+			_box_ghost(_ghost, o, o + (clipboard.size as Vector3i) - Vector3i.ONE)
+			tint = Color(TOOL_COLORS.box, 0.3)
+		else:
+			_box_ghost(_ghost, aimed, aimed)
+	else:
+		var end: Variant = target_cell(corner_remove if corner != null else false)
+		if end == null:
+			_ghost.visible = false
+			return
+		if corner != null:
+			var b := shape_bounds(corner, end)
+			_box_ghost(_ghost, b[0], b[1])
+			if corner_remove:
+				tint = Color("ff4d4d", 0.35)
+		else:
+			_box_ghost(_ghost, end, end)
+	_ghost_mat.albedo_color = tint
+	_ghost.visible = true
+
+
+## Sizes and places the box mesh of `mi` over the cells from `lo` to `hi` (inclusive).
+func _box_ghost(mi: MeshInstance3D, lo: Vector3i, hi: Vector3i) -> void:
+	var size := Vector3(hi - lo + Vector3i.ONE)
+	(mi.mesh as BoxMesh).size = size + Vector3.ONE * 0.04
+	mi.position = origin + Vector3(lo) + size * 0.5
 
 
 func _process(_delta: float) -> void:
@@ -752,11 +1187,41 @@ func _unhandled_input(event: InputEvent) -> void:
 					redo()
 				KEY_S:
 					save()
+				KEY_C:
+					copy_selection()
+				KEY_X:
+					copy_selection(true)
+				KEY_V:
+					paste()
+				KEY_F:
+					fill_selection()
 			get_viewport().set_input_as_handled()
 			return
 		if k.keycode >= KEY_1 and k.keycode <= KEY_9:
 			select_slot(k.keycode - KEY_1)
 			return
+		if TOOL_KEYS.has(k.keycode):
+			set_tool(TOOL_KEYS[k.keycode])
+			return
+		match k.keycode:
+			KEY_H:
+				toggle_hollow()
+				return
+			KEY_BRACKETLEFT:
+				step_wall_height(-1)
+				return
+			KEY_BRACKETRIGHT:
+				step_wall_height(1)
+				return
+			KEY_T:
+				replace_in_selection()
+				return
+			KEY_DELETE, KEY_BACKSPACE:
+				clear_selection()
+				return
+			KEY_M:
+				mirror_clipboard(2 if k.shift_pressed else 0)
+				return
 	if event is InputEventJoypadButton and event.pressed:
 		match (event as InputEventJoypadButton).button_index:
 			JOY_BUTTON_LEFT_SHOULDER:

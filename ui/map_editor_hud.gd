@@ -5,9 +5,10 @@ extends CanvasLayer
 ## from being played), a message line, the tool strip and the 9-slot block hotbar at the bottom.
 ## The side panel (Tab / Esc / Back or Start, `toggle_panel`) frees the mouse and stops the camera
 ## (the info card hides, the bottom row moves right of it): BACK TO BUILDING, tools, brush, the
-## whole block palette (a pick goes into the selected hotbar slot), the name and SAVE, NEW at a
-## size preset, OPEN a saved map, the sky (time of day), UNDO / REDO, TEST PLAY and EXIT. Every
-## control is a focusable button, so a controller can drive it.
+## BOX / WALL options (hollow, wall height) and the SELECTION actions (fill, clear, replace, copy,
+## cut, paste, mirror), the whole block palette (a pick goes into the selected hotbar slot), the
+## name and SAVE, NEW at a size preset, OPEN a saved map, the sky (time of day), UNDO / REDO, TEST
+## PLAY and EXIT. Every control is a focusable button, so a controller can drive it.
 
 const PANEL_WIDTH := 430.0
 ## Seconds between validation-card rechecks: the reachability flood fill costs up to tens of
@@ -37,6 +38,9 @@ var _open_pick: OptionButton
 var _sky_row: HBoxContainer
 var _tool_buttons := {}
 var _brush_row: HBoxContainer
+## BOX's hollow switch and WALL's height chips.
+var _hollow_button: Button
+var _wall_row: HBoxContainer
 var _palette_buttons := {}
 var _undo_button: Button
 var _redo_button: Button
@@ -288,7 +292,7 @@ func _build_panel() -> void:
 	v.add_child(resume)
 	_first_focus = resume
 
-	_section(v, "TOOL  (Q / E, pad LB / RB)")
+	_section(v, "TOOL  (Q / E, pad LB / RB; B box · V wall · F floor · G select)")
 	var tools := GridContainer.new()
 	tools.columns = 3
 	tools.add_theme_constant_override("h_separation", 4)
@@ -307,6 +311,37 @@ func _build_panel() -> void:
 		var b := _chip("%d x %d" % [n, n], func() -> void: editor.set_brush(n))
 		b.toggle_mode = true
 		_brush_row.add_child(b)
+
+	_section(v, "BOX / WALL  (H hollow, [ ] wall height)")
+	var shape_row := UIKit.hbox(4)
+	v.add_child(shape_row)
+	_hollow_button = _chip("HOLLOW BOX", editor.toggle_hollow)
+	_hollow_button.toggle_mode = true
+	shape_row.add_child(_hollow_button)
+	_wall_row = UIKit.hbox(4)
+	_wall_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	shape_row.add_child(_wall_row)
+	for h: int in MapEditor.WALL_HEIGHTS:
+		var b := _chip(str(h), func() -> void: editor.set_wall_height(h))
+		b.toggle_mode = true
+		b.tooltip_text = "Walls %d blocks tall" % h
+		b.set_meta(&"height", h)
+		_wall_row.add_child(b)
+
+	_section(v, "SELECTION  (SELECT tool: two corners; RMB clears)")
+	var sel := GridContainer.new()
+	sel.columns = 3
+	sel.add_theme_constant_override("h_separation", 4)
+	sel.add_theme_constant_override("v_separation", 4)
+	v.add_child(sel)
+	for e: Array in [["FILL  Ctrl+F", editor.fill_selection], ["CLEAR  Del", editor.clear_selection],
+			["REPLACE  T", editor.replace_in_selection], ["COPY  Ctrl+C", editor.copy_selection],
+			["CUT  Ctrl+X", editor.copy_selection.bind(true)], ["PASTE  Ctrl+V", editor.paste],
+			["MIRROR X  M", editor.mirror_clipboard.bind(0)], ["MIRROR Z  Shift+M", editor.mirror_clipboard.bind(2)],
+			["SELECT TOOL  G", editor.set_tool.bind("select")]]:
+		var b := _chip(e[0], e[1])
+		b.add_theme_font_size_override("font_size", 12)
+		sel.add_child(b)
 
 	_section(v, "BLOCKS  (goes into the selected hotbar slot)")
 	var pal := GridContainer.new()
@@ -445,8 +480,23 @@ func refresh() -> void:
 	elif editor.tool == "flag":
 		var team := editor.next_flag_team()
 		tool_text += "  ·  %s" % ("PLACE %s'S STAND" % Teams.name_of(team) if team >= 0 else "BOTH STANDS PLACED")
+	elif editor.tool in MapEditor.SHAPE_TOOLS:
+		tool_text += "  ·  %s" % MapEditor.block_name(editor.block()).to_upper()
+		if editor.tool == "box":
+			tool_text += "  ·  %s" % ("HOLLOW" if editor.hollow else "SOLID")
+		elif editor.tool == "wall":
+			tool_text += "  ·  %d HIGH" % editor.wall_height
+		tool_text += "  ·  %s" % ("SECOND CORNER (%s)" % ("CARVE" if editor.corner_remove else "FILL") if editor.corner != null else "FIRST CORNER")
+	elif editor.tool == "select":
+		var sel := editor.selection_size()
+		tool_text += "  ·  %s" % ("SECOND CORNER" if editor.corner != null else
+			"%d x %d x %d SELECTED" % [sel.x, sel.z, sel.y] if not editor.selection.is_empty() else "PICK TWO CORNERS")
+		if not editor.clipboard.is_empty():
+			var c: Vector3i = editor.clipboard.size
+			tool_text += "  ·  CLIPBOARD %d x %d x %d" % [c.x, c.z, c.y]
 	_info.text = "%s%s  ·  %d x %d x %d\n%s" % [editor.map.name, " *" if editor.unsaved else "", s.x, s.z, s.y, tool_text]
-	_keys.text = "LMB place · RMB remove · 1-9 / wheel block · Q / E tool · R brush\nWASD fly · Space / Ctrl up / down · Shift fast · Ctrl+Z / Ctrl+Y undo / redo · Ctrl+S save · Tab menu"
+	_keys.text = "LMB place · RMB remove · 1-9 / wheel block · Q / E tool · R brush\nWASD fly · Space / Ctrl up / down · Shift fast · Ctrl+Z / Ctrl+Y undo / redo · Ctrl+S save · Tab menu\n" \
+		+ "B box · V wall · F floor: two corners (H hollow, [ ] wall height) · G select: Ctrl+C / X / V, Ctrl+F fill, Del clear, T replace, M mirror"
 	_check_due = true
 	for chip: PanelContainer in _tool_row.get_children():
 		var t: String = chip.get_meta(&"tool")
@@ -456,7 +506,7 @@ func refresh() -> void:
 		(chip.get_child(0) as Label).add_theme_color_override("font_color", Color(0.08, 0.08, 0.1) if on else UITheme.TEXT)
 	for i in _hotbar.get_child_count():
 		var cell := _hotbar.get_child(i) as PanelContainer
-		var on: bool = i == editor.slot and editor.tool == "block"
+		var on: bool = i == editor.slot and editor.uses_block()
 		cell.add_theme_stylebox_override("panel", UITheme.round_box(Color(0, 0, 0, 0.55), UITheme.ACCENT if on else Color(1, 1, 1, 0.12), 3 if on else 1, 10, 6))
 		(cell.get_child(0) as TextureRect).texture = BlockAtlas.icon(editor.hotbar[i], 3)
 	if _panel.visible:
@@ -468,6 +518,9 @@ func refresh() -> void:
 			(_tool_buttons[t] as Button).set_pressed_no_signal(t == editor.tool)
 		(_brush_row.get_child(0) as Button).set_pressed_no_signal(editor.brush == 1)
 		(_brush_row.get_child(1) as Button).set_pressed_no_signal(editor.brush == 3)
+		_hollow_button.set_pressed_no_signal(editor.hollow)
+		for b: Button in _wall_row.get_children():
+			b.set_pressed_no_signal(int(b.get_meta(&"height")) == editor.wall_height)
 		for b: int in _palette_buttons:
 			(_palette_buttons[b] as Button).set_pressed_no_signal(b == editor.block())
 		_undo_button.disabled = not editor.can_undo()
