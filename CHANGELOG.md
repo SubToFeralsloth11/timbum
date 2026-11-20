@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.4.0 (unreleased)
+
+### Results screen
+- **Scrolls:** everything above the buttons (table, highlights, rewards, next match, loadout) scrolls with the mouse wheel, the scrollbar or the right stick, so it fits a 720p screen; the timer, Start Next Match and Leave stay pinned at the bottom. It still brings your own row into view.
+- **Match time and MATCH SCORE:** the results show how long the match lasted and a SCORE column for every player, worked out once by the host so everyone sees the same numbers. Under the highlights, your score is itemised: kills, headshots, deaths, objective (flag captures and returns, points, race progress, or beds broken in Bedwars), placement or team result, and time played. No cap; it works in every mode.
+
+### Season pass
+- **Takes the whole season now:** before, the 30 tiers were done in about two days. Season XP is now its own currency (30 a match, 3 a kill up to 15, 25 a win; 60 per daily challenge, 250 per weekly) and a tier costs 1,200. An hour a day finishes it around 31 December.
+- **Season quests:** four new quests every Monday (16 Nov to 21 Dec), worth 600 season XP each, counting matches online and offline. Tiers 6, 11, 16, 21, 26 and 30 also need that week's quests. The SEASON screen lists every week with your progress, when it opens and the tier it unlocks.
+- **Everybody's pass was reset once:** season XP, claimed tiers and the 12 season cosmetics (unequipped back to the defaults; coins you claimed stay). A notice on the home screen explains it.
+
+### Levels
+- **No level cap and no prestige:** the PRESTIGE button, the ★ badges and the rank are gone. Levels take longer: 750 + 400 per level + 15 per level² XP each (about 5,600 at level 10, 56,000 at level 50).
+- **Level flame:** your level burns in a live, flickering flame that gets brighter, healthier and a little bigger as you climb (ember, orange, gold, white-hot, blue, violet, rainbow from 100). It shows on the home screen card, the results, Stats, the scoreboard and the lobby.
+- **Every 5 levels** a LEVEL UP banner with a flame burst plays at the top of the results screen, out of the way.
+
 ## 2.3.2: Smarter bots, block-sized hiders, one-click updates (2026-11-20)
 
 ### Bots
