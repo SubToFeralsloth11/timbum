@@ -2,6 +2,16 @@
 
 ## 2.4.0 (unreleased)
 
+### Custom mutators
+- **Make your own rules** for bot matches and hosted games: CUSTOM MUTATORS in match setup sets one weapon for everyone (any gun or melee weapon), max health (25 to 400 %), gravity, player size, move speed, damage and jump height, and switches Headshots Only, Infinite Ammo and No Grenades. They stack on the random mutator, bots follow them, presets keep them, and the lobby and scoreboard list them. Modes without guns skip the gun options; the panel says which picks a mode ignores.
+
+### Match setup
+- **No more scrolling at 720p:** all 13 mode cards, every built-in map card and every rule of the chosen mode (and the host's connection, addresses and port) fit on the screen. The presets moved to the top bar and the mode's rules text sits under the mode cards. Only your own custom maps scroll when there are many.
+- **Bedwars** has its own card, emblem and rules: players, bot difficulty, time, weather and custom mutators.
+
+### Map editor
+- **Bulk tools:** BOX (B, solid or hollow with H), WALL (V, 1 to 12 high with [ and ]) and FLOOR (F) fill or carve a whole shape between two clicks, with a ghost of the shape first. SELECT (G) marks an area to fill (Ctrl+F), clear (Delete), replace the aimed block type with yours (T), copy, cut and paste (Ctrl+C / X / V) and mirror the copy (M, Shift+M). Each is one undo step; the side panel has buttons for all of it. Map files are unchanged.
+
 ### Results screen
 - **Scrolls:** everything above the buttons (table, highlights, rewards, next match, loadout) scrolls with the mouse wheel, the scrollbar or the right stick, so it fits a 720p screen; the timer, Start Next Match and Leave stay pinned at the bottom. It still brings your own row into view.
 - **Match time and MATCH SCORE:** the results show how long the match lasted and a SCORE column for every player, worked out once by the host so everyone sees the same numbers. Under the highlights, your score is itemised: kills, headshots, deaths, objective (flag captures and returns, points, race progress, or beds broken in Bedwars), placement or team result, and time played. No cap; it works in every mode.
