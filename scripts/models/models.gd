@@ -1555,33 +1555,52 @@ static func _gun_cube_lobber(k: MeshKit) -> Dictionary:
 		"support": Vector3(0, -0.05, -0.33)}
 
 
-## Pulse Cube: compact high-rate rifle with a curved 35-round mag, a short handguard lit by cyan
-## pulse cells, a full-length flat-top rail and a cube muzzle.
+## Pulse Cube: sleek sci-fi rifle. Angular receiver with a glowing core window, curved mag, and a
+## split barrel shroud with glowing blue energy lines running to an emitter ring muzzle.
 static func _gun_pulse_rifle(k: MeshKit) -> Dictionary:
+	# Grip and curved mag.
 	k.box(DARK, Vector3(0, -0.045, 0.018), Vector3(0.03, 0.095, 0.04), Vector3(-0.28, 0, 0))
-	k.box(BODY, Vector3(0, 0.048, -0.05), Vector3(0.048, 0.056, 0.28))
-	k.box(BODY, Vector3(0, 0.01, -0.05), Vector3(0.044, 0.03, 0.18))
-	k.box(DARK, Vector3(0, -0.055, -0.1), Vector3(0.03, 0.1, 0.05), Vector3(0.15, 0, 0))
-	k.box(DARK, Vector3(0, -0.125, -0.118), Vector3(0.03, 0.065, 0.05), Vector3(0.38, 0, 0))
-	k.box(BODY, Vector3(0, 0.045, -0.29), Vector3(0.052, 0.052, 0.2))
+	k.box(DARK, Vector3(0, -0.055, -0.1), Vector3(0.032, 0.1, 0.05), Vector3(0.15, 0, 0))
+	k.box(DARK, Vector3(0, -0.125, -0.118), Vector3(0.032, 0.065, 0.05), Vector3(0.38, 0, 0))
+	k.box(LENS, Vector3(0.0165, -0.07, -0.103), Vector3(0.002, 0.06, 0.008), Vector3(0.15, 0, 0))
+	k.box(LENS, Vector3(-0.0165, -0.07, -0.103), Vector3(0.002, 0.06, 0.008), Vector3(0.15, 0, 0))
+	# Receiver: upper with a chamfered top, lower, glowing core window on each side.
+	k.box(BODY, Vector3(0, 0.045, -0.05), Vector3(0.05, 0.05, 0.28))
+	k.box(BODY, Vector3(0, 0.07, -0.05), Vector3(0.036, 0.02, 0.26))
+	k.box(DARK, Vector3(0, 0.01, -0.05), Vector3(0.046, 0.032, 0.18))
+	for x: float in [-0.0255, 0.0255]:
+		k.box(DARK, Vector3(x, 0.045, -0.06), Vector3(0.002, 0.03, 0.09))
+		k.box(LENS, Vector3(x * 1.02, 0.045, -0.06), Vector3(0.002, 0.018, 0.076))
+	# Barrel shroud: two dark side plates leaving a slot, the bore inside, lines along each plate.
+	k.box(METAL, Vector3(0, 0.045, -0.34), Vector3(0.018, 0.018, 0.34))
+	k.box(DARK, Vector3(0, 0.072, -0.3), Vector3(0.05, 0.012, 0.26))
+	k.box(DARK, Vector3(0, 0.018, -0.3), Vector3(0.05, 0.012, 0.26))
+	for x: float in [-0.024, 0.024]:
+		k.box(BODY, Vector3(x, 0.045, -0.3), Vector3(0.008, 0.06, 0.26))
+		k.box(LENS, Vector3(x * 1.2, 0.058, -0.3), Vector3(0.002, 0.005, 0.24))
+		k.box(LENS, Vector3(x * 1.2, 0.032, -0.3), Vector3(0.002, 0.005, 0.24))
+	k.box(LENS, Vector3(0, 0.0785, -0.3), Vector3(0.006, 0.002, 0.24))
+	k.box(LENS, Vector3(0, 0.045, -0.3), Vector3(0.024, 0.022, 0.2))
+	# Emitter rings toward the muzzle, then the muzzle block with a glowing bore.
 	for i in 3:
-		k.box(LENS, Vector3(0.0265, 0.05, -0.23 - i * 0.05), Vector3(0.002, 0.012, 0.022))
-		k.box(LENS, Vector3(-0.0265, 0.05, -0.23 - i * 0.05), Vector3(0.002, 0.012, 0.022))
-	k.box(METAL, Vector3(0, 0.045, -0.44), Vector3(0.02, 0.02, 0.1))
-	k.box(METAL, Vector3(0, 0.045, -0.505), Vector3(0.03, 0.03, 0.03))
-	k.box(DARK, Vector3(0, 0.045, -0.5205), Vector3(0.012, 0.012, 0.002))
-	k.box(METAL, Vector3(0, 0.081, -0.1), Vector3(0.03, 0.01, 0.34))
-	for i in 8:
-		k.box(DARK, Vector3(0, 0.0865, 0.05 - i * 0.04), Vector3(0.031, 0.002, 0.012))
+		var z := -0.45 - i * 0.025
+		k.box(DARK, Vector3(0, 0.045, z), Vector3(0.042, 0.042, 0.01))
+		k.box(LENS, Vector3(0, 0.045, z - 0.0075), Vector3(0.034, 0.034, 0.005))
+	k.box(BODY, Vector3(0, 0.045, -0.52), Vector3(0.036, 0.036, 0.03))
+	k.box(LENS, Vector3(0, 0.045, -0.5355), Vector3(0.014, 0.014, 0.002))
+	# Top rail and sights.
+	k.box(METAL, Vector3(0, 0.085, -0.06), Vector3(0.028, 0.008, 0.26))
 	k.box(METAL, Vector3(0, 0.1, 0.05), Vector3(0.032, 0.028, 0.02))
-	k.box(METAL, Vector3(0, 0.074, -0.36), Vector3(0.024, 0.01, 0.024))
 	k.box(METAL, Vector3(0, 0.095, -0.36), Vector3(0.008, 0.04, 0.012))
-	k.box(DARK, Vector3(0.026, 0.055, -0.03), Vector3(0.003, 0.02, 0.05))
+	k.box(LENS, Vector3(0, 0.116, -0.36), Vector3(0.004, 0.004, 0.004))
+	# Stock: skeletal with a glowing strip.
 	k.box(DARK, Vector3(0, 0.05, 0.13), Vector3(0.026, 0.026, 0.08))
 	k.box(BODY, Vector3(0, 0.035, 0.21), Vector3(0.04, 0.07, 0.1))
+	k.box(LENS, Vector3(0.0205, 0.035, 0.21), Vector3(0.002, 0.008, 0.08))
+	k.box(LENS, Vector3(-0.0205, 0.035, 0.21), Vector3(0.002, 0.008, 0.08))
 	k.box(DARK, Vector3(0, 0.03, 0.27), Vector3(0.046, 0.095, 0.02))
 	_trigger(k, -0.022)
-	return {"muzzle": Vector3(0, 0.045, -0.522), "sight": Vector3(0, 0.11, 0.055),
+	return {"muzzle": Vector3(0, 0.045, -0.537), "sight": Vector3(0, 0.11, 0.055),
 		"support": Vector3(0, 0.005, -0.29)}
 
 
