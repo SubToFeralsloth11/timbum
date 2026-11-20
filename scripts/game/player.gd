@@ -21,6 +21,9 @@ const JUMP_VELOCITY := 7.2
 const STAND_HEIGHT := 1.8
 const CROUCH_HEIGHT := 1.4
 const STAND_EYE := 1.6
+## Block Hunt hiders (block_body): a collider that fits a one-block gap and eyes mid-block.
+const BLOCK_HEIGHT := 0.95
+const BLOCK_EYE := 0.5
 ## Avatar crouch lowers the body 0.35 m, so the eyes and hitboxes drop by the same amount.
 const CROUCH_DROP := 0.35
 ## Prone (lying down): a short collider, eyes near the floor, a slow crawl, steadier aim. The
@@ -244,6 +247,7 @@ var _remote_flags := FLAG_FLOOR
 var _last_visual_pos := Vector3.ZERO
 var _applied_crouch := -1.0
 var _applied_prone := -1.0
+var _applied_block := false
 var _fall_speed := 0.0
 ## Jump pads (JumpPad): true from a launch until the player lands (or hits a wall or grapples).
 ## The launch's horizontal speed holds, with only JumpPad.STEER of air control, so the arc lands
@@ -835,7 +839,7 @@ func _simulate(delta: float) -> void:
 	if pad_flight and is_on_wall():
 		pad_flight = false
 	_was_sprinting = sprinting
-	var lean_target := float(in_lean) if not sprinting and not sliding and not grappling and not prone else 0.0
+	var lean_target := float(in_lean) if not sprinting and not sliding and not grappling and not prone and not block_body() else 0.0
 	lean = move_toward(lean, lean_target, delta * LEAN_RATE)
 	_lean_reach = _measure_lean_reach() if not is_zero_approx(lean) else 1.0
 	_apply_head_pose()
@@ -962,13 +966,23 @@ func _measure_lean_reach() -> float:
 	return r[0] if r.size() == 2 else 1.0
 
 
-## How far crouching and lying down lower the eyes and head hitbox from standing.
+## How far crouching and lying down lower the eyes and head hitbox from standing (a Block Hunt
+## hider looks out from the middle of its block).
 func _eye_drop() -> float:
+	if block_body():
+		return STAND_EYE - BLOCK_EYE
 	return lerpf(CROUCH_DROP * crouch_blend, STAND_EYE - PRONE_EYE, prone_blend)
+
+
+## Block Hunt hiders: a body one block in size (MatchMode.block_body).
+func block_body() -> bool:
+	return world != null and world.rules != null and world.rules.block_body(self)
 
 
 ## Height above the feet to aim at or look for this player's body (bots, effects).
 func body_center_height() -> float:
+	if block_body():
+		return 0.5
 	return lerpf(1.25 - 0.25 * crouch_blend, 0.3, prone_blend)
 
 
@@ -1001,11 +1015,13 @@ func _has_headroom(height: float) -> bool:
 
 
 func _apply_crouch_shape() -> void:
-	if is_equal_approx(_applied_crouch, crouch_blend) and is_equal_approx(_applied_prone, prone_blend):
+	var block := block_body()
+	if is_equal_approx(_applied_crouch, crouch_blend) and is_equal_approx(_applied_prone, prone_blend) and block == _applied_block:
 		return
 	_applied_crouch = crouch_blend
 	_applied_prone = prone_blend
-	var h := lerpf(lerpf(STAND_HEIGHT, CROUCH_HEIGHT, crouch_blend), PRONE_HEIGHT, prone_blend)
+	_applied_block = block
+	var h := BLOCK_HEIGHT if block else lerpf(lerpf(STAND_HEIGHT, CROUCH_HEIGHT, crouch_blend), PRONE_HEIGHT, prone_blend)
 	_shape.height = h
 	_collider.position.y = h * 0.5
 	var body := Vector3(0.72, 1.35 - CROUCH_DROP * crouch_blend, 0.42).lerp(PRONE_BODY, prone_blend)

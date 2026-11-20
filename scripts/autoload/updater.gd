@@ -6,8 +6,9 @@ extends Node
 ## SHA-256 and size), `update.json.sig` (the owner's signature of MANIFEST_PREFIX + the manifest,
 ## checked with DevTag.signed_by_owner) and one game-data .pck per platform. A few seconds after
 ## start this node fetches the latest manifest; when it is newer and its RUNTIME matches this
-## build's (same Godot engine and native plugins), it downloads the .pck to user://updates/,
-## checks its size and hash and records it in STATE (status READY).
+## build's (same Godot engine and native plugins), it offers it (status AVAILABLE: the menu's
+## DOWNLOAD button). Pressing it (download_and_restart) downloads the .pck to user://updates/,
+## checks its size and hash, records it in STATE (status READY) and restarts into it at once.
 ##
 ## The installed game data is one file next to the engine (installed_pck(): the app's
 ## Resources/Timbum.pck on macOS, Timbum.pck beside Timbum.exe on Windows). It can't change while
@@ -37,7 +38,7 @@ const STATE := DIR + "state.json"
 const CHECK_DELAY := 3.0
 const MAX_MANIFEST_BYTES := 65536
 
-enum Status { OFF, IDLE, CHECKING, UP_TO_DATE, DOWNLOADING, READY, FULL, FAILED }
+enum Status { OFF, IDLE, CHECKING, UP_TO_DATE, AVAILABLE, DOWNLOADING, READY, FULL, FAILED }
 
 var status := Status.OFF
 ## The version on offer (DOWNLOADING, READY, FULL).
@@ -52,6 +53,10 @@ var _http: HTTPRequest
 var _download_size := 0
 ## The helper that installs the update has been started (once per run).
 var _installing := false
+## The manifest entry of the AVAILABLE update's pack for this platform.
+var _offer := {}
+## Restart into the update as soon as its download finishes (download_and_restart).
+var _restart_when_ready := false
 
 
 func _ready() -> void:
@@ -142,7 +147,7 @@ static func can_install() -> bool:
 
 ## Fetches the latest manifest and, when it is a usable newer version, downloads its pack.
 func check() -> void:
-	if status in [Status.OFF, Status.CHECKING, Status.DOWNLOADING, Status.READY]:
+	if status in [Status.OFF, Status.CHECKING, Status.AVAILABLE, Status.DOWNLOADING, Status.READY]:
 		return
 	_set_status(Status.CHECKING)
 	var manifest_text := await _get_text(_feed + MANIFEST)
@@ -174,7 +179,18 @@ func check() -> void:
 	if st.get("version") == version and FileAccess.file_exists(DIR + str(st.file)):
 		_set_status(Status.READY)
 		return
-	_download(version, file)
+	_offer = file
+	_set_status(Status.AVAILABLE)
+
+
+## DOWNLOAD in the main menu: fetches the offered update and restarts the game into it (an
+## update already downloaded installs and restarts straight away).
+func download_and_restart() -> void:
+	_restart_when_ready = true
+	if status == Status.READY:
+		restart_now()
+	elif status == Status.AVAILABLE:
+		_download(new_version, _offer)
 
 
 ## RESTART in the main menu: installs the downloaded update and starts the game again.
@@ -275,6 +291,8 @@ func _download(version: String, file: Dictionary) -> void:
 	_write_state({"version": version, "file": name})
 	print("Updater: downloaded update %s" % version)
 	_set_status(Status.READY)
+	if _restart_when_ready:
+		restart_now()
 
 
 ## GET `url` as text ("" on any failure).

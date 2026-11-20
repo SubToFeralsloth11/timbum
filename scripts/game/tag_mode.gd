@@ -368,6 +368,10 @@ func bot_notices(p: Player, _other: Player) -> bool:
 	return is_seeker(p)
 
 
+func bot_pursues(p: Player) -> bool:
+	return is_seeker(p)
+
+
 ## IT always knows where the nearest runner is (except the one it may not tag back).
 func bot_roam_goal(p: Player) -> Variant:
 	if not is_seeker(p):

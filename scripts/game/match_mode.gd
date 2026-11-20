@@ -552,3 +552,15 @@ func bot_notices(_p: Player, _other: Player) -> bool:
 ## hide-and-seek modes run their hiders this way; `brain` offers move_to / look_toward / stay.
 func bot_drive(_p: Player, _brain: BotBrain, _delta: float) -> bool:
 	return false
+
+
+## Bot `p` runs down whoever it spots and tags them instead of fighting (Tag, Hide and Seek and
+## Block Hunt seekers): no strafing, range keeping, peeking, prone or random hops.
+func bot_pursues(_p: Player) -> bool:
+	return false
+
+
+## Player `p` has a one-block body: a short collider, eyes mid-block and no peeking (Block Hunt
+## hiders).
+func block_body(_p: Player) -> bool:
+	return false

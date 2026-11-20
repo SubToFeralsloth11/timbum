@@ -504,7 +504,9 @@ func _block_mesh(block: int) -> ArrayMesh:
 	var uv2s := PackedVector2Array()
 	var colors := PackedColorArray()
 	var dirs: Array[Vector3] = [Vector3.RIGHT, Vector3.LEFT, Vector3.UP, Vector3.DOWN, Vector3.BACK, Vector3.FORWARD]
-	var h := 0.49
+	# Exactly one block: the faces touching a world block sit back to back with its faces, so
+	# back-face culling shows only one and nothing flickers.
+	var h := 0.5
 	for n in dirs:
 		var tile := 0 if n == Vector3.UP else (2 if n == Vector3.DOWN else 1)
 		var uv2 := Vector2(layers[block * 3 + tile], BlockAtlas.emission(block))
@@ -856,6 +858,7 @@ func bot_roam_goal(p: Player) -> Variant:
 		return goal
 	if goal != null:
 		_visited[Vector2i(floori(goal.x / 9.0), floori(goal.z / 9.0))] = now
+		p.brain.look_around(randf_range(1.5, 3.0))
 	var best: Variant = null
 	var best_s := -INF
 	for s: Array in Hiding.spots(world, p, [], []):
@@ -867,6 +870,14 @@ func bot_roam_goal(p: Player) -> Variant:
 			best = pos
 	_search[p.id] = best
 	return best
+
+
+func block_body(p: Player) -> bool:
+	return is_hider(p)
+
+
+func bot_pursues(p: Player) -> bool:
+	return is_seeker(p)
 
 
 func bot_drive(p: Player, brain: BotBrain, delta: float) -> bool:

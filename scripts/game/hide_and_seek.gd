@@ -178,6 +178,7 @@ func bot_roam_goal(p: Player) -> Variant:
 		return goal
 	if goal != null:
 		_visited[_cell(goal)] = now
+		p.brain.look_around(randf_range(1.5, 3.0))
 	var best: Variant = null
 	var best_s := -INF
 	for s: Array in Hiding.spots(world, p, [], []):

@@ -582,11 +582,14 @@ func _style_bottom_button(b: Button, color: Color) -> void:
 	b.add_theme_color_override("font_focus_color", UITheme.ACCENT)
 
 
-## The update button follows Updater.status: progress while a new version downloads, RESTART once
-## it is ready, DOWNLOAD (the release page) when it needs the full app; hidden otherwise.
+## The update button follows Updater.status: DOWNLOAD when a new version is out (downloads it and
+## restarts into it), progress while it downloads, RESTART if one is already downloaded, and
+## DOWNLOAD (the release page) when it needs the full app; hidden otherwise.
 func _refresh_update_button() -> void:
 	var v := Updater.new_version
 	match Updater.status:
+		Updater.Status.AVAILABLE:
+			_update_button.text = "v%s IS OUT  ·  DOWNLOAD & RESTART" % v
 		Updater.Status.DOWNLOADING:
 			_update_button.text = "DOWNLOADING v%s  %d%%" % [v, roundi(Updater.progress * 100.0)]
 		Updater.Status.READY:
@@ -602,8 +605,8 @@ func _refresh_update_button() -> void:
 func _on_update_pressed() -> void:
 	_home_focus = _update_button
 	match Updater.status:
-		Updater.Status.READY:
-			Updater.restart_now()
+		Updater.Status.AVAILABLE, Updater.Status.READY:
+			Updater.download_and_restart()
 		Updater.Status.FULL:
 			OS.shell_open(Updater.full_url)
 

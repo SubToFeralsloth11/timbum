@@ -322,6 +322,7 @@ func bot_drive(p: Player, brain: BotBrain, delta: float) -> bool:
 	var idx := int(_bot_wp.get(p.id, 0))
 	if p.pad_flight:
 		p.in_jump = false
+		_bot_jump_wait[p.id] = 0.0
 		return true
 	if idx + 1 >= path.size():
 		p.in_move = Vector2.ZERO
@@ -333,7 +334,9 @@ func bot_drive(p: Player, brain: BotBrain, delta: float) -> bool:
 		# jump went long): carry on from there.
 		for k in range(mini(3, path.size() - 1 - idx), 0, -1):
 			var wp: Vector3 = path[idx + k].pos
-			if Vector2(wp.x - pos.x, wp.z - pos.z).length() < 1.0 and absf(pos.y - wp.y) < 0.6:
+			# Up to a block above counts: the Hurdles strip has a wall right at its centre.
+			var up := pos.y - wp.y
+			if Vector2(wp.x - pos.x, wp.z - pos.z).length() < 1.0 and up > -0.6 and up < 1.3:
 				_bot_wp[p.id] = idx + k
 				return true
 	var target: Vector3 = path[idx + 1].pos
@@ -354,6 +357,9 @@ func bot_drive(p: Player, brain: BotBrain, delta: float) -> bool:
 	brain.look_toward(target + Vector3.UP * 1.4, delta, 1.2)
 	p.in_jump = false
 	if not on_floor:
+		# The cooldown only guards the takeoff frames: a pad flight or long jump must not carry it
+		# over, or the bot lands and walks straight off the next edge without jumping.
+		_bot_jump_wait[p.id] = 0.0
 		return true
 	var wait := float(_bot_jump_wait.get(p.id, 0.0)) - delta
 	_bot_jump_wait[p.id] = wait

@@ -180,6 +180,8 @@ var _grapple_aim_left := 0.0
 var _grapple_timer := 2.0
 ## The last strike this bot rolled to dodge: {strike id: dodges}.
 var _dodges := {}
+## Seconds left standing at a search spot looking round (look_around).
+var _scan_left := 0.0
 
 
 func _ready() -> void:
@@ -253,7 +255,11 @@ func think(delta: float) -> void:
 		_reaction_left -= delta
 		# A held Block Bomber goes on a target far enough away (Streaks decides when).
 		p.world.streaks.bot_consider(p, target)
-		_fight(delta)
+		_scan_left = 0.0
+		if p.world.rules.bot_pursues(p):
+			_pursue(delta)
+		else:
+			_fight(delta)
 	else:
 		_tracking_time = 0.0
 		_peek_side = 0
@@ -262,7 +268,12 @@ func think(delta: float) -> void:
 			p.cancel_charge()
 		if p.prone:
 			_press_prone()
-		_roam(delta)
+		if _scan_left > 0.0 and World.now() - _last_seen_time > MEMORY_TIME:
+			# Searching (look_around): stand at the spot and sweep the view round.
+			_scan_left -= delta
+			_turn_toward(p.head.global_position + Basis(Vector3.UP, p.yaw + 1.0) * Vector3.FORWARD * 5.0, delta * 0.45)
+		else:
+			_roam(delta)
 		_maybe_flush(delta)
 	_dodge_strike()
 	# Mid-air off a jump pad the arc does the travelling (JumpPad: its NavigationLink3D put the pad
@@ -630,6 +641,36 @@ func _fight(delta: float) -> void:
 			p.in_fire = true
 			_semi_wait = SEMI_INTERVAL[difficulty] * randf_range(0.8, 1.4)
 
+
+## A seeker that has spotted its target (MatchMode.bot_pursues): sprint along the navmesh to where
+## the target is heading, run straight at it once close (Tag counts a bump too), jump after it
+## onto a step and swing the moment it is in reach and in front.
+func _pursue(delta: float) -> void:
+	var to := target.global_position - p.global_position
+	var dist := to.length()
+	var lead := target.global_position + _target_velocity() * clampf(dist / 9.0, 0.0, 1.0)
+	if p.prone:
+		_press_prone()
+	var hooking := dist > 14.0 and _maybe_grapple(delta, target.global_position)
+	if not hooking:
+		_turn_toward(target.global_position + Vector3.UP * target.body_center_height(), delta * 1.3)
+	var flat := Vector3(to.x, 0.0, to.z)
+	if dist > 3.0:
+		_go_toward(lead, delta)
+		if _path.is_empty() and flat.length() > 0.3:
+			_set_move_world(flat.normalized())
+	elif flat.length() > 0.3:
+		_set_move_world(flat.normalized())
+	p.in_sprint = difficulty > 0 or dist < 8.0
+	_maybe_slide(delta)
+	if to.y > 0.8 and flat.length() < 3.5 and p.is_on_floor():
+		p.in_jump = true
+	var wid := p.weapon_id()
+	if _reaction_left > 0.0 or not Data.is_melee(wid):
+		return
+	var aim_dir := -Basis.from_euler(Vector3(p.pitch, p.yaw, 0.0)).z
+	var facing := rad_to_deg(aim_dir.angle_to(to.normalized())) < 35.0
+	p.in_fire = facing and dist < float(p.weapon_data().range) + 0.4
 
 ## Updates the bot's read of its target's movement and returns the sideways (across the line of
 ## sight) part of the target's velocity the bot hasn't caught up with yet.
@@ -1166,3 +1207,9 @@ func _hook_point(point: Vector3) -> Vector3:
 	if pos.distance_to(at) > 2.0 or pos.y < p.global_position.y - 1.0:
 		return NO_POS
 	return pos
+
+
+## A seeker reached a search spot (Hide and Seek, Block Hunt): stand and look round for `secs`
+## unless something new turns up.
+func look_around(secs: float) -> void:
+	_scan_left = secs

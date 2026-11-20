@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.3.2: Smarter bots, block-sized hiders, one-click updates (2026-11-20)
+
+### Bots
+- **Seekers chase and tag** in Tag, Hide and Seek and Block Hunt instead of fighting like it's Deathmatch: no more strafing, keeping range, peeking or lying down. They sprint straight at you, cut you off where you're heading and swing as soon as you're in reach.
+- **Seekers search properly:** at each spot they check, they stop and look around before moving on.
+- **Parkour bots finish the course:** they no longer walk off the platform after a jump pad landing, and they don't get stuck standing on the Hurdles. Before, they stalled at checkpoint 2.
+
+### Block Hunt
+- Your disguise is now exactly one block tall, not slightly shorter.
+- Hiders fit through one-block gaps, see from the middle of their block and can't peek.
+
+### Updates
+- When a new version is out, the main menu shows **DOWNLOAD & RESTART**. Press it once and the game downloads the update and restarts into the new version.
+
 ## 2.3.0: Parkour (2026-11-20)
 
 A new mode with no guns: race up an obstacle course. The game shows these notes once when you first open 2.3.
