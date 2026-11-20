@@ -131,18 +131,26 @@ func _build_detail() -> Control:
 	v.add_child(stage)
 	_preview = ModelPreview.new()
 	stage.add_child(_preview)
+	# Name, description and stats scroll when they outgrow the window, so BUY/EQUIP stay on screen.
+	var info_scroll := UIKit.pad_friendly(ScrollContainer.new())
+	info_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	info_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	v.add_child(info_scroll)
+	var info := UIKit.vbox(8)
+	info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	info_scroll.add_child(info)
 	_name = UIKit.label("", &"HeaderLabel")
 	_name.add_theme_font_size_override("font_size", 28)
-	v.add_child(_name)
+	info.add_child(_name)
 	_kind = UIKit.label("", &"SmallLabel")
 	_kind.add_theme_color_override("font_color", UITheme.ACCENT_2)
-	v.add_child(_kind)
+	info.add_child(_kind)
 	_desc = UIKit.label("", &"DimLabel")
 	_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_desc.custom_minimum_size.x = 360
-	v.add_child(_desc)
+	info.add_child(_desc)
 	_stats = UIKit.vbox(4)
-	v.add_child(_stats)
+	info.add_child(_stats)
 	v.add_child(HSeparator.new())
 	var actions := UIKit.hbox(10)
 	v.add_child(actions)

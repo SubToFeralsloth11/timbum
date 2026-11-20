@@ -44,6 +44,8 @@ var _editor: VBoxContainer
 var _optics_refresh: Array[Callable] = []
 var _paint_cells: Array[Button] = []
 var _confirm_at := {}
+## BUY PARTS: pays for the parts added since the last save (try them first, pay once).
+var _pay: Button
 
 
 ## The reticle as seen through the lens: a sky-and-ground disc, the lens tint, the reticle.
@@ -71,7 +73,7 @@ func _ready() -> void:
 	header.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	top.add_child(header)
 	_title = header.get_child(1).get_child(0) as Label
-	var sub := UIKit.label("Each part added costs %d coins (no refunds). Colours, finishes, sizes, positions and optics are free." \
+	var sub := UIKit.label("Try any parts for free, then BUY PARTS to keep them (%d coins each). Unbought parts are dropped when you leave." \
 		% CustomScopes.PART_PRICE, &"DimLabel")
 	header.get_child(1).add_child(sub)
 	var coins := UIKit.coin_amount(Profile.coins, 22)
@@ -159,6 +161,10 @@ func _build_stage() -> Control:
 	_info = UIKit.label("", &"SmallLabel")
 	_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	side.add_child(_info)
+	_pay = UIKit.button("", &"GoldButton", false)
+	_pay.custom_minimum_size.y = 44
+	_pay.pressed.connect(_buy_parts)
+	side.add_child(_pay)
 	var turn := UIKit.hbox(6)
 	side.add_child(turn)
 	for step: float in [-0.5, 0.5]:
@@ -358,12 +364,29 @@ func _touch() -> void:
 
 
 ## Saves pending free edits (MainMenu calls it on BACK, before the next screen reads the profile).
+## While there are unbought parts nothing saves; leaving then drops them (open() reloads).
 func flush() -> void:
-	if not _save_dirty:
+	if not _save_dirty or _unpaid() > 0:
 		return
 	_save_dirty = false
 	if Profile.has_custom_scope(wid):
 		Profile.save_custom_scope(wid, _design)
+
+
+## Parts in the design beyond the saved scope's: what BUY PARTS charges for.
+func _unpaid() -> int:
+	return maxi(0, (_design.get("parts", []) as Array).size() - Profile.custom_scope_parts(wid))
+
+
+func _buy_parts() -> void:
+	var n := _unpaid()
+	if n == 0 or not Profile.save_custom_scope(wid, _design, n):
+		Sfx.play(&"ui_error")
+		return
+	Sfx.play(&"ui_buy")
+	_save_dirty = false
+	_design = Profile.custom_scope_design(wid)
+	_refresh_info()
 
 
 func _on_profile_changed() -> void:
@@ -371,6 +394,7 @@ func _on_profile_changed() -> void:
 		return
 	_coins.text = UIKit.format_int(Profile.coins)
 	_refresh_catalog_state()
+	_refresh_info()
 
 
 func _rebuild_model() -> void:
@@ -392,6 +416,13 @@ func _refresh_info() -> void:
 		"" if parts > 0 else "\nNo parts: the gun uses its own sights."]
 	if not Profile.is_custom_scope_on(wid):
 		_info.text += "\nSwitched OFF: in a match the gun uses its own sights."
+	var n := _unpaid()
+	var cost := n * CustomScopes.PART_PRICE
+	_pay.visible = n > 0
+	_pay.text = "BUY %d PART%s · %s" % [n, "" if n == 1 else "S", UIKit.format_int(cost)]
+	_pay.disabled = Profile.coins < cost
+	_pay.tooltip_text = "You need %s more coins." % UIKit.format_int(cost - Profile.coins) if _pay.disabled \
+		else "Keep the new parts. Leaving without buying drops them."
 
 
 # ------------------------------------------------------------------ catalog
@@ -405,7 +436,7 @@ func _show_group(g: String) -> void:
 		var info := CustomScopes.part_info(part)
 		var b := UIKit.button("+  %s" % str(info.name).to_upper(), &"", false)
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		b.tooltip_text = "Add a %s for %d coins." % [info.name, CustomScopes.PART_PRICE]
+		b.tooltip_text = "Try a %s (free until you BUY PARTS, %d coins each)." % [info.name, CustomScopes.PART_PRICE]
 		b.set_meta(&"part", part)
 		b.pressed.connect(func() -> void: _add_part(CustomScopes.new_part(part)))
 		_catalog.add_child(b)
@@ -414,34 +445,26 @@ func _show_group(g: String) -> void:
 
 func _refresh_catalog_state() -> void:
 	var full := (_design.get("parts", []) as Array).size() >= CustomScopes.MAX_PARTS
-	var broke := Profile.coins < CustomScopes.PART_PRICE
 	for c in _catalog.get_children():
 		var b := c as Button
 		if b != null and not b.is_queued_for_deletion():
-			b.disabled = full or broke
+			b.disabled = full
 			if full:
 				b.tooltip_text = "This scope has the most parts it can carry (%d)." % CustomScopes.MAX_PARTS
-			elif broke:
-				b.tooltip_text = "You need %d coins to add a part." % CustomScopes.PART_PRICE
 
 
-## Adds `part` (a part dictionary) for CustomScopes.PART_PRICE, saved at once, and selects it.
+## Adds `part` (a part dictionary) to the design for free trying, and selects it; BUY PARTS keeps it.
 func _add_part(part: Dictionary) -> void:
-	var next := _design.duplicate(true)
-	if (next.parts as Array).size() >= CustomScopes.MAX_PARTS:
+	if (_design.parts as Array).size() >= CustomScopes.MAX_PARTS:
 		Sfx.play(&"ui_error")
 		return
-	(next.parts as Array).append(part)
-	_save_dirty = false
-	if not Profile.save_custom_scope(wid, next, 1):
-		Sfx.play(&"ui_error")
-		return
-	Sfx.play(&"ui_buy")
-	_design = Profile.custom_scope_design(wid)
+	(_design.parts as Array).append(part)
+	Sfx.play(&"ui_click")
 	_sel = (_design.parts as Array).size() - 1
 	_show_tab("PARTS")
 	_refresh_parts()
-	_rebuild_model()
+	_refresh_catalog_state()
+	_touch()
 
 
 ## RESET: the starter parts and default optics. CLEAR ALL: no parts, the optics stay.
@@ -455,14 +478,12 @@ func _clear_parts() -> void:
 	_replace_design(d)
 
 
-## Replaces the whole design (RESET / CLEAR ALL: no refund), saved at once.
+## Replaces the whole design (RESET / CLEAR ALL: no refund); saved like any free edit.
 func _replace_design(d: Dictionary) -> void:
-	_save_dirty = false
-	if not Profile.save_custom_scope(wid, d):
-		Sfx.play(&"ui_error")
-		return
-	_design = Profile.custom_scope_design(wid)
+	_design = d
 	_sel = 0 if not (_design.parts as Array).is_empty() else -1
+	_touch()
+	_refresh_catalog_state()
 	_refresh_parts()
 	for f in _optics_refresh:
 		f.call()
@@ -548,9 +569,9 @@ func _refresh_editor() -> void:
 		func() -> float: return float(p.roll), func(x: float) -> void: p.roll = int(x))
 	var row := UIKit.hbox(6)
 	e.add_child(row)
-	var dup := UIKit.button("DUPLICATE · %d" % CustomScopes.PART_PRICE, &"GoldButton", false)
-	dup.tooltip_text = "Add a copy of this part, a little to the right, for %d coins." % CustomScopes.PART_PRICE
-	dup.disabled = Profile.coins < CustomScopes.PART_PRICE or parts.size() >= CustomScopes.MAX_PARTS
+	var dup := UIKit.button("DUPLICATE", &"GoldButton", false)
+	dup.tooltip_text = "Add a copy of this part, a little to the right (%d coins at BUY PARTS)." % CustomScopes.PART_PRICE
+	dup.disabled = parts.size() >= CustomScopes.MAX_PARTS
 	dup.pressed.connect(func() -> void:
 		var copy := p.duplicate(true)
 		var off: Vector3 = copy.offset
@@ -559,18 +580,15 @@ func _refresh_editor() -> void:
 		_tab_buttons["PARTS"].grab_focus())
 	row.add_child(dup)
 	var remove := UIKit.button("REMOVE", &"DangerButton")
-	remove.tooltip_text = "Take this part off (no refund)."
+	remove.tooltip_text = "Take this part off (bought parts are not refunded)."
 	remove.pressed.connect(func() -> void:
-		var next := _design.duplicate(true)
-		(next.parts as Array).remove_at(_sel)
-		_save_dirty = false
-		if Profile.save_custom_scope(wid, next):
-			_design = Profile.custom_scope_design(wid)
-			_sel = mini(_sel, (_design.parts as Array).size() - 1)
-			_refresh_parts()
-			_rebuild_model()
-			# The pressed button is gone; keep keyboard / controller focus on this panel.
-			_tab_buttons["PARTS"].grab_focus())
+		(_design.parts as Array).remove_at(_sel)
+		_sel = mini(_sel, (_design.parts as Array).size() - 1)
+		_refresh_parts()
+		_refresh_catalog_state()
+		_touch()
+		# The pressed button is gone; keep keyboard / controller focus on this panel.
+		_tab_buttons["PARTS"].grab_focus())
 	row.add_child(remove)
 
 

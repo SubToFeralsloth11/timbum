@@ -149,22 +149,22 @@ var _custom_head: Label
 ## Under CUSTOM in Capture the Flag: why some custom maps are greyed out (CustomMaps.ctf_problems).
 var _custom_hint: Label
 var _custom_grid: GridContainer
-var _difficulty_row: HBoxContainer
+var _difficulty_row: Container
 ## Port and address rows, only shown for the DIRECT connection.
 var _direct_rows: Array[Control] = []
 ## Waiting for Steam/WebRTC to set up hosting; leaving the page cancels it.
 var _host_pending := false
-var _kill_row: HBoxContainer
-var _team_kill_row: HBoxContainer
-var _ladder_row: HBoxContainer
-var _koth_row: HBoxContainer
-var _ctf_row: HBoxContainer
-var _lives_row: HBoxContainer
-var _time_row: HBoxContainer
-var _mutator_row: HBoxContainer
-var _streak_row: HBoxContainer
+var _kill_row: Container
+var _team_kill_row: Container
+var _ladder_row: Container
+var _koth_row: Container
+var _ctf_row: Container
+var _lives_row: Container
+var _time_row: Container
+var _mutator_row: Container
+var _streak_row: Container
 ## WEATHER chips: AUTO, CLEAR and the weathers the picked map allows (_fill_weather_row).
-var _weather_row: HBoxContainer
+var _weather_row: HFlowContainer
 ## Map preview rects still waiting for their texture.
 var _preview_queue: Array[TextureRect] = []
 ## Mode cards in MODE_IDS order (a ButtonGroup of toggles).
@@ -253,23 +253,23 @@ func _ready() -> void:
 	var page := make_page()
 	page.add_child(make_header("HOST GAME" if hosting else "PLAY VS BOTS",
 		"Friends join by room code, Wi-Fi or Steam. Bots fill the empty slots." if hosting else "Offline match against bots."))
-	var body := UIKit.hbox(16)
-	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	page.add_child(body)
-
-	# Left: one big card per mode.
-	var modes := UIKit.vbox(6)
-	modes.custom_minimum_size.x = 274
-	body.add_child(modes)
-	modes.add_child(UIKit.label("MODE", &"SubheaderLabel"))
-	_mode_row = UIKit.vbox(4)
-	_mode_row.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	modes.add_child(_mode_row)
+	# Top: the modes as a grid of tiles.
+	page.add_child(UIKit.label("MODE", &"SubheaderLabel"))
+	var mode_grid := GridContainer.new()
+	mode_grid.columns = 6
+	mode_grid.add_theme_constant_override("h_separation", 8)
+	mode_grid.add_theme_constant_override("v_separation", 8)
+	_mode_row = mode_grid
+	page.add_child(mode_grid)
 	var mode_group := ButtonGroup.new()
 	for id: String in MODE_IDS:
 		_mode_row.add_child(_mode_card(id, mode_group))
 
-	# Middle: map preview cards.
+	var body := UIKit.hbox(16)
+	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	page.add_child(body)
+
+	# Left: map preview cards.
 	var mv := UIKit.vbox(8)
 	mv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	body.add_child(mv)
@@ -323,7 +323,7 @@ func _ready() -> void:
 
 	# Right: presets strip, the rules that apply to the mode, START.
 	var rules_panel := UIKit.panel()
-	rules_panel.custom_minimum_size.x = 384
+	rules_panel.custom_minimum_size.x = 400
 	body.add_child(rules_panel)
 	var rv := UIKit.vbox(10)
 	rules_panel.add_child(rv)
@@ -429,7 +429,7 @@ func _ready() -> void:
 		func(i: int) -> void: _choice.streaks[_choice.mode] = i == 0)
 	_rule(rules, "STREAKS", _streak_row)
 	_mode_rule(rules, ["ffa", "tdm", "ctf", "gungame", "koth", "infected", "tactical"])
-	_weather_row = UIKit.hbox(4)
+	_weather_row = _flow()
 	_rule(rules, "WEATHER", _weather_row)
 	_rules_hint = UIKit.label(MODE_HINTS.ffa, &"DimLabel")
 	_rules_hint.add_theme_font_size_override("font_size", 13)
@@ -456,22 +456,66 @@ func _ready() -> void:
 			Net.leave())
 	_select_map(_choice.map)
 	_apply_mode()
+	_add_hover_fx(self)
 
 
-## A big selectable mode card: emblem, name and a one-line description.
+## A wrapping row of chips: rows of chips wrap instead of widening the panel past the window.
+static func _flow() -> HFlowContainer:
+	var f := HFlowContainer.new()
+	f.add_theme_constant_override("h_separation", 4)
+	f.add_theme_constant_override("v_separation", 4)
+	return f
+
+
+## Gives every button under `root` a 3D-feeling hover: it lifts toward the viewer, tilts toward
+## the pointer and brightens; it settles back when the pointer leaves.
+static func _add_hover_fx(root: Node) -> void:
+	for n: Node in root.find_children("*", "Button", true, false):
+		_hover_fx(n as Button)
+
+
+static func _hover_fx(b: Button) -> void:
+	if b.has_meta(&"hover_fx"):
+		return
+	b.set_meta(&"hover_fx", true)
+	var big := b.custom_minimum_size.y >= 60.0 or b.theme_type_variation == &"CardButton"
+	var lift := 1.045 if big else 1.08
+	b.resized.connect(func() -> void: b.pivot_offset = b.size * 0.5)
+	var settle := func(on: bool) -> void:
+		var t := b.create_tween().set_parallel().set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		t.tween_property(b, "scale", Vector2.ONE * (lift if on else 1.0), 0.16)
+		t.tween_property(b, "self_modulate", Color(1.15, 1.15, 1.2) if on else Color.WHITE, 0.16)
+		if not on:
+			t.tween_property(b, "rotation", 0.0, 0.2)
+		b.z_index = 1 if on else 0
+	b.mouse_entered.connect(func() -> void:
+		if not b.disabled:
+			settle.call(true))
+	b.mouse_exited.connect(func() -> void: settle.call(false))
+	b.gui_input.connect(func(e: InputEvent) -> void:
+		if e is InputEventMouseMotion and not b.disabled and b.size.x > 0.0:
+			# Tilt up to ~2.5 degrees toward the side the pointer is on, like a card on a pivot.
+			var lean: float = ((e as InputEventMouseMotion).position.x / b.size.x - 0.5) * 2.0
+			b.rotation = lerpf(b.rotation, deg_to_rad(2.5 if big else 4.0) * lean * 0.5, 0.35))
+
+
+## A selectable mode tile: emblem beside the name, a one-line description below, and a strip
+## in the mode's colour along the bottom.
 func _mode_card(id: String, group: ButtonGroup) -> Button:
 	var card := UIKit.button("", &"CardButton")
 	card.toggle_mode = true
 	card.button_group = group
 	card.name = id
-	card.custom_minimum_size = Vector2(0, 40)
-	card.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	card.custom_minimum_size = Vector2(150, 66)
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	card.button_pressed = id == _choice.mode
+	card.tooltip_text = MODE_TAGS[id]
 	card.pressed.connect(func() -> void: pick_mode(id))
-	var h := UIKit.hbox(12)
+	var h := UIKit.hbox(10)
 	h.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	h.offset_left = 12
-	h.offset_right = -10
+	h.offset_left = 10
+	h.offset_right = -8
+	h.offset_bottom = -4
 	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(h)
 	h.add_child(ModeIcon.new(id, MODE_COLORS[id]))
@@ -481,11 +525,24 @@ func _mode_card(id: String, group: ButtonGroup) -> Button:
 	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	h.add_child(v)
 	var title := UIKit.label(str(Data.MODES[id].name).to_upper(), &"ValueLabel")
-	title.add_theme_font_size_override("font_size", 16)
+	title.add_theme_font_size_override("font_size", 15)
+	title.clip_text = true
+	title.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	v.add_child(title)
 	var tag := UIKit.label(MODE_TAGS[id], &"DimLabel")
-	tag.add_theme_font_size_override("font_size", 13)
+	tag.add_theme_font_size_override("font_size", 12)
+	tag.clip_text = true
+	tag.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	v.add_child(tag)
+	var strip := ColorRect.new()
+	strip.color = Color(MODE_COLORS[id], 0.85)
+	strip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	strip.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
+	strip.offset_top = -4
+	strip.offset_left = 8
+	strip.offset_right = -8
+	strip.offset_bottom = -2
+	card.add_child(strip)
 	return card
 
 
@@ -504,6 +561,7 @@ func on_shown() -> void:
 	# Choices are shared with the other mode's screen, which may have changed them.
 	_show_choice()
 	_refresh_presets(_preset_pick.selected)
+	_add_hover_fx(self)
 
 
 ## (Re)builds the CUSTOM cards from the saved playable maps (CustomMaps.playable), each with its
@@ -643,6 +701,7 @@ func _fill_weather_row() -> void:
 		b.button_pressed = i == selected
 		b.pressed.connect(func() -> void: _choice.weather = id)
 		_weather_row.add_child(b)
+	_add_hover_fx(_weather_row)
 
 
 func _pick_segment(row: Container, selected: int) -> void:
@@ -676,7 +735,7 @@ func _update_players_label() -> void:
 
 ## Row of small toggle chips acting as a radio group.
 func _segmented(names: Array[String], selected: int, on_pick: Callable) -> Container:
-	var h: Container = UIKit.hbox(4)
+	var h: Container = _flow()
 	var group := ButtonGroup.new()
 	for i in names.size():
 		var b := UIKit.button(names[i], &"ChipButton")

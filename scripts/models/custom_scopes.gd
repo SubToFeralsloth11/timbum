@@ -17,9 +17,10 @@ extends RefCounted
 
 const CATALOG := preload("res://scripts/autoload/data.gd")
 
-## Coins: the unlock for one gun (with the STARTER parts), and every part added after that.
-const UNLOCK_PRICE := 5000
-const PART_PRICE := 150
+## Coins: the unlock for one gun (with the STARTER parts), and every part kept after that (parts
+## are tried for free in the builder and paid for together at BUY PARTS).
+const UNLOCK_PRICE := 2000
+const PART_PRICE := 50
 const MAX_PARTS := 24
 const FORMAT := 1
 const HEADER := 35
