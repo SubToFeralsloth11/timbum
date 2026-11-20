@@ -216,6 +216,8 @@ var _hit_body: Area3D
 var _hit_head_col: CollisionShape3D
 var _hit_body_col: CollisionShape3D
 var _hit_body_shape: BoxShape3D
+## False while a mode supplies its own hitbox (set_own_hitboxes).
+var _own_hitboxes := true
 var _exclude: Array[RID] = []
 var _trigger_down := false
 var _fire_gated := false
@@ -1011,6 +1013,15 @@ func _apply_crouch_shape() -> void:
 	_hit_body_col.position.y = body.y * 0.5
 	_hit_body_col.position.z = PRONE_BODY_Z * prone_blend
 	_apply_head_pose()
+
+
+## Modes that swap the body's shape (Block Hunt disguises) turn the human hitboxes off and add
+## their own Area3D with the same "player" / "part" metas. Stays off through respawns until on.
+func set_own_hitboxes(on: bool) -> void:
+	_own_hitboxes = on
+	var layer := MASK_HITBOX if on and alive else 0
+	_hit_head.collision_layer = layer
+	_hit_body.collision_layer = layer
 
 
 # ---------------------------------------------------------------- grapple hook
@@ -2224,8 +2235,8 @@ func respawn(pos: Vector3, p_yaw: float) -> void:
 		current_slot = _first_armed_slot()
 	_refresh_weapon_visual()
 	collision_layer = 2
-	_hit_head.collision_layer = MASK_HITBOX
-	_hit_body.collision_layer = MASK_HITBOX
+	_hit_head.collision_layer = MASK_HITBOX if _own_hitboxes else 0
+	_hit_body.collision_layer = MASK_HITBOX if _own_hitboxes else 0
 	avatar.reset_pose()
 	if nametag != null:
 		nametag.visible = true

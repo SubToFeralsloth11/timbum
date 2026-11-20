@@ -61,7 +61,7 @@ var _disguise_nodes := {}
 var _still := {}
 var _last_pos := {}
 var _overlay: SeekOverlay
-var _block_mats := {}
+var _block_meshes := {}
 ## Entity id -> its block's balloon-glow overlay (every peer).
 var _glow_mats := {}
 ## The local hider's picks: block choice and balloon size, and its balloon cooldown.
@@ -452,7 +452,9 @@ func grapple_allowed(p: Player) -> bool:
 	return not (is_seeker(p) and started and not seeking())
 
 
-## Hiders: the avatar hides behind the block disguise; seekers look like themselves.
+## Hiders: the avatar hides behind the block disguise; seekers look like themselves. The hider's
+## own human-shaped hitboxes go off and a 1 m box on the disguise takes their place, so shots
+## hit exactly the block a seeker sees.
 func _apply_look(p: Player) -> void:
 	var hider := is_hider(p)
 	p.avatar.visible = not hider
@@ -461,30 +463,74 @@ func _apply_look(p: Player) -> void:
 		if node != null and is_instance_valid(node):
 			node.queue_free()
 		_disguise_nodes.erase(p.id)
+		p.set_own_hitboxes(true)
 		if p == world.local_player and p.viewmodel != null and p.alive:
 			p.viewmodel.visible = true
 		return
 	if node == null or not is_instance_valid(node):
 		node = MeshInstance3D.new()
 		node.name = "Disguise"
-		var box := BoxMesh.new()
-		box.size = Vector3.ONE * 0.98
-		node.mesh = box
 		node.top_level = true
+		var area := Area3D.new()
+		area.name = "DisguiseHit"
+		area.collision_layer = Player.MASK_HITBOX
+		area.collision_mask = 0
+		area.monitoring = false
+		area.monitorable = false
+		area.set_meta("player", p)
+		area.set_meta("part", "body")
+		var col := CollisionShape3D.new()
+		var shape := BoxShape3D.new()
+		shape.size = Vector3.ONE
+		col.shape = shape
+		area.add_child(col)
+		node.add_child(area)
 		p.add_child(node)
 		node.global_position = p.global_position + Vector3.UP * 0.5
 		_disguise_nodes[p.id] = node
-	node.material_override = _block_material(int(p.info.get("disguise", BlockAtlas.STONE)))
+	node.mesh = _block_mesh(int(p.info.get("disguise", BlockAtlas.STONE)))
+	p.set_own_hitboxes(false)
 
 
-func _block_material(block: int) -> StandardMaterial3D:
-	if not _block_mats.has(block):
-		var m := StandardMaterial3D.new()
-		m.albedo_texture = BlockAtlas.icon(block, 1)
-		m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
-		m.roughness = 0.9
-		_block_mats[block] = m
-	return _block_mats[block]
+## A 1 m cube of `block` built like world blocks: each face shows its whole top / side / bottom
+## tile through the world block material, so it matches the map (shadows, block shader effects).
+func _block_mesh(block: int) -> ArrayMesh:
+	if _block_meshes.has(block):
+		return _block_meshes[block]
+	var layers := BlockAtlas.face_layers()
+	var verts := PackedVector3Array()
+	var normals := PackedVector3Array()
+	var uvs := PackedVector2Array()
+	var uv2s := PackedVector2Array()
+	var colors := PackedColorArray()
+	var dirs: Array[Vector3] = [Vector3.RIGHT, Vector3.LEFT, Vector3.UP, Vector3.DOWN, Vector3.BACK, Vector3.FORWARD]
+	var h := 0.49
+	for n in dirs:
+		var tile := 0 if n == Vector3.UP else (2 if n == Vector3.DOWN else 1)
+		var uv2 := Vector2(layers[block * 3 + tile], BlockAtlas.emission(block))
+		# Face axes: `right` is +u, `down` is +v (texture v runs down the side faces); this order
+		# makes each triangle clockwise seen from outside (Godot's front face).
+		var down := Vector3.DOWN if absf(n.y) < 0.5 else Vector3.BACK
+		var right := n.cross(down)
+		var quad: Array[Vector2] = [Vector2(0, 0), Vector2(1, 0), Vector2(1, 1), Vector2(0, 0), Vector2(1, 1), Vector2(0, 1)]
+		for q in quad:
+			verts.append((n + right * (q.x * 2.0 - 1.0) + down * (q.y * 2.0 - 1.0)) * h)
+			normals.append(n)
+			uvs.append(q)
+			uv2s.append(uv2)
+			colors.append(Color(1, 1, 1, 0))
+	var a := []
+	a.resize(Mesh.ARRAY_MAX)
+	a[Mesh.ARRAY_VERTEX] = verts
+	a[Mesh.ARRAY_NORMAL] = normals
+	a[Mesh.ARRAY_TEX_UV] = uvs
+	a[Mesh.ARRAY_TEX_UV2] = uv2s
+	a[Mesh.ARRAY_COLOR] = colors
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, a)
+	mesh.surface_set_material(0, BlockAtlas.material(BlockAtlas.is_transparent(block)))
+	_block_meshes[block] = mesh
+	return mesh
 
 
 ## Every peer: how long each player has held still (the disguise settles; seeker bots read it).
@@ -512,6 +558,7 @@ func _process(delta: float) -> void:
 			_disguise_nodes.erase(eid)
 			continue
 		node.visible = p.alive
+		(node.get_node("DisguiseHit") as Area3D).collision_layer = Player.MASK_HITBOX if p.alive else 0
 		var feet := p.global_position
 		var want := feet + Vector3.UP * 0.5
 		var turn := snappedf(p.yaw, PI * 0.5)
