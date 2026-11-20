@@ -531,7 +531,7 @@ func _process(delta: float) -> void:
 			_chams_timer = CHAMS_REFRESH
 			_refresh_chams()
 	if _open and _coins_label != null:
-		_coins_label.text = "Coins %s  ·  Level %d  ·  Prestige %d" % [UIKit.format_int(Profile.coins), Profile.level, Profile.prestige]
+		_coins_label.text = "Coins %s  ·  Level %d" % [UIKit.format_int(Profile.coins), Profile.level]
 	_overlay.visible = not _open
 	if _overlay.visible:
 		_overlay.queue_redraw()
@@ -992,32 +992,15 @@ func _coins(n: int) -> void:
 	_say("+%s coins." % UIKit.format_int(n))
 
 
-func _level_up() -> void:
-	if Profile.level >= Data.LEVEL_CAP:
-		_say("Level %d is the cap: prestige to go on." % Data.LEVEL_CAP)
-		return
-	var levels := Profile._grant(0, Profile.xp_for_level(Profile.level) - Profile.xp)
+## Fills the current level and `n` - 1 more (their level-up coins included).
+func _level_up(n: int) -> void:
+	var need := Profile.xp_for_level(Profile.level) - Profile.xp
+	for i in range(1, n):
+		need += Profile.xp_for_level(Profile.level + i)
+	var levels := Profile._grant(0, need)
 	Profile.save()
 	Profile.changed.emit()
 	_say("Level %d (+%d)." % [Profile.level, levels])
-
-
-func _max_level() -> void:
-	Profile.level = Data.LEVEL_CAP
-	Profile.xp = 0
-	Profile.save()
-	Profile.changed.emit()
-	_say("Level %d." % Data.LEVEL_CAP)
-
-
-func _prestige_up() -> void:
-	if Profile.prestige >= Data.PRESTIGE_MAX:
-		_say("Prestige %d is the top rank." % Data.PRESTIGE_MAX)
-		return
-	Profile.prestige += 1
-	Profile.save()
-	Profile.changed.emit()
-	_say("Prestige %d." % Profile.prestige)
 
 
 func _unlock_everything() -> void:
@@ -1258,9 +1241,8 @@ func _build_profile(p: Control) -> void:
 	p.add_child(note)
 	_action(p, "+1,000 COINS", _coins.bind(1000))
 	_action(p, "+100,000 COINS", _coins.bind(100000), &"GoldButton")
-	_action(p, "+1 LEVEL", _level_up)
-	_action(p, "MAX LEVEL", _max_level)
-	_action(p, "PRESTIGE +1", _prestige_up)
+	_action(p, "+1 LEVEL", _level_up.bind(1))
+	_action(p, "+10 LEVELS", _level_up.bind(10))
 	_action(p, "UNLOCK EVERYTHING", _unlock_everything, &"GoldButton")
 	_action(p, "MAX EVERY ATTACHMENT", _max_attachments)
 	_action(p, "GOLD MASTERY ON EVERY GUN", _gold_mastery)

@@ -1,12 +1,15 @@
 class_name SeasonScreen
 extends MenuScreen
 ## The season pass (Season, Profile.season_*): a header with the tier, the season XP bar, the
-## days left and CLAIM ALL; a horizontally scrolling track of one card per tier (reward thumbnail,
-## name, locked / reached / claimed state, the next tier's progress) with a CLAIM button under
-## each; and a detail panel with a live 3D preview of the selected cosmetic (as the shop shows it)
-## and EQUIP once it is owned. Keyboard and controller: left / right walk the cards (the preview
-## follows the focus), down reaches a card's CLAIM (or, once claimed, EQUIP), up reaches CLAIM ALL
-## while there is something to claim, the right stick scrolls, Esc / B goes back (_wire_focus).
+## days left and CLAIM ALL; a strip of the season quests (Season.QUESTS: one column per week with
+## each quest's progress, when the week opens and the tier its gate unlocks; it starts at the
+## newest open week); a horizontally scrolling track of one card per tier (reward thumbnail, name,
+## locked / quest-locked / reached / claimed state, the next tier's progress) with a CLAIM button
+## under each; and a detail panel with a live 3D preview of the selected cosmetic (as the shop
+## shows it) and EQUIP once it is owned. Keyboard and controller: left / right walk the cards (the
+## preview follows the focus), down reaches a card's CLAIM (or, once claimed, EQUIP), up reaches
+## CLAIM ALL while there is something to claim, the right stick scrolls, Esc / B goes back
+## (_wire_focus).
 
 const CARD_SIZE := Vector2(150, 0)
 ## Card thumbnails are taller than the shop's (Thumbnailer.size).
@@ -34,18 +37,22 @@ var _back: Button
 ## Per tier (1-based index - 1): {card, claim, mark, bar}.
 var _cards: Array[Dictionary] = []
 var _selected := 0
+## The season quests strip (_refresh_quests fills it).
+var _quest_scroll: ScrollContainer
+var _quest_box: HBoxContainer
 
 
 func _ready() -> void:
 	var page := make_page()
 	var header := make_header(Season.title(),
-		"Free for everyone. Matches and challenge claims earn season XP: every %s fills a tier. Claim each tier's reward below." % UIKit.format_int(Season.XP_PER_TIER))
+		"Free for everyone. Matches, challenges and season quests earn season XP: every %s fills a tier, and some tiers also need that week's quests. Claim each tier's reward below." % UIKit.format_int(Season.XP_PER_TIER))
 	_back = header.get_child(0)
 	page.add_child(header)
 	_thumbs = Thumbnailer.new()
 	_thumbs.size = THUMB_SIZE
 	add_child(_thumbs)
 	page.add_child(_build_summary())
+	page.add_child(_build_quests())
 	var body := UIKit.hbox(18)
 	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	page.add_child(body)
@@ -71,6 +78,7 @@ func _ready() -> void:
 func on_shown() -> void:
 	_status.text = ""
 	_refresh()
+	_show_current_week.call_deferred()
 	# Start on the first tier waiting to be claimed, else the tier being worked on.
 	var claimable := Profile.claimable_season_tiers()
 	var start := claimable[0] if not claimable.is_empty() else mini(Profile.season_tier() + 1, Season.TIERS)
@@ -86,6 +94,68 @@ func _process(delta: float) -> void:
 	var push := Profile.pad_stick(&"look_left", &"look_right", &"look_up", &"look_down").x
 	if push != 0.0:
 		_scroll.scroll_horizontal += roundi(push * STICK_SCROLL * delta)
+
+
+## The season quests strip: one column per Season.WEEKS week, scrolling sideways.
+func _build_quests() -> Control:
+	var panel := UIKit.panel(&"InsetPanel")
+	_quest_scroll = ScrollContainer.new()
+	_quest_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	panel.add_child(_quest_scroll)
+	_quest_box = UIKit.hbox(22)
+	_quest_scroll.add_child(_quest_box)
+	return panel
+
+
+## Rebuilds the quest columns from Profile.season_quests: each week's open date, its gate (the tier
+## it unlocks and how many of its quests that takes) and every quest with its progress.
+func _refresh_quests() -> void:
+	for c in _quest_box.get_children():
+		c.queue_free()
+	var progress := Profile.season_quests
+	for w in range(1, Season.WEEKS + 1):
+		var open := Season.week_open(w)
+		var col := UIKit.vbox(2)
+		col.custom_minimum_size.x = 300
+		col.modulate = Color.WHITE if open else Color(0.6, 0.6, 0.66)
+		col.set_meta(&"week", w)
+		_quest_box.add_child(col)
+		var done := Season.done_in_week(w, progress)
+		var head := UIKit.label("WEEK %d  ·  %s" % [w, "%d / 4 DONE" % done if open else "OPENS " + Season.week_date_text(w)], &"SmallLabel")
+		head.add_theme_color_override("font_color", Season.COLOR if open else UITheme.TEXT_DIM)
+		col.add_child(head)
+		for g: Array in Season.GATES:
+			if int(g[1]) == w:
+				var passed := done >= int(g[2])
+				var gate := UIKit.label(("TIER %d UNLOCKED" if passed else "%d QUESTS UNLOCK TIER %%d" % int(g[2])) % int(g[0]), &"SmallLabel")
+				gate.add_theme_color_override("font_color", UITheme.GOOD if passed else UITheme.ACCENT)
+				col.add_child(gate)
+		for q in Season.week_quests(w):
+			var row := UIKit.hbox(8)
+			col.add_child(row)
+			var finished := Season.quest_done(q, progress)
+			var text := UIKit.label(("✓ " if finished else "") + str(q.text), &"DimLabel")
+			text.add_theme_font_size_override("font_size", 14)
+			text.add_theme_color_override("font_color", UITheme.GOOD if finished else UITheme.TEXT)
+			text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			text.clip_text = true
+			text.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+			row.add_child(text)
+			var amount := UIKit.label(Season.quest_progress_text(q, progress), &"SmallLabel", HORIZONTAL_ALIGNMENT_RIGHT)
+			row.add_child(amount)
+	_quest_box.add_child(UIKit.label("Each quest: +%d season XP. Quests count matches played once their week opens, online or offline." % Season.QUEST_SXP, &"SmallLabel"))
+
+
+## Scrolls the quest strip to the newest open week, once the rebuilt columns are laid out.
+func _show_current_week() -> void:
+	await get_tree().process_frame
+	var current := 1
+	for w in range(1, Season.WEEKS + 1):
+		if Season.week_open(w):
+			current = w
+	for c in _quest_box.get_children():
+		if c.get_meta(&"week", 0) == current and not c.is_queued_for_deletion():
+			_quest_scroll.ensure_control_visible(c)
 
 
 # ------------------------------------------------------------------ layout
@@ -274,6 +344,12 @@ func _refresh() -> void:
 	if tier >= Season.TIERS:
 		_bar.value = 1.0
 		_next_label.text = "Every tier reached. The whole pass is yours."
+	elif _gated():
+		# The XP is there; the next tier waits for its week's quests.
+		var gate := Season.blocking_gate(tier + 1, Profile.season_quests)
+		_bar.value = 1.0
+		_next_label.text = "Tier %d is QUEST LOCKED: finish %d week-%d quests (%d done)  ·  next: %s" % [tier + 1, int(gate[2]),
+			int(gate[1]), Season.done_in_week(int(gate[1]), Profile.season_quests), Season.reward_text(tier + 1)]
 	else:
 		_bar.value = float(Season.tier_progress(xp)) / Season.XP_PER_TIER
 		_next_label.text = "%s / %s to tier %d  ·  next: %s" % [UIKit.format_int(Season.tier_progress(xp)),
@@ -286,7 +362,13 @@ func _refresh() -> void:
 	_claim_all.focus_mode = Control.FOCUS_ALL if claimable > 0 else Control.FOCUS_NONE
 	for i in _cards.size():
 		_refresh_card(i + 1)
+	_refresh_quests()
 	_refresh_detail()
+
+
+## True when the season XP has reached a tier a quest gate still holds back (Season.tier_cap).
+func _gated() -> bool:
+	return Season.tier_for(Profile.season_xp) > Profile.season_tier()
 
 
 func _refresh_card(tier: int) -> void:
@@ -310,12 +392,14 @@ func _refresh_card(tier: int) -> void:
 		mark.text = "READY"
 		mark.add_theme_color_override("font_color", UITheme.ACCENT)
 	else:
+		# Behind a quest gate the XP alone won't do: say so.
+		var quest_locked := tier > Season.tier_cap(Profile.season_quests)
 		claim.text = "LOCKED"
-		mark.text = "LOCKED"
-		mark.add_theme_color_override("font_color", UITheme.TEXT_DIM)
-	# The tier being worked on shows how far along it is.
+		mark.text = "QUESTS" if quest_locked else "LOCKED"
+		mark.add_theme_color_override("font_color", Season.COLOR if quest_locked else UITheme.TEXT_DIM)
+	# The tier being worked on shows how far along it is (full while a quest gate holds it).
 	bar.visible = tier == Profile.season_tier() + 1
-	bar.value = float(Season.tier_progress(Profile.season_xp)) / Season.XP_PER_TIER
+	bar.value = 1.0 if _gated() else float(Season.tier_progress(Profile.season_xp)) / Season.XP_PER_TIER
 
 
 ## Shows tier `tier` in the detail panel: its live preview (cosmetics) or the coin, and its state.
@@ -360,8 +444,14 @@ func _refresh_detail() -> void:
 		_state.text = "READY TO CLAIM"
 		_state.add_theme_color_override("font_color", UITheme.ACCENT)
 	else:
-		var need := tier * Season.XP_PER_TIER - Profile.season_xp
-		_state.text = "%s SEASON XP TO GO" % UIKit.format_int(need)
+		var need := maxi(0, tier * Season.XP_PER_TIER - Profile.season_xp)
+		var parts: Array[String] = []
+		if need > 0:
+			parts.append("%s SEASON XP TO GO" % UIKit.format_int(need))
+		var gate := Season.blocking_gate(tier, Profile.season_quests)
+		if not gate.is_empty():
+			parts.append("NEEDS %d WEEK-%d QUESTS (%d DONE)" % [int(gate[2]), int(gate[1]), Season.done_in_week(int(gate[1]), Profile.season_quests)])
+		_state.text = "  ·  ".join(parts)
 		_state.add_theme_color_override("font_color", UITheme.TEXT_DIM)
 	_wire_focus()
 

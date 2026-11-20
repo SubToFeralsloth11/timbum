@@ -671,7 +671,7 @@ func _show_view(killer: Player) -> void:
 			_hidden_layers.append(layer)
 	world.hud.set_killcam(true)
 	var team := Teams.of(killer)
-	_overlay.show_for(world.tagged_name(_killer) if team < 0 else Teams.tagged(team, world.tagged_name(_killer)),
+	_overlay.show_for(world.display_name(_killer) if team < 0 else Teams.tagged(team, world.display_name(_killer)),
 		Teams.color(team) if team >= 0 else Palette.color("feed_killer"), World.weapon_label(_wid))
 
 

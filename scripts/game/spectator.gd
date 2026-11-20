@@ -367,7 +367,7 @@ func watched() -> Dictionary:
 		return out
 	var p := target
 	out.id = p.id
-	out.name = world.tagged_name(p.id)
+	out.name = world.display_name(p.id)
 	out.team = Teams.of(p)
 	out.alive = p.alive
 	out.health = p.health
@@ -383,7 +383,7 @@ func score_line(eid: int) -> String:
 	var s: Dictionary = world.scores.get(eid, {})
 	if s.is_empty():
 		return ""
-	var row := {"id": eid, "name": s.name, "level": s.get("level", 1), "prestige": s.get("prestige", 0),
+	var row := {"id": eid, "name": s.name, "level": s.get("level", 1),
 		"kills": s.kills, "deaths": s.deaths, "headshots": s.headshots, "bot": s.bot}
 	world.rules.annotate_rows([row])
 	var line := world.rules.race_text(world.rules.race_value(row))

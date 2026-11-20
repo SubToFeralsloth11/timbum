@@ -946,11 +946,11 @@ func _build_barrier(team: int) -> void:
 	_barriers.append(body)
 
 
-## Team look (MatchMode/Teams); Tactical nametags show just the name and prestige badge (no
-## level), since 50 players crowd the building. Set before the team look adds the team's shape.
+## Team look (MatchMode/Teams); Tactical nametags show just the name (no level), since 50
+## players crowd the building. Set before the team look adds the team's shape.
 func on_player_added(p: Player) -> void:
 	if p.nametag != null:
-		p.nametag.text = Data.badged_name(str(p.info.name), int(p.info.get("prestige", 0)))
+		p.nametag.text = str(p.info.name)
 	super(p)
 
 

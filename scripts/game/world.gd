@@ -326,16 +326,6 @@ func display_name(entity_id: int) -> String:
 	return "?"
 
 
-## display_name with the player's prestige badge in front (kill feed).
-func tagged_name(entity_id: int) -> String:
-	var rank := 0
-	if scores.has(entity_id):
-		rank = int(scores[entity_id].get("prestige", 0))
-	elif entities.has(entity_id):
-		rank = int(entities[entity_id].info.get("prestige", 0))
-	return Data.badged_name(display_name(entity_id), rank)
-
-
 func _process(delta: float) -> void:
 	if not net_live():
 		return
@@ -437,7 +427,7 @@ func _send_snapshot_chunk(snap: Array) -> void:
 func _server_add_entity(eid: int, info: Dictionary, is_bot: bool, team := -1, is_alive := true) -> void:
 	var spawn := rules.spawn_point(eid, team)
 	info = _apply_loadout_mutator(rules.prepare_info(info, team))
-	scores[eid] = {"name": str(info.name), "level": int(info.get("level", 1)), "prestige": int(info.get("prestige", 0)),
+	scores[eid] = {"name": str(info.name), "level": int(info.get("level", 1)),
 		"kills": 0, "deaths": 0, "headshots": 0, "streak": 0, "best_streak": 0, "bot": is_bot, "joined": now()}
 	_refill_equipment(eid, info)
 	_broadcast(&"_s_spawn_entity", [eid, info, is_bot, spawn[0], spawn[1], float(info.get("max_hp", Data.MAX_HEALTH)) * CustomMutators.health_mult(), is_alive])
@@ -1520,7 +1510,7 @@ func _s_killed(victim_id: int, killer_id: int, wid: String, head: bool, killer_h
 		if killer_node == local_player and local_player.viewmodel != null:
 			DevPack.flash(local_player.viewmodel)
 	var teams := [Teams.of(entities.get(killer_id)), Teams.of(victim)]
-	hud.add_killfeed(tagged_name(killer_id), weapon_label(wid), tagged_name(victim_id), head, killer_id == victim_id, teams[0], teams[1], wid)
+	hud.add_killfeed(display_name(killer_id), weapon_label(wid), display_name(victim_id), head, killer_id == victim_id, teams[0], teams[1], wid)
 	var me := my_id()
 	if killer_id == me and victim_id != me:
 		clips.on_local_kill(victim_id, wid, head)

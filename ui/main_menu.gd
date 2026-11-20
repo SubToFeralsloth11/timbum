@@ -27,6 +27,8 @@ var _transition: Tween
 # Top bar / profile card widgets refreshed on Profile.changed.
 var _coins_label: Label
 var _level_label: Label
+## The player card's flame level badge.
+var _level_badge: LevelBadge
 var _xp_bar: ProgressBar
 var _xp_label: Label
 var _name_edit: LineEdit
@@ -98,6 +100,9 @@ func _ready() -> void:
 		_add_tutorial_offer()
 	else:
 		_play_button.grab_focus.call_deferred()
+	# 2.4.0's one-time season pass reset notice (after the update log when that opens first).
+	if Profile.season_reset_notice and whats_new == null:
+		_show_season_reset_notice.call_deferred()
 
 	modulate.a = 0.0
 	create_tween().tween_property(self, "modulate:a", 1.0, 0.35)
@@ -181,12 +186,37 @@ func open_whats_new() -> void:
 
 func _on_whats_new_closed() -> void:
 	whats_new = null
+	if Profile.season_reset_notice:
+		_show_season_reset_notice()
 	if not Profile.tutorial_offered:
 		_add_tutorial_offer()
 		return
 	_set_home_focusable(true)
 	_refresh_daily()
 	_focus_home.call_deferred()
+
+
+## The one-time 2.4.0 season pass reset notice (Profile.season_reset_notice, set by
+## Profile._reset_season); closing it clears the flag for good.
+func _show_season_reset_notice() -> void:
+	var dialog := AcceptDialog.new()
+	dialog.title = "Season pass reset"
+	dialog.ok_button_text = "Got it"
+	dialog.dialog_autowrap = true
+	dialog.min_size = Vector2i(560, 0)
+	dialog.dialog_text = ("The %s pass was being finished in a couple of days, so it has been rebuilt to last the whole "
+		+ "season (until 31 December).\n\nMatches pay less season XP, tiers cost more, and new weekly SEASON QUESTS unlock "
+		+ "tiers 6, 11, 16, 21, 26 and 30.\n\nTo keep it fair, everybody's pass starts again from tier 0: season XP and "
+		+ "claimed tiers were cleared and the season-exclusive items were taken back (anything you wore is back to the "
+		+ "default). Coins you claimed stay yours.\n\nLevels have no cap any more and prestige is gone: your level now "
+		+ "burns in a flame that grows brighter the higher you climb.") % Season.NAME
+	var done := func() -> void:
+		Profile.dismiss_season_reset_notice()
+		dialog.queue_free()
+	dialog.confirmed.connect(done)
+	dialog.canceled.connect(done)
+	add_child(dialog)
+	dialog.popup_centered()
 
 
 func _add_tutorial_offer() -> void:
@@ -769,11 +799,16 @@ func _build_profile_card() -> Control:
 
 	var lvl_row := UIKit.hbox(8)
 	v.add_child(lvl_row)
+	# The level inside its flame (LevelBadge): brighter and a little bigger the higher it is.
+	_level_badge = LevelBadge.make(Profile.level, 0.6)
+	_level_badge.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	lvl_row.add_child(_level_badge)
 	var lvl_title := UIKit.label("PROGRESS", &"SmallLabel")
 	lvl_title.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	lvl_row.add_child(lvl_title)
 	lvl_row.add_child(UIKit.spacer())
 	_xp_label = UIKit.label("", &"SmallLabel")
+	_xp_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	lvl_row.add_child(_xp_label)
 	_xp_bar = ProgressBar.new()
 	_xp_bar.theme_type_variation = &"XPBar"
@@ -801,17 +836,14 @@ func _commit_name() -> void:
 
 func _refresh_profile() -> void:
 	_coins_label.text = UIKit.format_int(Profile.coins)
-	_level_label.text = Data.badged_name("LVL %d" % Profile.level, Profile.prestige)
+	_level_label.text = "LVL %d" % Profile.level
+	_level_badge.level = Profile.level
 	if not _name_edit.has_focus():
 		_name_edit.text = Profile.player_name
 	var need := Profile.xp_for_level(Profile.level)
 	_xp_bar.max_value = need
-	if Profile.level >= Data.LEVEL_CAP:
-		_xp_bar.value = need
-		_xp_label.text = "LVL %d  ·  MAX LEVEL%s" % [Profile.level, "  ·  PRESTIGE IN STATS" if Profile.can_prestige() else ""]
-	else:
-		_xp_bar.value = Profile.xp
-		_xp_label.text = "LVL %d  ·  %s / %s XP" % [Profile.level, UIKit.format_int(Profile.xp), UIKit.format_int(need)]
+	_xp_bar.value = Profile.xp
+	_xp_label.text = "LVL %d  ·  %s / %s XP" % [Profile.level, UIKit.format_int(Profile.xp), UIKit.format_int(need)]
 	var to_claim := Profile.claimable_challenges()
 	var badge := str(to_claim) if to_claim > 0 else ""
 	_challenges_button.set_badge(badge)

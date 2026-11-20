@@ -367,6 +367,6 @@ func _rebuild_models() -> void:
 	_preview.show_model(avatar, true, PI - 1.1, 0.95)
 	_gun_preview.show_model(DrawPreview.create(Profile.equipped.draw, Profile.loadout.secondary, Profile.gun_skin(Profile.loadout.secondary),
 		Profile.equipped.charm, -1.0, Profile.worn_scope(Profile.loadout.secondary)), false, ShopScreen.GUN_YAW, 1.0)
-	_name_tag.text = Data.badged_name(Profile.player_name.to_upper(), Profile.prestige)
+	_name_tag.text = Profile.player_name.to_upper()
 	_summary.text = "Melee: %s  ·  Secondary: %s  ·  %s" % [Data.WEAPONS[Profile.loadout.melee].name,
 		Data.WEAPONS[Profile.loadout.secondary].name, Data.TACTICALS[Profile.loadout.tactical].name]

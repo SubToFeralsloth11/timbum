@@ -1109,7 +1109,6 @@ static func sanitize_info(info: Dictionary) -> Dictionary:
 		"spray": str(info.get("spray", "gg")),
 		"mods": {},
 		"level": clampi(int(info.get("level", 1)), 1, 9999),
-		"prestige": clampi(int(info.get("prestige", 0)) if typeof(info.get("prestige", 0)) in [TYPE_INT, TYPE_FLOAT] else 0, 0, Data.PRESTIGE_MAX),
 		"camos": [],
 		# Watches without a player entity (see Spectator); only a real bool counts.
 		"spectator": info.get("spectator", false) is bool and bool(info.get("spectator", false)),

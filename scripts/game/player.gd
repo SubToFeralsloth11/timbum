@@ -512,7 +512,7 @@ func _ready() -> void:
 		camera.add_child(viewmodel)
 	else:
 		nametag = Label3D.new()
-		nametag.text = "%s  Lv %d" % [Data.badged_name(str(info.name), int(info.get("prestige", 0))), int(info.get("level", 1))]
+		nametag.text = "%s  Lv %d" % [str(info.name), int(info.get("level", 1))]
 		_nametag_lift = NAMETAG_ABOVE_NECK + (NAMETAG_BIG_HEAD_LIFT if Net.config.mutator == "big_heads" else 0.0)
 		nametag.position.y = (1.35 + _nametag_lift) * size_scale
 		nametag.billboard = BaseMaterial3D.BILLBOARD_ENABLED

@@ -1,7 +1,7 @@
 class_name LobbyScreen
 extends Control
 ## Pre-match lobby (scenes/lobby.tscn) every peer of an online session sits in before the first
-## match: the players with their ready ticks, level and prestige; the map vote (Net.lobby.options);
+## match: the players with their ready ticks and level flame; the map vote (Net.lobby.options);
 ## the host's match rules; how friends can join (host); a small chat. The state lives in Net
 ## (Net.lobby, server-authoritative); this screen only shows it and sends this player's ready,
 ## vote and chat lines.
@@ -296,7 +296,7 @@ func _player_row(pid: int, is_ready: bool, is_me: bool) -> Control:
 	tick.custom_minimum_size.x = 74
 	tick.add_theme_color_override("font_color", UITheme.GOOD if is_ready else UITheme.TEXT_DIM)
 	row.add_child(tick)
-	var player_name := UIKit.label(Data.badged_name(str(info.name), int(info.get("prestige", 0))), &"ValueLabel")
+	var player_name := UIKit.label(str(info.name), &"ValueLabel")
 	player_name.add_theme_font_size_override("font_size", 16)
 	player_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	player_name.clip_text = true
@@ -307,8 +307,8 @@ func _player_row(pid: int, is_ready: bool, is_me: bool) -> Control:
 		row.add_child(UIKit.badge("SPECTATOR"))
 	if pid == 1:
 		row.add_child(UIKit.badge("HOST"))
-	var lvl := UIKit.label("LVL %d" % int(info.get("level", 1)), &"SmallLabel", HORIZONTAL_ALIGNMENT_RIGHT)
-	lvl.custom_minimum_size.x = 56
+	var lvl := LevelBadge.make(int(info.get("level", 1)), 0.4)
+	lvl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(lvl)
 	return row
 

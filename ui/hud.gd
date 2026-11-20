@@ -9,9 +9,6 @@ const CHAT_LIFE := 10.0
 const CHAT_MAX := 8
 ## The chat's bottom edge (from the screen bottom) when no killstreak card sits under it.
 const CHAT_BOTTOM := -140.0
-## Results-table rows shown before it scrolls (a full lobby plus the highlights, rewards and the
-## next-match strip would push the panel off a 720p screen).
-const RESULTS_VISIBLE_ROWS := 6
 ## Callouts (kills, multi-kills, streaks, lead changes, mode events) under the score card.
 const CALLOUT_MAX := 3
 const CALLOUT_LIFE := 2.6
@@ -283,10 +280,19 @@ var _results: Control
 var _win_banner: Label
 var _celebrating := false
 var _results_rows: VBoxContainer
+## The results panel's scrolling body (everything but the footer) and what it holds.
 var _results_scroll: ScrollContainer
+var _results_body: VBoxContainer
+var _results_footer: HBoxContainer
+## The local player's row in the results table (kept in view once the body is sized).
+var _results_my_row: Control
 var _results_title: Label
+## "MATCH TIME 7:42" under the match line.
+var _results_time: Label
 var _results_rewards: GridContainer
 var _results_highlights: VBoxContainer
+## The local player's MATCH SCORE breakdown (MatchScore parts from their row).
+var _results_score: GridContainer
 var _results_timer: Label
 var _results_next: Label
 var _results_next_desc: Label
@@ -902,8 +908,7 @@ func _build_scoreboard() -> void:
 func spectators_text() -> String:
 	var names: Array[String] = []
 	for pid: int in Net.spectator_ids():
-		var n := Data.badged_name(str(Net.players[pid].name), int(Net.players[pid].get("prestige", 0)))
-		names.append(n + ("  (you)" if pid == world.my_id() else ""))
+		names.append(str(Net.players[pid].name) + ("  (you)" if pid == world.my_id() else ""))
 	return "" if names.is_empty() else "SPECTATORS (%d)  ·  %s" % [names.size(), ",  ".join(names)]
 
 
@@ -916,15 +921,15 @@ func _score_row(cells: Array, color: Color, highlight: bool) -> Control:
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var h := HBoxContainer.new()
 	panel.add_child(h)
-	# #, PLAYER, then the mode's three stat columns (MatchMode.score_columns). A PLAYER cell given
-	# as [name, suffix] trims only the name (with an ellipsis): the suffix (level, [BOT], mode tag)
-	# always shows in full.
-	var widths := [36, 300, 80, 80, 80]
+	# #, PLAYER, then the mode's three stat columns (MatchMode.score_columns) and, on the results
+	# screen, MATCH SCORE. A PLAYER cell given as [name, suffix, level] trims only the name (with an
+	# ellipsis): the small flame LevelBadge and the suffix ([BOT], mode tag) always show in full.
+	var widths := [36, 300, 80, 80, 80, 90]
 	for i in cells.size():
 		if cells[i] is Array:
 			var box := HBoxContainer.new()
 			box.custom_minimum_size.x = widths[i]
-			box.add_theme_constant_override("separation", 0)
+			box.add_theme_constant_override("separation", 4)
 			box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			var n := _label(str(cells[i][0]), 16, color)
 			n.add_theme_constant_override("outline_size", 0)
@@ -932,6 +937,9 @@ func _score_row(cells: Array, color: Color, highlight: bool) -> Control:
 			n.clip_text = true
 			n.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 			box.add_child(n)
+			var badge := LevelBadge.make(int(cells[i][2]), 0.3)
+			badge.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			box.add_child(badge)
 			var suffix := _label(str(cells[i][1]), 16, color)
 			suffix.add_theme_constant_override("outline_size", 0)
 			box.add_child(suffix)
@@ -965,33 +973,51 @@ func _build_results() -> void:
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 7)
 	panel.add_child(v)
-	# The title with this match's line (mode, map, mutator, time of day, weather) tucked under it.
+	# Everything above the footer scrolls (wheel, scrollbar drag, right stick; _fit_results sizes it
+	# to the screen), so a full lobby, the score breakdown and the rewards fit on 720p. The footer
+	# (timer, skip, leave) stays pinned under it.
+	_results_scroll = UIKit.pad_friendly(ScrollContainer.new())
+	_results_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	v.add_child(_results_scroll)
+	_results_body = VBoxContainer.new()
+	_results_body.add_theme_constant_override("separation", 7)
+	_results_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_results_scroll.add_child(_results_body)
+	# The title with this match's line (mode, map, mutator, time of day, weather) and its length
+	# tucked under it.
 	var head := VBoxContainer.new()
 	head.add_theme_constant_override("separation", -4)
-	v.add_child(head)
+	_results_body.add_child(head)
 	_results_title = _label("", 38, Color(1, 0.82, 0.25), true)
 	_results_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	head.add_child(_results_title)
 	var match_line := _label(_match_line(), 14, Color(0.7, 0.75, 0.85), true)
 	match_line.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	head.add_child(match_line)
-	v.add_child(_score_row(["#", "PLAYER"] + world.rules.score_columns(), Color(0.7, 0.75, 0.85), false))
-	# A full 12-player lobby plus the highlights would overflow 720 px, so the table scrolls
-	# past RESULTS_VISIBLE_ROWS rows (show_results sizes it).
-	_results_scroll = ScrollContainer.new()
-	_results_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	v.add_child(_results_scroll)
+	_results_time = _label("", 14, Color(0.75, 0.92, 1.0), true)
+	_results_time.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	head.add_child(_results_time)
+	_results_body.add_child(_score_row(["#", "PLAYER"] + world.rules.score_columns() + ["SCORE"], Color(0.7, 0.75, 0.85), false))
 	_results_rows = VBoxContainer.new()
 	_results_rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_results_scroll.add_child(_results_rows)
-	# Below the table: match highlights on the left, this player's reward breakdown on the right.
+	_results_body.add_child(_results_rows)
+	# Below the table: match highlights and this player's MATCH SCORE breakdown on the left, their
+	# reward breakdown on the right.
 	var extras := HBoxContainer.new()
 	extras.add_theme_constant_override("separation", 40)
 	extras.alignment = BoxContainer.ALIGNMENT_CENTER
-	v.add_child(extras)
+	_results_body.add_child(extras)
+	var left := VBoxContainer.new()
+	left.add_theme_constant_override("separation", 8)
+	extras.add_child(left)
 	_results_highlights = VBoxContainer.new()
 	_results_highlights.add_theme_constant_override("separation", 2)
-	extras.add_child(_results_highlights)
+	left.add_child(_results_highlights)
+	_results_score = GridContainer.new()
+	_results_score.columns = 2
+	_results_score.add_theme_constant_override("h_separation", 18)
+	_results_score.add_theme_constant_override("v_separation", 2)
+	left.add_child(_results_score)
 	_results_rewards = GridContainer.new()
 	_results_rewards.columns = 3
 	_results_rewards.add_theme_constant_override("h_separation", 18)
@@ -1001,8 +1027,8 @@ func _build_results() -> void:
 	var prep := HBoxContainer.new()
 	prep.add_theme_constant_override("separation", 30)
 	var prep_sep := HSeparator.new()
-	v.add_child(prep_sep)
-	v.add_child(prep)
+	_results_body.add_child(prep_sep)
+	_results_body.add_child(prep)
 	_results_prep.append(prep_sep)
 	_results_prep.append(prep)
 	var next_box := VBoxContainer.new()
@@ -1067,6 +1093,7 @@ func _build_results() -> void:
 	footer.add_theme_constant_override("separation", 24)
 	footer.alignment = BoxContainer.ALIGNMENT_CENTER
 	v.add_child(footer)
+	_results_footer = footer
 	_results_timer = _label("", 15, Color(0.8, 0.8, 0.85), true)
 	footer.add_child(_results_timer)
 	_results_skip = UIKit.button("", &"PrimaryButton", false)
@@ -1087,6 +1114,7 @@ func _build_results() -> void:
 	leave.pressed.connect(func() -> void:
 		Sfx.play(&"ui_click")
 		Net.leave())
+	_results.resized.connect(_fit_results)
 
 
 func _make_vignette() -> Texture2D:
@@ -1372,15 +1400,16 @@ func _sorted_rows() -> Array:
 	var rows: Array = []
 	for eid: int in world.scores:
 		var s: Dictionary = world.scores[eid]
-		rows.append({"id": eid, "name": s.name, "level": s.get("level", 1), "prestige": s.get("prestige", 0), "kills": s.kills, "deaths": s.deaths, "headshots": s.headshots, "bot": s.bot})
+		rows.append({"id": eid, "name": s.name, "level": s.get("level", 1), "kills": s.kills, "deaths": s.deaths, "headshots": s.headshots, "bot": s.bot})
 	world.rules.annotate_rows(rows)
 	world.rules.sort_rows(rows)
 	return rows
 
 
 ## Rows with a `team` (team modes) are grouped under a header per team (MatchMode.group_header).
+## `with_score` adds the MATCH SCORE column (results: the server's `score` on each final row).
 ## Returns the local player's row (null when they have none).
-func _fill_rows(container: VBoxContainer, rows: Array) -> Control:
+func _fill_rows(container: VBoxContainer, rows: Array, with_score := false) -> Control:
 	for c in container.get_children():
 		c.queue_free()
 	var me := world.my_id()
@@ -1393,36 +1422,46 @@ func _fill_rows(container: VBoxContainer, rows: Array) -> Control:
 			group = team
 			container.add_child(_group_row(world.rules.group_header(team, rows), Teams.color(team)))
 		# The team's shape before the name: the side shows without its colour too. The name is
-		# trimmed if it's too wide; level, [BOT] and the mode's tag never are.
-		var player_name := Teams.tagged(team, Data.badged_name(str(r.name), int(r.get("prestige", 0))))
-		var suffix := "  Lv %d%s" % [int(r.get("level", 1)), "  [BOT]" if r.bot else ""]
+		# trimmed if it's too wide; the level flame, [BOT] and the mode's tag never are.
+		var player_name := Teams.tagged(team, str(r.name))
+		var suffix := "[BOT]" if r.bot else ""
 		var tag := world.rules.row_tag(r)
 		if not tag.is_empty():
-			suffix += "  " + tag
+			suffix += ("  " if not suffix.is_empty() else "") + tag
 		var mine := int(r.id) == me
 		var color := Color(1, 0.95, 0.8) if mine else Color.WHITE
 		if team >= 0:
 			color = Teams.color(team).lightened(0.35 if mine else 0.15)
 			if world.rules.row_dimmed(r):
 				color = color.darkened(0.45)
-		var row := _score_row([i + 1, [player_name, suffix]] + world.rules.row_cells(r), color, mine)
+		var cells: Array = [i + 1, [player_name, suffix, int(r.get("level", 1))]] + world.rules.row_cells(r)
+		if with_score:
+			cells.append(UIKit.format_int(int(r.get("score", 0))))
+		var row := _score_row(cells, color, mine)
 		container.add_child(row)
 		if mine:
 			my_row = row
 	return my_row
 
 
-## Scrolls the results table so `row` is fully in view (no-op when it already is or has been freed).
-func _scroll_to_row(row: Control) -> void:
-	if not is_instance_valid(row) or row.is_queued_for_deletion() or not _results_scroll.is_ancestor_of(row):
+## Sizes the results body to the screen: as tall as its content, but never pushing the pinned
+## footer off the bottom (720p included). Also runs when the screen is resized.
+func _fit_results() -> void:
+	if not _results.visible:
 		return
-	var top := row.position.y
-	var bottom := top + row.size.y
-	var view := _results_scroll.size.y
-	if top < _results_scroll.scroll_vertical:
-		_results_scroll.scroll_vertical = int(top)
-	elif bottom > _results_scroll.scroll_vertical + view:
-		_results_scroll.scroll_vertical = int(ceil(bottom - view))
+	# Panel padding (18 top and bottom), the gap above the footer and a margin around the panel.
+	var room := _results.size.y - _results_footer.get_combined_minimum_size().y - 36.0 - 7.0 - 40.0
+	_results_scroll.custom_minimum_size.y = minf(_results_body.get_combined_minimum_size().y, maxf(160.0, room))
+
+
+## A frame after the results open (the old rows are freed by then): sizes the body and brings
+## the local player's row into view (no scroll when it already shows; team modes put a header
+## line above each team's rows, so the row node itself is the target).
+func _settle_results() -> void:
+	_fit_results()
+	_results_scroll.scroll_vertical = 0
+	if is_instance_valid(_results_my_row) and not _results_my_row.is_queued_for_deletion():
+		_results_scroll.ensure_control_visible.call_deferred(_results_my_row)
 
 
 ## A team's header line in the scoreboard and results table.
@@ -1632,7 +1671,7 @@ func add_killfeed(killer: String, weapon: String, victim: String, head: bool, su
 	var h := HBoxContainer.new()
 	h.add_theme_constant_override("separation", 6)
 	panel.add_child(h)
-	var me := world.tagged_name(world.my_id())
+	var me := world.display_name(world.my_id())
 	var killer_color := Teams.color(killer_team) if killer_team >= 0 else Palette.color("feed_killer")
 	var victim_color := Teams.color(victim_team) if victim_team >= 0 else Palette.color("feed_victim")
 	# In team modes each name gets its side's shape too, so colour is never the only cue.
@@ -1854,21 +1893,23 @@ func show_results(rows: Array, placement: int, rewards: Dictionary, wait: float,
 		_results_title.text = "YOU PLACED #%d" % placement
 	else:
 		_results_title.text = "MATCH OVER"
-	var my_row := _fill_rows(_results_rows, rows)
-	if not rows.is_empty():
-		var last: Control = _results_rows.get_child(_results_rows.get_child_count() - 1)
-		var row_h := last.get_combined_minimum_size().y + _results_rows.get_theme_constant("separation")
-		_results_scroll.custom_minimum_size.y = row_h * mini(rows.size(), RESULTS_VISIBLE_ROWS)
-		if my_row != null:
-			# Once the scrollbar learns the table's height (and the rows are laid out), bring this player's row into
-			# view. Scroll to the row node itself: team modes put a header line above each team's rows.
-			_results_scroll.get_v_scroll_bar().changed.connect(func() -> void: _scroll_to_row.call_deferred(my_row), CONNECT_ONE_SHOT)
+	_results_my_row = _fill_rows(_results_rows, rows, true)
+	var match_time := int(next.get("match_time", -1))
+	_results_time.text = "MATCH TIME %s" % MatchScore.clock_text(match_time) if match_time >= 0 else ""
+	_results_time.visible = match_time >= 0
 	_fill_highlights(rows)
 	_fill_rewards(rewards)
 	_fill_match_stats(rewards)
+	_fill_score_breakdown(rows)
 	_fill_next(next)
 	_fill_map_vote(next)
 	_fill_results_loadout()
+	if not get_tree().process_frame.is_connected(_settle_results):
+		get_tree().process_frame.connect(_settle_results, CONNECT_ONE_SHOT)
+	# Every LevelUpBanner.MILESTONE levels: a short celebration at the top, out of the way.
+	var milestone := LevelUpBanner.milestone(int(rewards.get("level_before", Profile.level)), Profile.level)
+	if milestone > 0 and not rewards.is_empty():
+		LevelUpBanner.play(_results, milestone)
 	_results_skip.disabled = false
 	_results_skip.text = "Start Next Match"
 	# Tactical has no next match on a timer: the host (or offline player) starts a new game.
@@ -1999,12 +2040,54 @@ func _fill_rewards(rewards: Dictionary) -> void:
 	_results_rewards.add_child(_label("+%d" % int(rewards.coins), 17, Color(1, 0.82, 0.25), true))
 	_results_rewards.add_child(_label("+%d" % int(rewards.xp), 17, green, true))
 	_fill_season_row(rewards.get("season", {}))
+	_fill_level_row()
 	if int(rewards.levels_gained) > 0:
 		Sfx.play(&"level_up")
 
 
-## Under the total, one row: the season XP the match earned (Profile._add_season_xp) and the tier
-## progress ("Season tier 7 · 450/1000", "TIER 8 REACHED!" on a tier-up, "pass complete" at the end).
+## The local player's flame LevelBadge with their level and XP towards the next one.
+func _fill_level_row() -> void:
+	var box := HBoxContainer.new()
+	box.add_theme_constant_override("separation", 8)
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var badge := LevelBadge.make(Profile.level, 0.5)
+	badge.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	box.add_child(badge)
+	var text := _label("Level %d  ·  %s / %s XP" % [Profile.level, UIKit.format_int(Profile.xp),
+		UIKit.format_int(Profile.xp_for_level(Profile.level))], 15, Color(1, 0.75, 0.4), true)
+	text.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	box.add_child(text)
+	_results_rewards.add_child(box)
+	_results_rewards.add_child(_label("", 15))
+	_results_rewards.add_child(_label("", 15))
+
+
+## The local player's MATCH SCORE, itemised (the server's `score_parts` on their row: kills,
+## headshots, deaths, objective, placement, time played), then the total. Empty for spectators.
+func _fill_score_breakdown(rows: Array) -> void:
+	for c in _results_score.get_children():
+		c.queue_free()
+	var mine: Dictionary = {}
+	for r: Dictionary in rows:
+		if int(r.id) == world.my_id():
+			mine = r
+	if mine.is_empty() or not mine.has("score"):
+		return
+	var head := Color(0.7, 0.75, 0.85)
+	_results_score.add_child(_label("YOUR MATCH SCORE", 12, head, true))
+	_results_score.add_child(_label("", 12))
+	for p: Array in mine.get("score_parts", []):
+		var pts := int(p[1])
+		_results_score.add_child(_label(str(p[0]), 15))
+		_results_score.add_child(_label(("+%s" if pts > 0 else "%s") % UIKit.format_int(pts), 15,
+			Color(0.75, 0.92, 1.0) if pts > 0 else Color(1, 0.55, 0.5), true))
+	_results_score.add_child(_label("Match score", 17, Color(0.6, 0.9, 1.0), true))
+	_results_score.add_child(_label(UIKit.format_int(int(mine.score)), 17, Color(0.6, 0.9, 1.0), true))
+
+
+## Under the total: the season XP the match earned (Profile._add_season_xp) and the tier progress
+## ("Season tier 7 · 450/1200", "TIER 8 REACHED!" on a tier-up, "pass complete" at the end, or
+## the quests a gate waits for), then one row per season quest the match finished.
 func _fill_season_row(season: Dictionary) -> void:
 	if season.is_empty():
 		return
@@ -2012,11 +2095,19 @@ func _fill_season_row(season: Dictionary) -> void:
 	var line := "Season tier %d · %d/%d" % [tier, int(season.progress), Season.XP_PER_TIER]
 	if tier >= Season.TIERS:
 		line = "Season tier %d · pass complete" % tier
+	elif Season.tier_for(Profile.season_xp) > tier:
+		var gate := Season.blocking_gate(tier + 1, Profile.season_quests)
+		line = "Season tier %d · tier %d needs %d week-%d quests" % [tier, tier + 1, int(gate[2]), int(gate[1])]
 	if not (season.reached as Array).is_empty():
 		line = "Season: TIER %d REACHED!" % tier
 	_results_rewards.add_child(_label(line, 15, Season.COLOR, true))
 	_results_rewards.add_child(_label("", 15))
 	_results_rewards.add_child(_label("+%d SXP" % int(season.xp), 15, Season.COLOR, true))
+	# Their QUEST_SXP is already in the season XP above.
+	for q: Dictionary in season.get("quests", []):
+		_results_rewards.add_child(_label("Quest done: %s (+%d)" % [str(q.text), Season.QUEST_SXP], 14, Season.COLOR))
+		_results_rewards.add_child(_label("", 14))
+		_results_rewards.add_child(_label("", 14))
 
 
 # ---------------------------------------------------------------- input
