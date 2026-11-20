@@ -1289,6 +1289,7 @@ func _process(delta: float) -> void:
 	if scoped:
 		_scope.style = w.get("scope_style", "sniper")
 		_scope.design = p.custom_scope()
+		_scope.lens = p.viewmodel.lens_screen(p.camera) if p.viewmodel != null else Vector3.ZERO
 	_crosshair.visible = p.alive and not _results.visible
 	_crosshair.show_lines = (not scoped and p.aim_blend < 0.6) or Data.is_melee(wid)
 	_crosshair.spread = p.current_spread()

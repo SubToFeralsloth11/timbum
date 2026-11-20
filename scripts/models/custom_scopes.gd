@@ -171,7 +171,12 @@ const RETICLES: Array[String] = ["Crosshair", "Mil-Dot", "Duplex", "German #4", 
 const PIXEL_RETICLE := 15
 
 ## Eyepiece view shapes (the black mask's opening); OPEN is a reflex view with no mask.
-const VIEWS: Array[String] = ["Round", "Square", "Octagon", "Hexagon", "Wide", "Open"]
+## A body with a shape of its own (view_of) sets the view instead. APPEND ONLY (saves store indices).
+const VIEWS: Array[String] = ["Round", "Square", "Octagon", "Hexagon", "Wide", "Open", "Triangle"]
+const VIEW_TRIANGLE := 6
+## Body parts whose cross-section gives the eyepiece its shape (VIEWS index).
+const BODY_VIEWS := {"tube_round": 0, "tube_square": 1, "box_reflex": 1, "pixel_cube": 1, "crt": 1,
+	"thermal": 1, "tube_octagon": 2, "tube_hex": 3, "prism_scope": VIEW_TRIANGLE}
 
 ## Colour chips offered for parts, the reticle and the lens tint (any RGB is allowed too).
 const PALETTE: Array[String] = ["1a1a1e", "3a3d44", "7a7f88", "d8dade", "f4f1ea", "2b4a2e", "5b7a3a",
@@ -424,6 +429,54 @@ static func ads_fov(wid: String, design: Dictionary, sight_power := 1.0) -> floa
 
 # --- Model -------------------------------------------------------------------------------------
 
+## The eyepiece shape (VIEWS index) of `d`: its first body part's cross-section, else its `view`.
+static func view_of(d: Dictionary) -> int:
+	for p: Dictionary in d.get("parts", []):
+		var info := part_info(int(p.part))
+		if info.get("slot", "") == "body":
+			return int(BODY_VIEWS.get(info.id, d.get("view", 0)))
+	return int(d.get("view", 0))
+
+
+## Colour of `d`'s first body part (the housing seen round the lens).
+static func body_color(d: Dictionary) -> Color:
+	for p: Dictionary in d.get("parts", []):
+		if part_info(int(p.part)).get("slot", "") == "body":
+			return p.color
+	return Color("2a2d33")
+
+
+## Outline of view `view` around `c` whose inner radius (edge distance) is `r` (screen y down).
+## Matches ScopeOverlay's shader; empty for OPEN.
+static func shape_points(c: Vector2, r: float, view: int) -> PackedVector2Array:
+	var pts := PackedVector2Array()
+	var corners: Array = []
+	match view:
+		1:
+			corners = [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]
+		2:
+			var k := 0.4142
+			corners = [Vector2(-k, -1), Vector2(k, -1), Vector2(1, -k), Vector2(1, k), Vector2(k, 1),
+				Vector2(-k, 1), Vector2(-1, k), Vector2(-1, -k)]
+		3:
+			corners = [Vector2(-0.5774, -1), Vector2(0.5774, -1), Vector2(1.1547, 0), Vector2(0.5774, 1),
+				Vector2(-0.5774, 1), Vector2(-1.1547, 0)]
+		VIEW_TRIANGLE:
+			corners = [Vector2(0, -2), Vector2(1.7321, 1), Vector2(-1.7321, 1)]
+		5:
+			return pts
+		_:
+			var sx := 1.0 / 0.62 if view == 4 else 1.0
+			for i in 49:
+				var a := TAU * i / 48.0
+				pts.append(c + Vector2(cos(a) * sx, sin(a)) * r)
+			return pts
+	for v: Vector2 in corners:
+		pts.append(c + v * r)
+	pts.append(pts[0])
+	return pts
+
+
 ## Tube length and diameter of `d` (the first body part's, else the base size).
 static func tube(d: Dictionary) -> Vector2:
 	for p: Dictionary in d.get("parts", []):
@@ -463,6 +516,8 @@ static func build(d: Dictionary, skin_id := "default") -> Node3D:
 			zc = 0.0
 		outer.position = Vector3(0.0, rise, zc) + (p.offset as Vector3)
 		outer.rotation.z = deg_to_rad(15.0 * int(p.roll))
+		# Parts on the tube's axis block the view through it: hidden while aiming (Viewmodel).
+		outer.set_meta(&"axial", slot in ["body", "front", "rear", "ring"])
 		root.add_child(outer)
 		var inner := Node3D.new()
 		match slot:

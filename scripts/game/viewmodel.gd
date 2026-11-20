@@ -176,6 +176,10 @@ var _scopes := {}
 var _weapon := ""
 var _ads_pos := Vector3(0.0, -0.12, ADS_DEPTH)
 var _scoped := false
+## Custom scope on the held gun: its parts on the tube axis (hidden while aiming, the HUD draws the
+## eyepiece instead) and the tube's half width (m, gun space) for lens_screen.
+var _scope_axial: Array[Node3D] = []
+var _lens_half := 0.0
 
 var _sway := Vector2.ZERO
 var _sway_smooth := Vector2.ZERO
@@ -285,6 +289,14 @@ func set_weapon(wid: String, draw_len := 0.3) -> void:
 	_charge = 0.0
 	# Only the gun's own scope hides it; a custom scope is looked through with the gun in view.
 	_scoped = Data.WEAPONS[wid].get("scope", false) and scope.is_empty()
+	_scope_axial.clear()
+	_lens_half = 0.0
+	var custom := _gun.get_node_or_null(^"CustomScope")
+	if custom != null:
+		_lens_half = CustomScopes.tube(scope).y * 0.5
+		for n in custom.get_children():
+			if n.get_meta(&"axial", false):
+				_scope_axial.append(n)
 	_ads_pos = _compute_ads_pos()
 	play_draw(draw_len)
 
@@ -295,8 +307,22 @@ func _compute_ads_pos() -> Vector3:
 	if sight == null:
 		return Vector3(0.0, -0.12, ADS_DEPTH)
 	var local := _pivot.global_transform.affine_inverse() * sight.global_position
-	# Keep the rear sight ~20 cm in front of the eye whatever the gun's length.
-	return Vector3(-local.x, -local.y - 0.006, -0.2 - local.z)
+	# Keep the rear sight ~20 cm in front of the eye whatever the gun's length (a custom scope's
+	# eyepiece closer, so its lens fills more of the view).
+	var relief := 0.1 if _lens_half > 0.0 else 0.2
+	return Vector3(-local.x, -local.y - (0.0 if _lens_half > 0.0 else 0.006), -relief - local.z)
+
+
+## The custom scope's eyepiece on screen through `cam`: x, y centre (px), z inner radius (px);
+## z 0 without a custom scope or while it isn't aimed through.
+func lens_screen(cam: Camera3D) -> Vector3:
+	var sight := _gun.get_node_or_null(^"Sight") as Node3D if _gun != null else null
+	if sight == null or _lens_half <= 0.0 or cam == null or cam.is_position_behind(sight.global_position):
+		return Vector3.ZERO
+	var at := sight.global_position
+	var c := cam.unproject_position(at)
+	var edge := cam.unproject_position(at + cam.global_basis.y.normalized() * _lens_half * _gun.global_basis.get_scale().y)
+	return Vector3(c.x, c.y, c.distance_to(edge))
 
 
 func muzzle_position() -> Vector3:
@@ -565,6 +591,9 @@ func pose(delta: float, ads: float, sprinting: bool, sliding: bool, grappling: b
 	_pivot.position = pos
 	_pivot.rotation = rot
 	_pivot.visible = not (_scoped and ads > 0.85)
+	var through := ads > 0.85
+	for n in _scope_axial:
+		n.visible = not through
 	_animate_off_hand()
 	_update_trail()
 

@@ -280,7 +280,7 @@ func _build_optics() -> void:
 		func(x: float) -> void:
 			var t: Color = _design.get("tint", Color.WHITE)
 			_design.tint = Color(t.r, t.g, t.b, x)))
-	o.add_child(UIKit.label("VIEW SHAPE", &"SmallLabel"))
+	o.add_child(UIKit.label("VIEW SHAPE (a shaped body sets its own: square, octagon, hex, the Prism Scope's triangle)", &"SmallLabel"))
 	_optics_refresh.append(_chips(o, CustomScopes.VIEWS,
 		func() -> int: return int(_design.get("view", 0)),
 		func(i: int) -> void: _design.view = i))

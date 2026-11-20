@@ -14,8 +14,10 @@ uniform int shape = 0;
 uniform vec4 tint = vec4(0.0);
 // Custom scopes: no black mask, only the lens tint inside the view shape (the gun stays visible).
 uniform bool see_through = false;
+// Lens centre in UV (custom scopes follow the gun's eyepiece on screen).
+uniform vec2 center = vec2(0.5);
 void fragment() {
-	vec2 p = (UV - 0.5) * vec2(aspect, 1.0);
+	vec2 p = (UV - center) * vec2(aspect, 1.0);
 	vec2 a = abs(p);
 	float d = length(p);
 	if (shape == 1) {
@@ -26,6 +28,8 @@ void fragment() {
 		d = max(a.x * 0.866 + a.y * 0.5, a.y);
 	} else if (shape == 4) {
 		d = length(p * vec2(0.62, 1.0));
+	} else if (shape == 6) {
+		d = max(p.y, a.x * 0.866 - p.y * 0.5);
 	}
 	float lens = 1.0 - smoothstep(radius - 0.005, radius, d);
 	float rim = smoothstep(radius * 0.68, radius, d) * 0.35;
@@ -60,6 +64,15 @@ var design := {}:
 		design = v
 		_apply()
 
+## Custom scopes: the eyepiece on screen (x, y: centre px, z: inner radius px; z <= 0: screen
+## centre at the design's view_size). Set every frame from Viewmodel.lens_screen.
+var lens := Vector3.ZERO:
+	set(v):
+		if v.is_equal_approx(lens):
+			return
+		lens = v
+		_apply()
+
 var _mask: ColorRect
 var _mat: ShaderMaterial
 
@@ -82,16 +95,25 @@ func _ready() -> void:
 
 ## Lens radius (fraction of the screen height) of the current style or design.
 func _radius() -> float:
-	return float(design.view_size) if not design.is_empty() else float(RADIUS[style])
+	if design.is_empty():
+		return float(RADIUS[style])
+	if lens.z > 0.0 and size.y > 0.0:
+		return lens.z / size.y
+	return float(design.view_size)
+
+
+func _center() -> Vector2:
+	return Vector2(lens.x, lens.y) if not design.is_empty() and lens.z > 0.0 else size * 0.5
 
 
 func _apply() -> void:
 	if _mat != null:
 		_mat.set_shader_parameter("radius", _radius())
-		_mat.set_shader_parameter("shape", int(design.view) if not design.is_empty() else 0)
+		_mat.set_shader_parameter("shape", CustomScopes.view_of(design) if not design.is_empty() else 0)
 		var tint: Color = design.tint if not design.is_empty() else Color(0, 0, 0, 0)
 		_mat.set_shader_parameter("tint", tint)
 		_mat.set_shader_parameter("see_through", not design.is_empty())
+		_mat.set_shader_parameter("center", _center() / size if size.x > 0.0 and size.y > 0.0 else Vector2(0.5, 0.5))
 	queue_redraw()
 
 
@@ -105,6 +127,8 @@ func _draw() -> void:
 	var c := size * 0.5
 	var r := size.y * _radius()
 	if not design.is_empty():
+		c = _center()
+		_draw_housing(c, r)
 		CustomScopes.draw_reticle(self, c, r, design)
 		return
 	var col := Color(0, 0, 0, 0.9)
@@ -123,3 +147,16 @@ func _draw() -> void:
 	draw_line(Vector2(c.x, c.y - r), Vector2(c.x, c.y - 6), col, 2.0)
 	draw_line(Vector2(c.x, c.y + 6), Vector2(c.x, c.y + r), col, 2.0)
 	draw_circle(c, 1.5, Color(1, 0.2, 0.2))
+
+
+## The scope's housing round the lens, as it looks from the eyepiece: a band in the body's
+## colour in the lens's shape, darker on the inner edge, lit on the outer one.
+func _draw_housing(c: Vector2, r: float) -> void:
+	var view := CustomScopes.view_of(design)
+	if view == 5:
+		return
+	var body := CustomScopes.body_color(design)
+	var band := maxf(6.0, r * 0.22)
+	draw_polyline(CustomScopes.shape_points(c, r + band * 0.5, view), body, band, true)
+	draw_polyline(CustomScopes.shape_points(c, r + 1.5, view), body.darkened(0.6), 3.0, true)
+	draw_polyline(CustomScopes.shape_points(c, r + band - 1.0, view), body.lightened(0.3), 2.0, true)
