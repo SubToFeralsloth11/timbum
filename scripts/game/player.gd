@@ -2038,7 +2038,8 @@ func _update_visuals(delta: float) -> void:
 		var roll := -lean * _lean_reach * LEAN_ROLL + (deg_to_rad(-4.0) if sliding else 0.0)
 		camera.rotation.z = lerpf(camera.rotation.z, roll, minf(1.0, delta * 12.0))
 		var base_fov := world.admin.fov_for(self, float(Profile.get_setting("fov")))
-		var target_fov := lerpf(base_fov, minf(CustomScopes.ads_fov(weapon_id(), custom_scope()), base_fov), aim_blend)
+		var ads := CustomScopes.ads_fov(weapon_id(), custom_scope(), Profile.sight_power(weapon_id()))
+		var target_fov := lerpf(base_fov, minf(ads, base_fov), aim_blend)
 		if sprinting:
 			target_fov += 4.0
 		elif sliding:

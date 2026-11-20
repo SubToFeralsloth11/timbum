@@ -412,14 +412,13 @@ static func power_range(wid: String) -> Vector2:
 	return SIGHTS_POWER
 
 
-## Field of view while aiming `wid` with `design` ({}: the gun's own ads_fov). The power divides
-## the tangent of the half angle of the gun's own ADS view, so 2x shows half as wide a view.
-static func ads_fov(wid: String, design: Dictionary) -> float:
+## Field of view while aiming `wid` with `design` ({}: the gun's own ads_fov, zoomed by
+## `sight_power`, the player's free SIGHT ZOOM for its own sights). The power divides the tangent
+## of the half angle of the gun's own ADS view, so 2x shows half as wide a view.
+static func ads_fov(wid: String, design: Dictionary, sight_power := 1.0) -> float:
 	var own := float(CATALOG.WEAPONS[wid].ads_fov) if CATALOG.WEAPONS.has(wid) else 60.0
-	if design.is_empty():
-		return own
 	var r := power_range(wid)
-	var p := clampf(float(design.get("power", 1.0)), r.x, r.y)
+	var p := clampf(float(design.get("power", 1.0)) if not design.is_empty() else sight_power, r.x, r.y)
 	return rad_to_deg(2.0 * atan(tan(deg_to_rad(own) * 0.5) / p))
 
 

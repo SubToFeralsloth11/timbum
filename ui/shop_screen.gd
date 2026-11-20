@@ -53,6 +53,11 @@ var _state: Label
 var _scope_row: HBoxContainer
 var _scope_text: Label
 var _scope_btn: Button
+## SIGHT ZOOM row (guns aimed with their own sights): free zoom slider for the shown gun.
+var _zoom_row: HBoxContainer
+var _zoom_slider: HSlider
+var _zoom_text: Label
+var _zoom_wid := ""
 ## Sub-tab chips of the open group (tab id -> Button), and the group tabs (name -> Button).
 var _tab_buttons := {}
 var _group_buttons := {}
@@ -182,6 +187,22 @@ func _build_detail() -> Control:
 	_scope_btn.custom_minimum_size = Vector2(200, 44)
 	_scope_btn.pressed.connect(_on_scope_button)
 	_scope_row.add_child(_scope_btn)
+	_zoom_row = UIKit.hbox(10)
+	v.add_child(_zoom_row)
+	_zoom_text = UIKit.label("", &"SmallLabel")
+	_zoom_text.custom_minimum_size.x = 200
+	_zoom_row.add_child(_zoom_text)
+	_zoom_slider = HSlider.new()
+	_zoom_slider.step = 0.05
+	_zoom_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_zoom_slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_zoom_slider.tooltip_text = "Free zoom for this gun's own sights (iron sights, red dot or built-in scope)."
+	_zoom_slider.value_changed.connect(func(x: float) -> void:
+		if _zoom_wid == "":
+			return
+		Profile.set_sight_power(_zoom_wid, x)
+		_zoom_text.text = "SIGHT ZOOM  ·  %.2fx" % Profile.sight_power(_zoom_wid))
+	_zoom_row.add_child(_zoom_slider)
 	return panel
 
 
@@ -467,6 +488,7 @@ func _refresh_detail() -> void:
 	for c in _stats.get_children():
 		c.queue_free()
 	_scope_row.visible = false
+	_zoom_row.visible = false
 	for c in _price_row.get_children():
 		c.queue_free()
 	var dev := cat != "attachments" and UIKit.is_dev_item(cat, id)
@@ -635,6 +657,15 @@ func _on_equip() -> void:
 ## or, once bought, its part count and ON / OFF state with SCOPE BUILDER.
 func _refresh_scope_row(id: String) -> void:
 	_scope_row.visible = CustomScopes.is_scope_gun(id)
+	_zoom_row.visible = _scope_row.visible and Profile.is_owned("weapons", id) and not Profile.is_custom_scope_on(id)
+	if _zoom_row.visible:
+		var r := CustomScopes.power_range(id)
+		_zoom_wid = ""
+		_zoom_slider.min_value = r.x
+		_zoom_slider.max_value = r.y
+		_zoom_slider.value = Profile.sight_power(id)
+		_zoom_wid = id
+		_zoom_text.text = "SIGHT ZOOM  ·  %.2fx" % Profile.sight_power(id)
 	if not _scope_row.visible:
 		return
 	_scope_btn.disabled = false

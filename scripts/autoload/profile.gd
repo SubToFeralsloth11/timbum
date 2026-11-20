@@ -157,6 +157,9 @@ var camos: Array = []
 var scope_unlocks: Array = []
 var scope_designs := {}
 var scopes_off: Array = []
+## Free SIGHT ZOOM per gun for its own sights (no custom scope): weapon id -> power
+## (CustomScopes.power_range). Local only: the zoom changes nobody else's view.
+var sight_zoom := {}
 ## Daily and weekly challenges: "daily" / "weekly" -> {period (Challenges.period_of), list
 ## (Challenges entries)}; refresh_challenges rolls them over.
 var challenges := {}
@@ -1136,6 +1139,20 @@ func active_scopes() -> Dictionary:
 	return out
 
 
+## `wid`'s SIGHT ZOOM for its own sights (1.0 unless changed).
+func sight_power(wid: String) -> float:
+	return float(sight_zoom.get(wid, 1.0))
+
+
+## Sets `wid`'s SIGHT ZOOM (free), clamped to CustomScopes.power_range.
+func set_sight_power(wid: String, p: float) -> void:
+	if not CustomScopes.is_scope_gun(wid):
+		return
+	var r := CustomScopes.power_range(wid)
+	sight_zoom[wid] = clampf(p, r.x, r.y)
+	save()
+
+
 ## The design `wid` wears in this player's hands ({}: its own sights), for menu models.
 func worn_scope(wid: String) -> Dictionary:
 	return CustomScopes.design_in(active_scopes(), wid)
@@ -1411,7 +1428,7 @@ func _payload() -> Dictionary:
 		"owned": owned, "loadout": loadout, "equipped": equipped, "upgrades": upgrades, "attachments_off": attachments_off,
 		"settings": settings, "stats": stats, "last_daily": last_daily, "bindings": bindings, "pad_bindings": pad_bindings,
 		"weapon_stats": weapon_stats, "mastery_paid": mastery_paid, "camos": camos,
-		"scope_unlocks": scope_unlocks, "scope_designs": scope_designs, "scopes_off": scopes_off,
+		"scope_unlocks": scope_unlocks, "scope_designs": scope_designs, "scopes_off": scopes_off, "sight_zoom": sight_zoom,
 		"challenges": challenges, "feats": feats, "achievements": achievements, "match_presets": match_presets,
 		"loadout_presets": loadout_presets, "active_preset": active_preset,
 		"tutorial_offered": tutorial_offered, "tutorial_paid": tutorial_paid,
@@ -1642,6 +1659,14 @@ func load_from_dict(d: Dictionary) -> void:
 		for id: Variant in saved_scopes_off:
 			if scope_unlocks.has(str(id)) and not scopes_off.has(str(id)):
 				scopes_off.append(str(id))
+	sight_zoom = {}
+	var saved_zoom: Variant = d.get("sight_zoom", {})
+	if typeof(saved_zoom) == TYPE_DICTIONARY:
+		for id: Variant in saved_zoom:
+			var v: Variant = saved_zoom[id]
+			if CustomScopes.is_scope_gun(str(id)) and (typeof(v) == TYPE_FLOAT or typeof(v) == TYPE_INT):
+				var r := CustomScopes.power_range(str(id))
+				sight_zoom[str(id)] = clampf(float(v), r.x, r.y)
 	# A save from before the tutorial belongs to someone who has played: no first-launch offer.
 	var offered: Variant = d.get("tutorial_offered", true)
 	tutorial_offered = offered if typeof(offered) == TYPE_BOOL else true
