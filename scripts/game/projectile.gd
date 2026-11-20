@@ -47,6 +47,7 @@ func _ready() -> void:
 		"rocket": _model = Models.build_rocket()
 		"grenade": _model = Models.build_grenade()
 		"cube_lobber": _model = Models.build_lobber_shell()
+		"bw_bow": _model = BedWars.arrow_model()
 		_: _model = Models.build_tactical(kind)
 	add_child(_model)
 	_orient()
@@ -85,7 +86,7 @@ func in_flight() -> bool:
 
 
 func _orient() -> void:
-	if kind == "rocket" and vel.length_squared() > 0.01:
+	if (kind == "rocket" or kind == "bw_bow") and vel.length_squared() > 0.01:
 		var dir := vel.normalized()
 		_model.global_basis = Basis.looking_at(dir, Vector3.UP if absf(dir.y) < 0.99 else Vector3.RIGHT)
 
@@ -106,6 +107,8 @@ func _physics_process(delta: float) -> void:
 		_step_grenade(delta, space)
 	elif kind == "cube_lobber":
 		_step_lobber(delta, space)
+	elif kind == "bw_bow":
+		_step_arrow(delta, space)
 	else:
 		_step_tactical(delta, space)
 
@@ -194,6 +197,32 @@ func _step_tactical(delta: float, space: PhysicsDirectSpaceState3D) -> void:
 	_model.rotate_x(delta * vel.length() * 2.0)
 	if age >= float(Data.TACTICALS[kind].fuse):
 		_detonate(global_position + Vector3.UP * 0.1)
+
+
+## Bedwars arrows: drop like a thrown frag, stop in the first block, and hurt the first player
+## they touch (the server decides, BedWars.server_arrow_hit).
+func _step_arrow(delta: float, space: PhysicsDirectSpaceState3D) -> void:
+	vel.y -= BedWars.ARROW_GRAVITY * delta
+	var from := _sweep_start()
+	var to := global_position + vel * delta
+	var q := PhysicsRayQueryParameters3D.create(from, to, Player.MASK_WORLD | Player.MASK_HITBOX, _owner_exclude())
+	q.collide_with_areas = true
+	var r := space.intersect_ray(q)
+	_orient()
+	if r.is_empty() and age < ROCKET_MAX_LIFE:
+		global_position = to
+		return
+	var target: Player = null
+	if not r.is_empty() and r.collider is Area3D and (r.collider as Area3D).has_meta("player"):
+		target = (r.collider as Area3D).get_meta("player")
+	global_position = to if r.is_empty() else (r.position as Vector3)
+	if multiplayer.is_server():
+		if world.rules is BedWars:
+			(world.rules as BedWars).server_arrow_hit(self, target)
+		world.server_drop_projectile(self, global_position)
+	else:
+		_stopped = true
+		visible = false
 
 
 func _owner_exclude() -> Array[RID]:

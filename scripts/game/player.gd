@@ -793,7 +793,7 @@ func _simulate(delta: float) -> void:
 		_jump_spent = jump_pressed
 	_jump_spent = _jump_spent and in_jump
 	if not sliding and not grappling and not prone and crouch_pressed and on_floor and _was_sprinting and world.tactical == null \
-			and horiz.length() > SLIDE_MIN_ENTRY * speed_scale and _slide_cooldown <= 0.0:
+			and horiz.length() > SLIDE_MIN_ENTRY * speed_scale and _slide_cooldown <= 0.0 and world.rules.can_slide(self):
 		_start_slide(horiz)
 
 	var want_crouch := (in_crouch or sliding) and not prone
@@ -848,6 +848,7 @@ func _simulate(delta: float) -> void:
 	elif not grappling:
 		velocity.y -= GRAVITY * gravity_scale * world.admin.gravity_mult(self) * delta
 	_fall_speed = -velocity.y
+	world.rules.edge_guard(self, delta)
 	move_and_slide()
 	if pad_flight and is_on_wall():
 		pad_flight = false
@@ -1318,6 +1319,8 @@ func _tick_weapon(delta: float) -> void:
 		_melee_attack(true)
 		return
 
+	if world.rules.item_tick(self, delta):
+		return
 	var wid := weapon_id()
 	var w := weapon_data()
 	if reloading:
@@ -1721,8 +1724,9 @@ func _melee_attack(quick: bool) -> void:
 				target = area.get_meta("player")
 				break
 	var hits := {}
+	var strike := world.rules.melee_strike(self, wid)
 	if target != null and target.alive and target != self:
-		hits[target.id] = [float(w.damage), false]
+		hits[target.id] = [float(strike[0]) * (float(w.head_mult) if strike[1] else 1.0), bool(strike[1])]
 		normal = Vector3.ZERO
 	if mode == Mode.LOCAL:
 		viewmodel.play_melee(quick)

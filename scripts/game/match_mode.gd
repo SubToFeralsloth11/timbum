@@ -50,6 +50,7 @@ static func create(p_world: World) -> MatchMode:
 				"blockhunt": m = BlockHunt.new()
 				"parkour": m = ParkourMode.new()
 				"tactical": m = Tactical.new()
+				"bedwars": m = BedWars.new()
 				_: m = MatchMode.new()
 	m.world = p_world
 	return m
@@ -151,6 +152,29 @@ func spectate_candidates() -> Array[Player]:
 ## slower). Read by whichever peer simulates `p`.
 func move_mult(_p: Player) -> float:
 	return 1.0
+
+
+## The mode's own items (Bedwars: blocks and the bow): runs `p`'s fire / aim input for the held
+## item this frame and returns true, or false to let the weapon fire as usual. Called by whichever
+## peer simulates `p`.
+func item_tick(_p: Player, _delta: float) -> bool:
+	return false
+
+
+## A melee swing by `p` with `wid` is starting: [damage per hit, crit] (Bedwars: the attack
+## cooldown and falling crits). Called by whichever peer simulates `p`.
+func melee_strike(_p: Player, wid: String) -> Array:
+	return [float(Data.WEAPONS[wid].damage), false]
+
+
+## Last say on `p`'s velocity before it moves this frame (Bedwars: sneaking stops you at edges).
+func edge_guard(_p: Player, _delta: float) -> void:
+	pass
+
+
+## Whether `p` may start a slide (Bedwars: no, crouch is the sneak).
+func can_slide(_p: Player) -> bool:
+	return true
 
 
 ## Whether `p` may fire the grapple hook now (Capture the Flag: not while carrying a flag). A

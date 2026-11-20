@@ -787,6 +787,12 @@ static func sanitize_config(cfg: Dictionary) -> Dictionary:
 		out.bots_fill = Tactical.PLAYERS
 		out.mutators = false
 		out.mutator = "none"
+	elif out.mode == "bedwars":
+		# Bedwars: its own islands, no guns, no random mutators or killstreaks.
+		out.map = Data.BEDWARS_MAP
+		out.mutators = false
+		out.mutator = "none"
+		out.streaks = false
 	elif out.mode in ["oitc", "tag", "hideseek", "blockhunt", "parkour"]:
 		# One in the Chamber is the Cuber .44 and one round; Tag, Hide and Seek, Block Hunt and
 		# Parkour have no guns at all: no mutators or killstreaks. Parkour runs its own course.

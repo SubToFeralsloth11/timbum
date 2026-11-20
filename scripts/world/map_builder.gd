@@ -24,6 +24,7 @@ const GENERATORS := {
 	"volcano": preload("res://scripts/world/maps/volcano_map.gd"),
 	"building": preload("res://scripts/world/maps/building_map.gd"),
 	"parkour": preload("res://scripts/world/maps/parkour_map.gd"),
+	"bedwars": preload("res://scripts/world/maps/bedwars_map.gd"),
 	"range": preload("res://scripts/world/maps/range_map.gd"),
 }
 
@@ -217,8 +218,7 @@ static func _offset_mark(mark: Variant, origin: Vector3) -> Variant:
 		return AABB((mark as AABB).position + origin, (mark as AABB).size)
 	if mark is Array:
 		for entry: Dictionary in mark:
-			entry.pos += origin
-			for key: String in ["target", "drop_from", "drop_to"]:
+			for key: String in ["pos", "target", "drop_from", "drop_to", "spawn", "bed", "forge", "shop", "upgrades"]:
 				if entry.has(key):
 					entry[key] += origin
 	return mark

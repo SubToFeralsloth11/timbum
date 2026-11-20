@@ -154,7 +154,7 @@ func _ready() -> void:
 	var map_root := Node3D.new()
 	map_root.name = "Map"
 	add_child(map_root)
-	map_info = MapBuilder.build(Net.current_map, map_root, int(Profile.get_setting("quality")), Demolition.enabled())
+	map_info = MapBuilder.build(Net.current_map, map_root, int(Profile.get_setting("quality")), Demolition.enabled() or str(Net.config.mode) == "bedwars")
 	_apply_time_of_day(map_root, str(Net.config.time_of_day))
 	weather = Weather.new()
 	weather.setup(map_root, str(Net.config.weather), str(Net.config.time_of_day))
@@ -951,7 +951,7 @@ func _server_projectile(owner_id: int, kind: String, origin: Vector3, vel: Vecto
 		return
 	if Data.WEAPONS.has(kind) and Data.WEAPONS[kind].get("projectile", false):
 		var w: Dictionary = Data.WEAPONS[kind]
-		if not rules.weapon_allowed(shooter, kind) or not _take_fire_token(owner_id, kind):
+		if not rules.weapon_allowed(shooter, kind) or not _take_fire_token(owner_id, kind) or not rules.server_take_shot(shooter, kind):
 			return
 		vel = vel.limit_length(float(w.speed) + (Player.LOB_LIFT if w.has("fuse") else 0.0))
 	elif kind == "grenade":
@@ -974,6 +974,12 @@ func _server_projectile(owner_id: int, kind: String, origin: Vector3, vel: Vecto
 
 ## Called by a Projectile on the server when it detonates. A launcher's blast (rocket, Cube
 ## Lobber) is its weapon's `splash_radius` and `damage`; a frag's is Data.GRENADE's.
+## Server: a projectile that ends without a blast (a Bedwars arrow) goes away on every peer.
+func server_drop_projectile(proj: Projectile, pos: Vector3) -> void:
+	if projectiles.has(proj.pid):
+		_broadcast(&"_s_explode", [proj.pid, pos, proj.kind])
+
+
 func server_explode(proj: Projectile, pos: Vector3) -> void:
 	if not projectiles.has(proj.pid):
 		return
@@ -1631,6 +1637,8 @@ func _s_explode(pid: int, pos: Vector3, kind: String) -> void:
 		projectiles.erase(pid)
 		proj.queue_free()
 	match kind:
+		"bw_bow":
+			pass
 		"smoke":
 			var smoke: Dictionary = Data.TACTICALS.smoke
 			smokes.append([pos, float(smoke.radius), now() + float(smoke.duration)])
@@ -1930,6 +1938,7 @@ static func weapon_label(wid: String) -> String:
 		"grenade": return "Grenade"
 		"fall": return "Gravity"
 		"lava": return "Lava"
+		"void": return "The Void"
 		Streaks.WEAPON: return "Block Bomber"
 	return str(Data.WEAPONS[wid].name) if Data.WEAPONS.has(wid) else wid
 

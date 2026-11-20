@@ -2,6 +2,14 @@
 
 ## 2.4.0 (unreleased)
 
+### Bedwars
+- **New mode: Bedwars** on Bed Islands (two team islands, two diamond islands, an emerald island, all over the void). Forges pile up iron and gold, the outer islands diamonds and emeralds; stand on a pile to collect it. Press interact at your island's shop for wool, planks, end stone, swords, armour, a bow, arrows and golden apples, and at the upgrades stand for team Sharpness, Protection and Forge. Right click places blocks, left click breaks blocks players placed; crouch to sneak so you can't walk off an edge and bridge like Minecraft Java. Break the enemy bed and their next death is a FINAL KILL; the last team standing wins.
+- **Bedwars swords only:** Wooden, Stone, Iron and Diamond swords (no guns), with a Minecraft-style attack cooldown shown under the crosshair (spam clicking does little), crits on falling hits and knockback. Bows draw and drop arrows; armour and Protection cut damage.
+- **Bedwars bots** gear up at the forge and shop, cover their bed in blocks, bridge round the flank, dig through and break your bed, time their sword hits, jump for crits and shoot the bow at range.
+
+### Updates
+- An **UPDATE AVAILABLE** screen opens on the home screen when a new version is out: DOWNLOAD & RESTART installs it and restarts straight into it.
+
 ### Custom mutators
 - **Make your own rules** for bot matches and hosted games: CUSTOM MUTATORS in match setup sets one weapon for everyone (any gun or melee weapon), max health (25 to 400 %), gravity, player size, move speed, damage and jump height, and switches Headshots Only, Infinite Ammo and No Grenades. They stack on the random mutator, bots follow them, presets keep them, and the lobby and scoreboard list them. Modes without guns skip the gun options; the panel says which picks a mode ignores.
 

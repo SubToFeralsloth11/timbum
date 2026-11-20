@@ -972,6 +972,10 @@ static func _gun_info(weapon_id: String, bare := false) -> Dictionary:
 		"rail_cube": info = _gun_rail_cube(k)
 		"cube_lobber": info = _gun_cube_lobber(k)
 		"pixel_scythe": info = _melee_pixel_scythe(k)
+		"bw_wood_sword": info = _melee_bw_sword(k, WOOD)
+		"bw_stone_sword": info = _melee_bw_sword(k, STONE)
+		"bw_iron_sword": info = _melee_bw_sword(k, METAL)
+		"bw_diamond_sword": info = _melee_bw_sword(k, LENS)
 		"pulse_rifle": info = _gun_pulse_rifle(k)
 		"rapid_dmr": info = _gun_rapid_dmr(k)
 		_: info = _gun_knife(k)
@@ -1724,6 +1728,19 @@ static func _melee_pixel_scythe(k: MeshKit) -> Dictionary:
 		tip = at + down * 0.033
 	k.box(METAL, Vector3(0, -0.02, -0.67), Vector3(0.036, 0.05, 0.07))
 	return {"muzzle": tip, "sight": Vector3(0, 0.04, 0.0), "support": null}
+
+
+## Bedwars swords: a chunky pixel sword (Minecraft style) with the blade in `blade`'s material:
+## a wooden grip and pommel, a dark crossguard and a stepped blade with a pointed tip.
+static func _melee_bw_sword(k: MeshKit, blade: int) -> Dictionary:
+	k.box(WOOD, Vector3(0, 0, 0.04), Vector3(0.032, 0.032, 0.14))
+	k.box(DARK, Vector3(0, 0, 0.125), Vector3(0.045, 0.045, 0.035))
+	k.box(DARK, Vector3(0, 0, -0.045), Vector3(0.03, 0.15, 0.035))
+	k.box(blade, Vector3(0, 0, -0.33), Vector3(0.022, 0.07, 0.54))
+	k.box(DARK, Vector3(0, 0, -0.33), Vector3(0.024, 0.014, 0.5))
+	k.box(blade, Vector3(0, 0, -0.63), Vector3(0.022, 0.045, 0.06))
+	k.box(blade, Vector3(0, 0, -0.675), Vector3(0.022, 0.02, 0.03))
+	return {"muzzle": Vector3(0, 0, -0.69), "sight": Vector3(0, 0.04, 0.0), "support": null}
 
 
 static func _gun_knife(k: MeshKit) -> Dictionary:

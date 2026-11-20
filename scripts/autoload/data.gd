@@ -305,6 +305,64 @@ const WEAPONS := {
 		"falloff_start": 40.0, "falloff_end": 80.0, "min_mult": 0.75,
 		"ads_fov": 44.0, "move_mult": 0.92, "sound": "shot_dmr", "pitch": 1.12,
 	},
+	# Bedwars only (`bedwars: true`, never sold, owned or listed anywhere else; Data.is_bedwars).
+	# Swords swing as fast as you click, but a hit deals full damage only once the attack cooldown
+	# (`cooldown` s) has refilled (BedWars.attack_mult); a falling hit is a crit (head_mult).
+	"bw_wood_sword": {
+		"name": "Wooden Sword", "slot": "melee", "price": -1, "bedwars": true, "tier": 0,
+		"desc": "Bedwars starter sword.",
+		"damage": 20.0, "head_mult": 1.5, "rpm": 600.0, "auto": false, "cooldown": 0.625,
+		"mag": 0, "reserve": 0, "reload": 0.0, "pellets": 1,
+		"spread_hip": 0.0, "spread_ads": 0.0, "recoil": 0.0,
+		"falloff_start": 999.0, "falloff_end": 999.0, "min_mult": 1.0,
+		"ads_fov": 75.0, "move_mult": 1.0, "sound": "knife_swing", "range": 3.0, "swing": "slash", "sweep_radius": 0.35,
+	},
+	"bw_stone_sword": {
+		"name": "Stone Sword", "slot": "melee", "price": -1, "bedwars": true, "tier": 1,
+		"desc": "Bedwars sword.",
+		"damage": 25.0, "head_mult": 1.5, "rpm": 600.0, "auto": false, "cooldown": 0.625,
+		"mag": 0, "reserve": 0, "reload": 0.0, "pellets": 1,
+		"spread_hip": 0.0, "spread_ads": 0.0, "recoil": 0.0,
+		"falloff_start": 999.0, "falloff_end": 999.0, "min_mult": 1.0,
+		"ads_fov": 75.0, "move_mult": 1.0, "sound": "knife_swing", "range": 3.0, "swing": "slash", "sweep_radius": 0.35,
+	},
+	"bw_iron_sword": {
+		"name": "Iron Sword", "slot": "melee", "price": -1, "bedwars": true, "tier": 2,
+		"desc": "Bedwars sword.",
+		"damage": 30.0, "head_mult": 1.5, "rpm": 600.0, "auto": false, "cooldown": 0.625,
+		"mag": 0, "reserve": 0, "reload": 0.0, "pellets": 1,
+		"spread_hip": 0.0, "spread_ads": 0.0, "recoil": 0.0,
+		"falloff_start": 999.0, "falloff_end": 999.0, "min_mult": 1.0,
+		"ads_fov": 75.0, "move_mult": 1.0, "sound": "knife_swing", "range": 3.0, "swing": "slash", "sweep_radius": 0.35,
+	},
+	"bw_diamond_sword": {
+		"name": "Diamond Sword", "slot": "melee", "price": -1, "bedwars": true, "tier": 3,
+		"desc": "Bedwars sword.",
+		"damage": 35.0, "head_mult": 1.5, "rpm": 600.0, "auto": false, "cooldown": 0.625,
+		"mag": 0, "reserve": 0, "reload": 0.0, "pellets": 1,
+		"spread_hip": 0.0, "spread_ads": 0.0, "recoil": 0.0,
+		"falloff_start": 999.0, "falloff_end": 999.0, "min_mult": 1.0,
+		"ads_fov": 75.0, "move_mult": 1.0, "sound": "knife_swing", "range": 3.0, "swing": "slash", "sweep_radius": 0.35,
+	},
+	# The bow and the block stack are BedWars' own items: it fires and places them itself.
+	"bw_bow": {
+		"name": "Bow", "slot": "primary", "price": -1, "bedwars": true,
+		"desc": "Hold to draw, release to loose an arrow. Full draw: 45 damage.",
+		"damage": 45.0, "head_mult": 1.0, "rpm": 120.0, "auto": false,
+		"mag": 0, "reserve": 0, "reload": 0.0, "pellets": 1,
+		"spread_hip": 0.0, "spread_ads": 0.0, "recoil": 0.0,
+		"falloff_start": 999.0, "falloff_end": 999.0, "min_mult": 1.0,
+		"ads_fov": 75.0, "move_mult": 1.0, "sound": "knife_swing", "projectile": true, "speed": 48.0,
+	},
+	"bw_blocks": {
+		"name": "Blocks", "slot": "secondary", "price": -1, "bedwars": true,
+		"desc": "Right click places, left click breaks blocks players placed.",
+		"damage": 0.0, "head_mult": 1.0, "rpm": 300.0, "auto": true,
+		"mag": 0, "reserve": 0, "reload": 0.0, "pellets": 1,
+		"spread_hip": 0.0, "spread_ads": 0.0, "recoil": 0.0,
+		"falloff_start": 999.0, "falloff_end": 999.0, "min_mult": 1.0,
+		"ads_fov": 75.0, "move_mult": 1.0, "sound": "knife_swing",
+	},
 }
 
 ## Extra reach (m) the server allows a melee hit beyond the weapon's `range`, measured between
@@ -623,6 +681,7 @@ const MAPS := {
 	"volcano": {"name": "Volcano Forge", "desc": "Basalt forge halls around a lava lake. Lava kills."},
 	"building": {"name": "Block HQ", "desc": "A three-storey office block: room lattice, stairwells, an atrium and flanking alleys."},
 	"parkour": {"name": "Parkour Run", "desc": "A floating course over a lava sea: 14 stages of jumps, beams, pillars and jump pads, harder as it climbs."},
+	"bedwars": {"name": "Bed Islands", "desc": "Two team islands, two diamond islands and an emerald island over the void. Bridge across with blocks."},
 	"range": {"name": "Firing Range", "desc": "Practice lanes at 10, 25, 50 and 75 m with target dummies and a weapon console."},
 }
 ## Match modifiers. When mutators are on, each match rolls one (or none) so matches feel different.
@@ -692,13 +751,16 @@ const MODES := {
 		"desc": "Hiders pick one of four blocks and become it. Seekers whack blocks; a found hider seeks too. Balloons score points but show where you are."},
 	"parkour": {"name": "Parkour", "short": "PARKOUR", "no_kills": true,
 		"desc": "Race up a floating obstacle course: jump pads, beams, pillars and long jumps, harder every stage. Fall and you're back on your checkpoint."},
+	"bedwars": {"name": "Bedwars", "short": "BEDWARS", "teams": true, "team_names": ["BLUE", "ORANGE"],
+		"desc": "Two teams, a bed each. Gather iron, gold, diamonds and emeralds, buy blocks, swords, bows and armour, bridge over and break the enemy bed. No bed, no respawn."},
 	"tactical": {"name": "Tactical", "short": "TACTICAL", "teams": true,
 		"desc": "25 v 25 in an office block. Plan, find your weapons, one life each."},
 }
 const TACTICAL_MAP := "building"
 const PARKOUR_MAP := "parkour"
 ## Modes that always play one map of their own (no map pick, no map vote).
-const MODE_MAPS := {"tactical": TACTICAL_MAP, "parkour": PARKOUR_MAP}
+const BEDWARS_MAP := "bedwars"
+const MODE_MAPS := {"tactical": TACTICAL_MAP, "parkour": PARKOUR_MAP, "bedwars": BEDWARS_MAP}
 
 
 ## The one map `mode` always plays, or "" when the mode plays the normal maps.
@@ -886,6 +948,10 @@ const ACHIEVEMENTS := {
 static func is_melee(wid: String) -> bool:
 	return WEAPONS.has(wid) and WEAPONS[wid].slot == "melee"
 
+## True for the Bedwars-only items (swords, bow, blocks): never in the shop, locker, loadouts,
+## challenges, stats lists or any other mode.
+static func is_bedwars(wid: String) -> bool:
+	return WEAPONS.has(wid) and bool(WEAPONS[wid].get("bedwars", false))
 
 
 ## Mastery tier reached with `kills` (0 none, 1 Bronze, 2 Silver, 3 Gold).
@@ -940,6 +1006,6 @@ func attachment_mult(id: String, level: int) -> float:
 func weapon_ids_for_slot(slot: String) -> Array[String]:
 	var ids: Array[String] = []
 	for id: String in WEAPONS:
-		if WEAPONS[id].slot == slot:
+		if WEAPONS[id].slot == slot and not is_bedwars(id):
 			ids.append(id)
 	return ids
