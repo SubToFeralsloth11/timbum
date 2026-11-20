@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.4.0 (unreleased)
+## 2.4.0
 
 ### Bedwars
 - **New mode: Bedwars** on Bed Islands (two team islands, two diamond islands, an emerald island, all over the void). Forges pile up iron and gold, the outer islands diamonds and emeralds; stand on a pile to collect it. Press interact at your island's shop for wool, planks, end stone, swords, armour, a bow, arrows and golden apples, and at the upgrades stand for team Sharpness, Protection and Forge. Right click places blocks, left click breaks blocks players placed; crouch to sneak so you can't walk off an edge and bridge like Minecraft Java. Break the enemy bed and their next death is a FINAL KILL; the last team standing wins.
