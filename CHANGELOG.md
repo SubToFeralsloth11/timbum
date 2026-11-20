@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.4.1
+
+### Scopes and sights
+- **Custom scopes are see-through:** no more black circle round the lens. Aiming keeps your gun on screen, so you look through the scope on top of it, with only the lens tint inside the view shape. Guns' own built-in scopes are unchanged.
+- **Free SIGHT ZOOM:** every gun you own has a SIGHT ZOOM slider in its shop panel. Iron sights and red dots (like the AR's) zoom in up to 2x; guns with a built-in scope zoom out down to 0.5x. Saved per gun; hidden while a custom scope is on (its POWER sets the zoom).
+
 ## 2.4.0
 
 ### Bedwars
