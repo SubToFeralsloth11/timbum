@@ -12,6 +12,8 @@ uniform float radius = 0.44;
 // CustomScopes.VIEWS: 0 round, 1 square, 2 octagon, 3 hexagon, 4 wide, 5 open (no mask).
 uniform int shape = 0;
 uniform vec4 tint = vec4(0.0);
+// Custom scopes: no black mask, only the lens tint inside the view shape (the gun stays visible).
+uniform bool see_through = false;
 void fragment() {
 	vec2 p = (UV - 0.5) * vec2(aspect, 1.0);
 	vec2 a = abs(p);
@@ -32,7 +34,11 @@ void fragment() {
 		rim = smoothstep(radius * 1.6, radius * 2.6, d) * 0.35;
 	}
 	vec4 inside = vec4(tint.rgb * (tint.a / max(tint.a + rim, 0.001)), clamp(rim + tint.a, 0.0, 1.0));
-	COLOR = mix(vec4(0.0, 0.0, 0.0, 1.0), inside, lens);
+	if (see_through) {
+		COLOR = vec4(tint.rgb, tint.a * lens);
+	} else {
+		COLOR = mix(vec4(0.0, 0.0, 0.0, 1.0), inside, lens);
+	}
 }
 """
 ## Lens radius as a fraction of the screen height.
@@ -85,6 +91,7 @@ func _apply() -> void:
 		_mat.set_shader_parameter("shape", int(design.view) if not design.is_empty() else 0)
 		var tint: Color = design.tint if not design.is_empty() else Color(0, 0, 0, 0)
 		_mat.set_shader_parameter("tint", tint)
+		_mat.set_shader_parameter("see_through", not design.is_empty())
 	queue_redraw()
 
 

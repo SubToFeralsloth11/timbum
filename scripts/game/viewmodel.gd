@@ -283,7 +283,8 @@ func set_weapon(wid: String, draw_len := 0.3) -> void:
 	if _charge_glow != null:
 		_charge_glow.material_override = Models.charge_glow_material(true)
 	_charge = 0.0
-	_scoped = Data.WEAPONS[wid].get("scope", false) or not scope.is_empty()
+	# Only the gun's own scope hides it; a custom scope is looked through with the gun in view.
+	_scoped = Data.WEAPONS[wid].get("scope", false) and scope.is_empty()
 	_ads_pos = _compute_ads_pos()
 	play_draw(draw_len)
 
