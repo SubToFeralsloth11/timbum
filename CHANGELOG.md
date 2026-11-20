@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.4.2
+
+### Custom scopes
+- **Look through the scope itself:** aiming brings the eyepiece up to your eye and the lens sits where the scope really is on the gun, with the scope's housing drawn round it as a border in its body colour. The rest of the gun, the mount, turrets and gear stay in view round it, and the lens follows the gun's sway and recoil.
+- **The lens takes the scope's shape:** a Prism Scope looks through a triangle, square bodies (Square Block, Box Reflex, Pixel Cube, CRT, Thermal) a square, Octagon and Hex Tubes their shapes. Other bodies use the VIEW SHAPE you pick, which now includes Triangle.
+
 ## 2.4.1
 
 ### Scopes and sights
