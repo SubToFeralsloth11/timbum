@@ -36,6 +36,11 @@ var _daily_button: Button
 var _play_button: MenuTile
 ## Bottom-left update button: download progress, RESTART or DOWNLOAD (Updater).
 var _update_button: Button
+## The UPDATE AVAILABLE screen: opens once per run over the home screen when Updater finds a new
+## version (DOWNLOAD & RESTART or LATER); the bottom-left update button stays afterwards.
+var _update_popup: Control
+var _update_popup_label: Label
+var _update_popup_shown := false
 var _challenges_button: MenuTile
 var _season_button: MenuTile
 ## Home: every focusable home control (they leave the focus chain while the PLAY panel, the update
@@ -630,6 +635,66 @@ func _refresh_update_button() -> void:
 			_update_button.text = ""
 	_update_button.visible = not _update_button.text.is_empty()
 	_update_button.disabled = Updater.status == Updater.Status.DOWNLOADING
+	_refresh_update_popup()
+
+
+func _refresh_update_popup() -> void:
+	var offer := Updater.status in [Updater.Status.AVAILABLE, Updater.Status.READY, Updater.Status.FULL]
+	if offer and not _update_popup_shown and _update_popup == null:
+		_update_popup_shown = true
+		_build_update_popup()
+	if _update_popup == null:
+		return
+	var v := Updater.new_version
+	match Updater.status:
+		Updater.Status.DOWNLOADING:
+			_update_popup_label.text = "Downloading v%s ...  %d%%\nThe game restarts by itself when it's done." % [v, roundi(Updater.progress * 100.0)]
+		Updater.Status.FULL:
+			_update_popup_label.text = "Timbum v%s is out. This one needs the full download from the release page." % v
+		Updater.Status.FAILED:
+			_update_popup_label.text = "The download failed. Try again from the button at the bottom left."
+		_:
+			_update_popup_label.text = "Timbum v%s is out (you have v%s).\nDownload it now and the game restarts straight into it." % [v, WhatsNew.current_version()]
+
+
+func _build_update_popup() -> void:
+	_update_popup = Control.new()
+	_update_popup.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_update_popup.mouse_filter = Control.MOUSE_FILTER_STOP
+	add_child(_update_popup)
+	var dim := ColorRect.new()
+	dim.color = Color(0.01, 0.015, 0.03, 0.6)
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_update_popup.add_child(dim)
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_update_popup.add_child(center)
+	var panel := UIKit.panel()
+	panel.custom_minimum_size = Vector2(520, 0)
+	center.add_child(panel)
+	var v := UIKit.vbox(14)
+	panel.add_child(v)
+	v.add_child(UIKit.label("UPDATE AVAILABLE", &"HeaderLabel", HORIZONTAL_ALIGNMENT_CENTER))
+	_update_popup_label = UIKit.label("", &"", HORIZONTAL_ALIGNMENT_CENTER)
+	_update_popup_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(_update_popup_label)
+	var row := UIKit.hbox(12)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	v.add_child(row)
+	var go_btn := UIKit.button("DOWNLOAD & RESTART", &"PrimaryButton")
+	go_btn.custom_minimum_size = Vector2(240, 48)
+	go_btn.pressed.connect(func() -> void:
+		Sfx.play(&"ui_click")
+		_on_update_pressed())
+	row.add_child(go_btn)
+	var later := UIKit.button("LATER")
+	later.custom_minimum_size = Vector2(140, 48)
+	later.pressed.connect(func() -> void:
+		Sfx.play(&"ui_click")
+		_update_popup.queue_free()
+		_update_popup = null)
+	row.add_child(later)
+	go_btn.grab_focus.call_deferred()
 
 
 func _on_update_pressed() -> void:
