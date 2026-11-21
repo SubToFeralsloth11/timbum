@@ -79,21 +79,22 @@ func _ready() -> void:
 	var backup := UIKit.vbox(6)
 	backup.alignment = BoxContainer.ALIGNMENT_CENTER
 	lh.add_child(backup)
-	var export_btn := UIKit.button("EXPORT PROGRESS", &"IconButton")
-	export_btn.tooltip_text = "Save your coins, items, upgrades, stats and settings to a file."
-	export_btn.pressed.connect(func() -> void:
-		_export_dialog.current_file = "timbum-progress-%s.json" % Time.get_date_string_from_system()
-		_export_dialog.popup_centered_ratio(0.7))
-	backup.add_child(export_btn)
-	var import_btn := UIKit.button("IMPORT PROGRESS", &"IconButton")
-	import_btn.tooltip_text = "Load progress from a file you exported (replaces what you have now)."
-	import_btn.pressed.connect(func() -> void: _import_dialog.popup_centered_ratio(0.7))
-	backup.add_child(import_btn)
+	if not Updater.site_edition():
+		var export_btn := UIKit.button("EXPORT PROGRESS", &"IconButton")
+		export_btn.tooltip_text = "Save your coins, items, upgrades, stats and settings to a file."
+		export_btn.pressed.connect(func() -> void:
+			_export_dialog.current_file = "timbum-progress-%s.json" % Time.get_date_string_from_system()
+			_export_dialog.popup_centered_ratio(0.7))
+		backup.add_child(export_btn)
+		var import_btn := UIKit.button("IMPORT PROGRESS", &"IconButton")
+		import_btn.tooltip_text = "Load progress from a file you exported (replaces what you have now)."
+		import_btn.pressed.connect(func() -> void: _import_dialog.popup_centered_ratio(0.7))
+		backup.add_child(import_btn)
+		_build_backup_dialogs()
 	_credits_btn = UIKit.button("CREDITS", &"IconButton")
 	_credits_btn.tooltip_text = "Who made Timbum."
 	_credits_btn.pressed.connect(open_credits)
 	backup.add_child(_credits_btn)
-	_build_backup_dialogs()
 
 	_grid = GridContainer.new()
 	_grid.columns = 4

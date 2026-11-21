@@ -5,7 +5,9 @@
 
 1. Sets the version (project.godot and the export presets) and keeps Updater.RUNTIME (engine +
    native plugins) current.
-2. Exports the full apps (macOS zip, Windows zip) and one game-data .pck per platform.
+2. Exports the full apps (macOS zip, Windows zip), the website editions of both (Timbum-Site-*.zip:
+   the same apps plus Updater.SITE_MARKER, which hides Export / Import Progress) and one game-data
+   .pck per platform.
 3. Writes update.json (version, runtime, pck URL, SHA-256, size per platform) and signs it with the
    owner key (~/.timbum-dev/dev_tag_key.pem) as update.json.sig.
 4. Commits the version bump, tags vVERSION, pushes and creates the GitHub release with every file.
@@ -41,6 +43,23 @@ HEAVY = Path.home() / ".agents" / "bin" / "heavy"
 # Native files that must match between an installed app and a .pck.
 NATIVE_SUFFIXES = {".dll", ".dylib", ".so", ".gdextension"}
 PLATFORMS = {"macos": "macOS", "windows": "Windows"}
+# Updater.SITE_MARKER: beside the installed pack it marks the website edition.
+SITE_MARKER = "timbum-site-edition"
+
+
+def site_mac(src: Path, dest: Path):
+    """The macOS website edition: src's app with SITE_MARKER beside its pack, re-signed ad hoc
+    (the new file is a sealed resource)."""
+    tmp = dest.parent / "site-macos"
+    if tmp.exists():
+        shutil.rmtree(tmp)
+    tmp.mkdir()
+    run("ditto", "-x", "-k", src, tmp)
+    app = tmp / "Timbum.app"
+    (app / "Contents" / "Resources" / SITE_MARKER).write_text("site\n")
+    run("codesign", "--force", "--deep", "--sign", "-", app)
+    run("ditto", "-c", "-k", "--keepParent", app, dest)
+    shutil.rmtree(tmp)
 
 
 def run(*cmd, **kw):
@@ -130,7 +149,12 @@ def main():
         with zipfile.ZipFile(out / "Timbum-Windows.zip", "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
             for f in sorted(win.iterdir()):
                 z.write(f, f.name)
+        (win / SITE_MARKER).write_text("site\n")
+        with zipfile.ZipFile(out / "Timbum-Site-Windows.zip", "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
+            for f in sorted(win.iterdir()):
+                z.write(f, f.name)
         shutil.rmtree(win)
+        site_mac(out / "Timbum-macOS.zip", out / "Timbum-Site-macOS.zip")
         files = {}
         for plat, preset in PLATFORMS.items():
             pck = out / f"timbum-{version}-{plat}.pck"

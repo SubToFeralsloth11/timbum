@@ -30,6 +30,10 @@ const FEED := "https://github.com/%s/releases/latest/download/" % OWNER_REPO
 const RELEASES_PAGE := "https://github.com/%s/releases/latest" % OWNER_REPO
 const MANIFEST := "update.json"
 const MANIFEST_PREFIX := "timbum-update\n"
+## A file beside the installed pack (see installed_pck) that marks the website download: that
+## edition has no Export / Import Progress. It lives outside the pack, so updates keep it.
+## tools/release.py adds it to the Timbum-Site-*.zip downloads.
+const SITE_MARKER := "timbum-site-edition"
 ## Engine and native-plugin fingerprint of this build. tools/release.py computes it and keeps it
 ## current; a pack is only installed by a build with the same value.
 const RUNTIME := "abc8d3f47241b052"
@@ -116,6 +120,14 @@ static func compare_versions(a: String, b: String) -> int:
 		if x != y:
 			return 1 if x > y else -1
 	return 0
+
+
+## The website edition (SITE_MARKER beside the installed pack; `--site-edition` after `--` in a dev run).
+static func site_edition() -> bool:
+	if "--site-edition" in OS.get_cmdline_user_args():
+		return true
+	var pck := installed_pck()
+	return not pck.is_empty() and FileAccess.file_exists(pck.get_base_dir().path_join(SITE_MARKER))
 
 
 ## The game-data pack this executable loads at start ("" when there is none to replace, e.g. a
