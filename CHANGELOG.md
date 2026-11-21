@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.4.4
+
+### Scopes
+- **Real lens view:** the zoom now happens inside the scope's lens only. Your eye keeps a near-normal view, so the gun, your hands and the scope stay in sight round the lens while the lens shows the magnified view. Parts of the gun and scope behind the eyepiece (rings, the Bitstorm MP's front, decor) no longer show inside the lens, and the reticle sits on top of the view again. Aim sensitivity still follows the scope's zoom.
+- The Sniper, DMR and Crossbow scopes have a square eyepiece to match their square lens.
+
 ## 2.4.3
 
 ### Scopes
