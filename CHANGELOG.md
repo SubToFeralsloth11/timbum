@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.4.5
+
+### Website
+- **Official website:** download Timbum for Mac or Windows and watch the trailer at https://subtoferalsloth11.github.io/timbum/.
+- The website download has no Export / Import Progress in Stats. The downloads on the GitHub release page keep both.
+
 ## 2.4.4
 
 ### Scopes
