@@ -258,6 +258,33 @@ static func starter() -> Dictionary:
 	return d
 
 
+static var _builtin := {}
+
+## First-person stand-in for the scope a gun has of its own (sniper, DMR, crossbow): a dark square
+## tube in its place, looked through like a custom scope. Its reticle follows the gun's
+## scope_style (sniper: black crosshair; marksman: red chevron). {} for guns without one.
+static func builtin(wid: String) -> Dictionary:
+	if not CATALOG.WEAPONS.has(wid) or not CATALOG.WEAPONS[wid].get("scope", false):
+		return {}
+	if _builtin.has(wid):
+		return _builtin[wid]
+	var d := starter()
+	var body: Dictionary = d.parts[0]
+	body.part = index_of("tube_square")
+	body.color = Color("1e2024")
+	body.length = 1.5
+	body.width = 1.1
+	var marksman: bool = CATALOG.WEAPONS[wid].get("scope_style", "sniper") == "marksman"
+	d.reticle = 4 if marksman else 0
+	d.ret_color = Color(1, 0.25, 0.2) if marksman else Color(0.02, 0.02, 0.02)
+	d.glow = 0.0
+	d.tint = Color(0, 0, 0, 0)
+	d.power = 1.0
+	d = decode(encode(d))
+	_builtin[wid] = d
+	return d
+
+
 # --- Codec -------------------------------------------------------------------------------------
 
 static func encode(d: Dictionary) -> PackedByteArray:
