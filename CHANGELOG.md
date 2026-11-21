@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.4.3
+
+### Scopes
+- **Built-in scopes look through like custom ones:** the Sniper, DMR and Crossbow no longer black out the screen when you aim. You look through the scope on the gun, with its dark housing as a border round the lens and the rest of the gun in view. The Sniper keeps its black crosshair, the DMR and Crossbow their red chevron, and the zoom is unchanged.
+
 ## 2.4.2
 
 ### Custom scopes
