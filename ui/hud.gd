@@ -1292,6 +1292,7 @@ func _process(delta: float) -> void:
 		var vm := p.viewmodel
 		_scope.design = vm.lens_design if vm != null and not vm.lens_design.is_empty() else p.custom_scope()
 		_scope.lens = vm.lens_screen(p.camera) if vm != null else Vector3.ZERO
+		_scope.follow(p.camera, p.aim_fov)
 	_crosshair.visible = p.alive and not _results.visible
 	_crosshair.show_lines = (not scoped and p.aim_blend < 0.6) or Data.is_melee(wid)
 	_crosshair.spread = p.current_spread()

@@ -274,6 +274,8 @@ static func builtin(wid: String) -> Dictionary:
 	body.color = Color("1e2024")
 	body.length = 1.5
 	body.width = 1.1
+	# The starter's round eyepiece (last part) as a square one, to match the square tube.
+	(d.parts[d.parts.size() - 1] as Dictionary).part = index_of("square_eyepiece")
 	var marksman: bool = CATALOG.WEAPONS[wid].get("scope_style", "sniper") == "marksman"
 	d.reticle = 4 if marksman else 0
 	d.ret_color = Color(1, 0.25, 0.2) if marksman else Color(0.02, 0.02, 0.02)
@@ -543,8 +545,6 @@ static func build(d: Dictionary, skin_id := "default") -> Node3D:
 			zc = 0.0
 		outer.position = Vector3(0.0, rise, zc) + (p.offset as Vector3)
 		outer.rotation.z = deg_to_rad(15.0 * int(p.roll))
-		# Parts on the tube's axis block the view through it: hidden while aiming (Viewmodel).
-		outer.set_meta(&"axial", slot in ["body", "front", "rear", "ring"])
 		root.add_child(outer)
 		var inner := Node3D.new()
 		match slot:

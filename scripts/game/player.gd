@@ -119,6 +119,11 @@ var info := {}
 ## custom_scope()'s cache: the weapon id it was looked up for ("" = stale) and the design.
 var _scope_wid := ""
 var _scope_design := {}
+## Field of view of the aim (the scope's zoom while aiming; camera.fov is the eye's, wider than
+## this when the zoom is in a scope lens). Mouse and stick sensitivity follow it.
+var aim_fov := 85.0
+## The eye's field of view while looking through a scope (its lens holds the zoom).
+const SCOPE_EYE_FOV := 62.0
 var mode := Mode.REMOTE
 var is_bot := false
 var world: World
@@ -590,7 +595,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		var motion := event as InputEventMouseMotion
 		var sens := MOUSE_SCALE * float(Profile.get_setting("mouse_sens"))
-		sens *= lerpf(1.0, float(Profile.get_setting("ads_sens_mult")) * (camera.fov / float(Profile.get_setting("fov"))), aim_blend)
+		sens *= lerpf(1.0, float(Profile.get_setting("ads_sens_mult")) * (aim_fov / float(Profile.get_setting("fov"))), aim_blend)
 		var invert := -1.0 if Profile.get_setting("invert_y") else 1.0
 		yaw = wrapf(yaw - motion.relative.x * sens, -PI, PI)
 		pitch = clampf(pitch - motion.relative.y * sens * invert, -MAX_PITCH, MAX_PITCH)
@@ -706,7 +711,7 @@ func _pad_look(delta: float) -> void:
 		return
 	var stick := Profile.pad_stick(&"look_left", &"look_right", &"look_up", &"look_down")
 	var rate := PAD_LOOK_SPEED * float(Profile.get_setting("pad_sens")) * delta
-	rate *= lerpf(1.0, float(Profile.get_setting("ads_sens_mult")) * (camera.fov / float(Profile.get_setting("fov"))), aim_blend)
+	rate *= lerpf(1.0, float(Profile.get_setting("ads_sens_mult")) * (aim_fov / float(Profile.get_setting("fov"))), aim_blend)
 	var invert := -1.0 if Profile.get_setting("pad_invert_y") else 1.0
 	var turn := Vector2(stick.x * rate, stick.y * rate * PAD_PITCH_SCALE * invert)
 	turn = aim_assist.apply(self, turn, stick != Vector2.ZERO or in_move != Vector2.ZERO)
@@ -2046,7 +2051,13 @@ func _update_visuals(delta: float) -> void:
 			target_fov += 7.0
 		elif grappling:
 			target_fov += 9.0
-		camera.fov = lerpf(camera.fov, target_fov, minf(1.0, delta * 12.0))
+		aim_fov = lerpf(aim_fov, target_fov, minf(1.0, delta * 12.0))
+		# Through a scope the zoom lives in its lens (ScopeOverlay.follow at aim_fov); the eye keeps
+		# a near-normal view so the gun and scope stay in sight round it.
+		var eye_fov := target_fov
+		if not viewmodel.lens_design.is_empty():
+			eye_fov = maxf(target_fov, lerpf(base_fov, minf(base_fov, SCOPE_EYE_FOV), aim_blend))
+		camera.fov = lerpf(camera.fov, eye_fov, minf(1.0, delta * 12.0))
 		viewmodel.update_pose(delta, self)
 	# A spectator following this player drives the beam after posing its viewmodel.
 	if laser_viewmodel == null:

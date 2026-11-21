@@ -2,8 +2,13 @@ class_name ScopeOverlay
 extends Control
 ## Scope view: black mask with a round lens and a reticle. Style "sniper" (fine
 ## crosshairs, red dot) or "marksman" (wider low-power lens, red chevron), chosen per
-## weapon by `Data.WEAPONS[id].scope_style`. A custom scope (`design`, CustomScopes) replaces
-## both: its view shape and size, lens tint and reticle (CustomScopes.draw_reticle).
+## weapon by `Data.WEAPONS[id].scope_style`. A scope design (`design`, CustomScopes; a gun's own
+## scope comes as CustomScopes.builtin) replaces both: no mask, the gun stays in view, and the lens
+## on the gun's eyepiece (`lens`) shows a second camera's magnified view (follow()) in the scope's
+## shape, tinted, with a housing border and its reticle (CustomScopes.draw_reticle).
+
+## Render layer of the viewmodel's geometry (Viewmodel._convert); the lens camera leaves it out.
+const VIEWMODEL_LAYER := 1 << 19
 
 const SHADER := """
 shader_type canvas_item;
@@ -16,6 +21,10 @@ uniform vec4 tint = vec4(0.0);
 uniform bool see_through = false;
 // Lens centre in UV (custom scopes follow the gun's eyepiece on screen).
 uniform vec2 center = vec2(0.5);
+// The lens camera's picture and the screen rect (UV origin, size) it covers.
+uniform sampler2D lens_tex : filter_linear;
+uniform bool has_tex = false;
+uniform vec4 lens_rect = vec4(0.0, 0.0, 1.0, 1.0);
 void fragment() {
 	vec2 p = (UV - center) * vec2(aspect, 1.0);
 	vec2 a = abs(p);
@@ -39,7 +48,12 @@ void fragment() {
 	}
 	vec4 inside = vec4(tint.rgb * (tint.a / max(tint.a + rim, 0.001)), clamp(rim + tint.a, 0.0, 1.0));
 	if (see_through) {
-		COLOR = vec4(tint.rgb, tint.a * lens);
+		if (has_tex) {
+			vec3 view = texture(lens_tex, (UV - lens_rect.xy) / lens_rect.zw).rgb;
+			COLOR = vec4(mix(view, tint.rgb, tint.a), lens);
+		} else {
+			COLOR = vec4(tint.rgb, tint.a * lens);
+		}
 	} else {
 		COLOR = mix(vec4(0.0, 0.0, 0.0, 1.0), inside, lens);
 	}
@@ -75,6 +89,9 @@ var lens := Vector3.ZERO:
 
 var _mask: ColorRect
 var _mat: ShaderMaterial
+## Lens camera (follow()): renders the world without the viewmodel at the scope's zoom.
+var _view: SubViewport
+var _view_cam: Camera3D
 
 
 func _ready() -> void:
@@ -87,7 +104,20 @@ func _ready() -> void:
 	_mat = ShaderMaterial.new()
 	_mat.shader = sh
 	_mask.material = _mat
+	# The mask draws under this control's _draw (housing border and reticle on top of the lens).
+	_mask.show_behind_parent = true
 	add_child(_mask)
+	_view = SubViewport.new()
+	_view.render_target_update_mode = SubViewport.UPDATE_DISABLED
+	_view.size = Vector2i(256, 256)
+	_view_cam = Camera3D.new()
+	_view_cam.cull_mask = 0xFFFFF & ~VIEWMODEL_LAYER
+	_view.add_child(_view_cam)
+	add_child(_view)
+	_mat.set_shader_parameter("lens_tex", _view.get_texture())
+	visibility_changed.connect(func() -> void:
+		if not is_visible_in_tree():
+			_view.render_target_update_mode = SubViewport.UPDATE_DISABLED)
 	resized.connect(_on_resized)
 	_apply()
 	_on_resized()
@@ -104,6 +134,33 @@ func _radius() -> float:
 
 func _center() -> Vector2:
 	return Vector2(lens.x, lens.y) if not design.is_empty() and lens.z > 0.0 else size * 0.5
+
+
+## Points the lens camera along `cam` for this frame: the lens shows what `cam` would see at
+## `zoom_fov` (the scope's ADS field of view) in the screen square round the lens. Call every frame
+## while a scope design is aimed through; without a lens on screen it stops rendering.
+func follow(cam: Camera3D, zoom_fov: float) -> void:
+	var on := not design.is_empty() and lens.z > 0.0 and cam != null and size.y > 0.0
+	_mat.set_shader_parameter("has_tex", on)
+	if not on:
+		_view.render_target_update_mode = SubViewport.UPDATE_DISABLED
+		return
+	# A square twice the lens's reach covers every view shape (the triangle's apex is 2 r up).
+	var side := lens.z * 4.0
+	var px := clampi(roundi(side), 64, 1024)
+	if _view.size.x != px:
+		_view.size = Vector2i(px, px)
+	if _view.world_3d != cam.get_world_3d():
+		_view.world_3d = cam.get_world_3d()
+	_view_cam.global_transform = cam.global_transform
+	_view_cam.near = cam.near
+	_view_cam.far = cam.far
+	_view_cam.environment = cam.environment
+	_view_cam.fov = rad_to_deg(2.0 * atan(tan(deg_to_rad(zoom_fov) * 0.5) * side / size.y))
+	var c := _center()
+	_mat.set_shader_parameter("lens_rect", Color((c.x - side * 0.5) / size.x, (c.y - side * 0.5) / size.y,
+		side / size.x, side / size.y))
+	_view.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 
 
 func _apply() -> void:

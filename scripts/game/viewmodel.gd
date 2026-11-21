@@ -177,9 +177,7 @@ var _weapon := ""
 var _ads_pos := Vector3(0.0, -0.12, ADS_DEPTH)
 ## Scope design on the held gun in first person (custom, else CustomScopes.builtin; {}: none).
 var lens_design := {}
-## Custom scope on the held gun: its parts on the tube axis (hidden while aiming, the HUD draws the
-## eyepiece instead) and the tube's half width (m, gun space) for lens_screen.
-var _scope_axial: Array[Node3D] = []
+## Half width (m, gun space) of the scope tube on the held gun, for lens_screen (0: no scope).
 var _lens_half := 0.0
 
 var _sway := Vector2.ZERO
@@ -292,14 +290,7 @@ func set_weapon(wid: String, draw_len := 0.3) -> void:
 	if _charge_glow != null:
 		_charge_glow.material_override = Models.charge_glow_material(true)
 	_charge = 0.0
-	_scope_axial.clear()
-	_lens_half = 0.0
-	var custom := _gun.get_node_or_null(^"CustomScope")
-	if custom != null:
-		_lens_half = CustomScopes.tube(scope).y * 0.5
-		for n in custom.get_children():
-			if n.get_meta(&"axial", false):
-				_scope_axial.append(n)
+	_lens_half = CustomScopes.tube(scope).y * 0.5 if _gun.has_node(^"CustomScope") else 0.0
 	_ads_pos = _compute_ads_pos()
 	play_draw(draw_len)
 
@@ -593,10 +584,6 @@ func pose(delta: float, ads: float, sprinting: bool, sliding: bool, grappling: b
 		pos += Vector3(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0), 0.0) * CHARGE_SHAKE * _charge * _charge
 	_pivot.position = pos
 	_pivot.rotation = rot
-	_pivot.visible = true
-	var through := ads > 0.85
-	for n in _scope_axial:
-		n.visible = not through
 	_animate_off_hand()
 	_update_trail()
 
@@ -780,6 +767,8 @@ func _convert(root: Node) -> void:
 	for node in root.find_children("*", "GeometryInstance3D", true, false) + ([root] if root is GeometryInstance3D else []):
 		var gi := node as GeometryInstance3D
 		gi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		# Kept out of the scope lens's camera (ScopeOverlay.follow).
+		gi.layers = ScopeOverlay.VIEWMODEL_LAYER
 		if gi.material_override != null:
 			gi.material_override = _converted_material(gi.material_override)
 		if gi is MeshInstance3D:
