@@ -40,6 +40,7 @@ static func create(p_world: World) -> MatchMode:
 		_:
 			match str(Net.config.get("mode", "ffa")):
 				"tdm": m = TeamDeathmatch.new()
+				"instakill": m = TeamInstakill.new()
 				"ctf": m = CaptureTheFlag.new()
 				"gungame": m = GunGame.new()
 				"koth": m = KingOfTheBlock.new()

@@ -733,6 +733,8 @@ const MODES := {
 	"ffa": {"name": "Deathmatch", "short": "DEATHMATCH", "desc": "Free-for-all. First to the kill limit wins."},
 	"tdm": {"name": "Team Deathmatch", "short": "TEAM DM", "teams": true,
 		"desc": "Two teams. First team to the kill limit wins."},
+	"instakill": {"name": "Team Instakill", "short": "INSTAKILL", "teams": true,
+		"desc": "Two teams. Every hit kills. First team to the kill limit wins."},
 	"ctf": {"name": "Capture the Flag", "short": "CTF", "teams": true,
 		"desc": "Two teams. Take the enemy flag and carry it to your own while yours is home."},
 	"gungame": {"name": "Gun Game", "short": "GUN GAME",

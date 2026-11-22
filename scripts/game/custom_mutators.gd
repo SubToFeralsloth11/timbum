@@ -39,7 +39,7 @@ const CHOICES := {
 }
 ## Modes where the one-weapon pick applies (the others hand out their own weapons: Gun Game's
 ## ladder, One in the Chamber's .44, Tactical's pickups, Bedwars' shop, or no guns at all).
-const WEAPON_MODES: Array[String] = ["ffa", "tdm", "ctf", "koth", "infected"]
+const WEAPON_MODES: Array[String] = ["ffa", "tdm", "instakill", "ctf", "koth", "infected"]
 ## Modes without guns (Bedwars sells its own bow): no one-weapon pick, infinite ammo or headshots-only.
 const GUNLESS_MODES: Array[String] = ["tag", "hideseek", "blockhunt", "parkour", "bedwars"]
 

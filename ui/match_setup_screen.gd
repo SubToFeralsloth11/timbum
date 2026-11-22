@@ -45,10 +45,11 @@ const MAX_ADDRESSES := 2
 ## `streaks`: mode -> killstreaks on, once picked for that mode (until then the mode's default,
 ## Streaks.default_for). A match setup preset (Profile.match_presets) holds a copy of it.
 static var _choice := default_choice()
-const MODE_IDS: Array[String] = ["ffa", "tdm", "ctf", "gungame", "oitc", "koth", "infected", "tag", "hideseek", "blockhunt", "parkour", "bedwars", "tactical"]
+const MODE_IDS: Array[String] = ["ffa", "tdm", "instakill", "ctf", "gungame", "oitc", "koth", "infected", "tag", "hideseek", "blockhunt", "parkour", "bedwars", "tactical"]
 const MODE_HINTS := {
 	"ffa": "Bots fill every empty slot up to the player count.",
 	"tdm": "Two teams, bots fill both evenly. The kill limit is the team score; friendly fire is off.",
+	"instakill": "Team Deathmatch where any hit from any weapon kills. The kill limit is the team score; friendly fire is off.",
 	"ctf": "Walk over the enemy flag to take it, then onto your own stand while your flag is home to score. Carriers are slower and can't grapple; a dropped flag goes home after 20 s or when its team touches it.",
 	"gungame": "Everyone climbs the same ladder of guns, one step per kill, and finishes on the knife. A knife kill also knocks the victim down a step. No grenades; Rocket Party and Snipers Only are off.",
 	"oitc": "Everyone has the Cuber .44 with one round and their melee weapon. Any .44 hit kills; every kill gives a round. Out of lives, you watch the rest. Last one standing wins, else the most lives. No grenades, ammo crates, mutators or killstreaks.",
@@ -65,6 +66,7 @@ const MODE_HINTS := {
 const MODE_TAGS := {
 	"ffa": "Everyone for themselves",
 	"tdm": "Two teams, team kills count",
+	"instakill": "Two teams, one hit kills",
 	"ctf": "Steal their flag, bring it home",
 	"gungame": "A new gun with every kill",
 	"oitc": "One round, one kill, few lives",
@@ -78,7 +80,7 @@ const MODE_TAGS := {
 	"tactical": "25 v 25, plan, one life",
 }
 const MODE_COLORS := {
-	"ffa": Color("ff8a4c"), "tdm": Color("4fa3ff"), "ctf": Color("ff5d73"), "gungame": Color("ffc531"),
+	"ffa": Color("ff8a4c"), "tdm": Color("4fa3ff"), "instakill": Color("ff3b3b"), "ctf": Color("ff5d73"), "gungame": Color("ffc531"),
 	"oitc": Color("ffb066"), "koth": Color("c58bff"), "infected": Color("7be05a"), "tag": Color("ff6fb5"),
 	"hideseek": Color("5fd3c8"), "blockhunt": Color("b8e05a"), "parkour": Color("ffd84a"), "bedwars": Color("e0484f"),
 	"tactical": Color("9fb3c8"),
@@ -437,7 +439,7 @@ func _ready() -> void:
 	_team_kill_row = _segmented(team_kill_names, TEAM_KILL_LIMITS.find(_choice.team_kill_limit),
 		func(i: int) -> void: _choice.team_kill_limit = TEAM_KILL_LIMITS[i])
 	_rule(rules, "TEAM KILLS", _team_kill_row)
-	_mode_rule(rules, ["tdm"])
+	_mode_rule(rules, ["tdm", "instakill"])
 	var ctf_names: Array[String] = []
 	for k in CaptureTheFlag.LIMITS:
 		ctf_names.append(str(k))
@@ -1164,7 +1166,7 @@ static func describe_config(cfg: Dictionary) -> Array:
 	match mode:
 		"ffa":
 			rows.append(["KILL LIMIT", "%d kills" % int(cfg.kill_limit)])
-		"tdm":
+		"tdm", "instakill":
 			rows.append(["TEAM KILLS", "%d team kills" % int(cfg.kill_limit)])
 		"ctf":
 			rows.append(["CAPTURES", "%d capture%s" % [int(cfg.kill_limit), "" if int(cfg.kill_limit) == 1 else "s"]])
@@ -1195,7 +1197,7 @@ static func config_from(choice: Dictionary) -> Dictionary:
 		"map": choice.map,
 		"bots_fill": choice.bots_fill,
 		"difficulty": choice.difficulty,
-		"kill_limit": {"tdm": choice.team_kill_limit, "ctf": choice.ctf_limit, "gungame": choice.ladder,
+		"kill_limit": {"tdm": choice.team_kill_limit, "instakill": choice.team_kill_limit, "ctf": choice.ctf_limit, "gungame": choice.ladder,
 			"oitc": choice.oitc_lives, "koth": choice.koth_limit}.get(choice.mode, choice.kill_limit),
 		"time_limit": int(choice.time_minutes) * 60,
 		"mutators": choice.mutators,

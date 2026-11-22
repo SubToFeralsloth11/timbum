@@ -748,7 +748,7 @@ static func sanitize_config(cfg: Dictionary) -> Dictionary:
 	# `kill_limit` is each mode's limit: kills (Deathmatch), the team score (Team Deathmatch, and
 	# Capture the Flag's captures), the ladder length (Gun Game), the lives (One in the Chamber) or
 	# the points to win (King of the Block).
-	var default_limit: int = {"tdm": TeamDeathmatch.DEFAULT_KILL_LIMIT, "ctf": CaptureTheFlag.DEFAULT_CAPTURES,
+	var default_limit: int = {"tdm": TeamDeathmatch.DEFAULT_KILL_LIMIT, "instakill": TeamInstakill.DEFAULT_LIMIT, "ctf": CaptureTheFlag.DEFAULT_CAPTURES,
 		"gungame": GunGame.max_length(), "oitc": OneInTheChamber.DEFAULT_LIVES,
 		"koth": KingOfTheBlock.DEFAULT_SCORE_LIMIT}.get(out.mode, out.kill_limit)
 	out.kill_limit = clampi(int(cfg.get("kill_limit", default_limit)), 1, 200)
